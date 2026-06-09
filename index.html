@@ -1,361 +1,321 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Peat Moss & The Fertilizers — Gig Dashboard</title>
-<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-<script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Peat Moss & The Fertilizers</title>
+<script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/recharts@2.12.7/umd/Recharts.js"></script>
 <style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f4f6f8; min-height: 100vh; }
-  input, select { font-family: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 8px; width: 100%; outline: none; background: #fff; }
-  input:focus, select:focus { border-color: #1D9E75; box-shadow: 0 0 0 3px rgba(29,158,117,0.15); }
-  button { font-family: inherit; cursor: pointer; border-radius: 8px; font-size: 13px; padding: 7px 14px; border: 1px solid #d1d5db; background: #fff; color: #374151; transition: background 0.15s; }
-  button:hover { background: #f3f4f6; }
-  button:active { transform: scale(0.98); }
-  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 1rem; }
-  .modal { background: #fff; border-radius: 16px; padding: 1.5rem; width: min(420px, 100%); }
-  label { font-size: 12px; font-weight: 500; color: #6b7280; display: block; margin-bottom: 4px; margin-top: 12px; }
-  .badge { font-size: 11px; font-weight: 500; padding: 2px 10px; border-radius: 99px; white-space: nowrap; display: inline-block; }
-  .tab-bar { display: flex; gap: 6px; background: #e9ecef; border-radius: 12px; padding: 4px; margin-bottom: 1.25rem; }
-  .tab-btn { flex: 1; padding: 8px 0; font-size: 13px; border-radius: 9px; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.15s; }
-  .tab-btn.active { background: #fff; font-weight: 500; color: #0F6E56; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
-  .tab-btn:not(.active) { background: transparent; color: #6b7280; }
-  @media (max-width: 500px) {
-    .header-stats { gap: 6px !important; }
-    .header-stats > div { padding: 8px 10px !important; }
-  }
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f4f6f8;min-height:100vh}
+input,select{font-family:inherit;font-size:14px;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;width:100%;outline:none;background:#fff}
+input:focus,select:focus{border-color:#1D9E75;box-shadow:0 0 0 3px rgba(29,158,117,0.15)}
+button{font-family:inherit;cursor:pointer;border-radius:8px;font-size:13px;padding:7px 14px;border:1px solid #d1d5db;background:#fff;color:#374151}
+button:hover{background:#f3f4f6}
+button:active{transform:scale(0.98)}
+.badge{font-size:11px;font-weight:500;padding:2px 10px;border-radius:99px;white-space:nowrap;display:inline-block}
+.tab-bar{display:flex;gap:6px;background:#e9ecef;border-radius:12px;padding:4px;margin-bottom:1.25rem}
+.tab-btn{flex:1;padding:8px 0;font-size:13px;border-radius:9px;border:none;cursor:pointer;transition:all 0.15s}
+.tab-btn.active{background:#fff;font-weight:500;color:#0F6E56;box-shadow:0 1px 3px rgba(0,0,0,0.08)}
+.tab-btn:not(.active){background:transparent;color:#6b7280}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:100;padding:1rem}
+.modal{background:#fff;border-radius:16px;padding:1.5rem;width:min(420px,100%)}
+label{font-size:12px;font-weight:500;color:#6b7280;display:block;margin-bottom:4px;margin-top:12px}
 </style>
 </head>
 <body>
 <div id="root"></div>
-
-<script type="text/babel">
-const { useState, useMemo, useEffect } = React;
-const { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } = Recharts;
+<script>
+const e = React.createElement;
+const {useState, useMemo, useEffect} = React;
+const {BarChart,Bar,LineChart,Line,XAxis,YAxis,Tooltip,ResponsiveContainer,Legend} = Recharts;
 
 const TYPES = ["bar","wedding","private event","other"];
 const STATUSES = ["confirmed","pending","hold"];
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const DAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-
 const STATUS_STYLE = {
-  confirmed: { bg:"#d1fae5", color:"#065f46", label:"Confirmed" },
-  pending:   { bg:"#fef9c3", color:"#854d0e", label:"Pending" },
-  hold:      { bg:"#f1f5f9", color:"#475569", label:"Hold" },
+  confirmed:{bg:"#d1fae5",color:"#065f46",label:"Confirmed"},
+  pending:  {bg:"#fef9c3",color:"#854d0e",label:"Pending"},
+  hold:     {bg:"#f1f5f9",color:"#475569",label:"Hold"}
 };
+function typeStyle(t){
+  if(t==="wedding")      return {bg:"#EEEDFE",color:"#534AB7"};
+  if(t==="private event")return {bg:"#FAECE7",color:"#993C1D"};
+  return {bg:"#E1F5EE",color:"#085041"};
+}
 
 const today = new Date();
-const y = today.getFullYear();
-
+const yr = today.getFullYear();
 const SAMPLE = [
-  { id:1,  date:`${y}-06-13`, venue:"Amsterdam",                         location:"Patchogue, NY",       type:"bar",          status:"confirmed", time:"7:30–10:30 PM" },
-  { id:2,  date:`${y}-06-14`, venue:"The Patch",                         location:"Patchogue, NY",       type:"bar",          status:"confirmed", time:"4:30–8:30 PM" },
-  { id:3,  date:`${y}-06-19`, venue:"Bayside Clam Bar & Grill",          location:"East Islip, NY",      type:"bar",          status:"confirmed", time:"7–10 PM" },
-  { id:4,  date:`${y}-06-20`, venue:"Sand Bar",                          location:"Fire Island, NY",     type:"bar",          status:"confirmed", time:"7–10 PM" },
-  { id:5,  date:`${y}-06-27`, venue:"Black Pearl @ Danford's",           location:"Port Jefferson, NY",  type:"bar",          status:"confirmed", time:"7–10 PM" },
-  { id:6,  date:`${y}-06-28`, venue:"Sandbar",                           location:"Fire Island, NY",     type:"bar",          status:"confirmed", time:"2–6 PM" },
-  { id:7,  date:`${y}-07-03`, venue:"Stephen Talkhouse",                 location:"Amagansett, NY",      type:"bar",          status:"confirmed", time:"10 PM–midnight" },
-  { id:8,  date:`${y}-07-05`, venue:"Sand Bar",                          location:"Fire Island, NY",     type:"bar",          status:"confirmed", time:"2–6 PM" },
-  { id:9,  date:`${y}-07-11`, venue:"Tiki Joe's",                        location:"Smith Point, NY",     type:"bar",          status:"confirmed", time:"6:30–9:30 PM" },
-  { id:10, date:`${y}-07-18`, venue:"Bayside Clam & Grill",              location:"East Islip, NY",      type:"bar",          status:"confirmed", time:"7–10 PM" },
-  { id:11, date:`${y}-07-25`, venue:"Wedding @ Pavilion at Sunken Meadow",location:"Kings Park, NY",     type:"wedding",      status:"confirmed", time:"7–11 PM" },
-  { id:12, date:`${y}-07-26`, venue:"Wedding @ Crescent Beach Club",     location:"Bayville, NY",        type:"wedding",      status:"confirmed", time:"8 PM–midnight" },
-  { id:13, date:`${y}-07-30`, venue:"Echo Park Concert Series",          location:"West Hempstead, NY",  type:"other",        status:"confirmed", time:"7:30–9 PM" },
-  { id:14, date:`${y}-08-01`, venue:"Claudio's Waterfront",              location:"Greenport, NY",       type:"bar",          status:"confirmed", time:"1:30–5:30 PM" },
-  { id:15, date:`${y}-08-02`, venue:"Black Pearl @ Danford's",           location:"Port Jefferson, NY",  type:"bar",          status:"confirmed", time:"7–10 PM" },
-  { id:16, date:`${y}-08-07`, venue:"Plattedeutsche",                    location:"Franklin Square, NY", type:"bar",          status:"confirmed", time:"6:30–10:30 PM" },
-  { id:17, date:`${y}-08-08`, venue:"Wedding @ Webb Institute",          location:"Glen Cove, NY",       type:"wedding",      status:"confirmed", time:"7–11 PM" },
-  { id:18, date:`${y}-08-14`, venue:"Glen Oaks Club",                    location:"Old Westbury, NY",    type:"private event",status:"confirmed", time:"7:30–10 PM" },
-  { id:19, date:`${y}-08-15`, venue:"Mastic Beach Marina",               location:"Mastic Beach, NY",    type:"bar",          status:"confirmed", time:"6–10 PM" },
-  { id:20, date:`${y}-08-16`, venue:"Sand Bar",                          location:"Fire Island, NY",     type:"bar",          status:"confirmed", time:"2–6 PM" },
-  { id:21, date:`${y}-08-18`, venue:"Andrew J. Parise Park",             location:"Cedarhurst, NY",      type:"other",        status:"confirmed", time:"8–9:30 PM" },
-  { id:22, date:`${y}-08-22`, venue:"Sand Bar",                          location:"Fire Island, NY",     type:"bar",          status:"confirmed", time:"2–6 PM" },
-  { id:23, date:`${y}-08-29`, venue:"Wedding @ Surf Club on the Sound",  location:"New Rochelle, NY",    type:"wedding",      status:"confirmed", time:"6:30–10:30 PM" },
-  { id:24, date:`${y}-09-04`, venue:"Black Pearl @ Danford's",           location:"Port Jefferson, NY",  type:"bar",          status:"confirmed", time:"7–10 PM" },
-  { id:25, date:`${y}-09-06`, venue:"Breezy Point Mardi Gras",           location:"Breezy Point, NY",    type:"other",        status:"confirmed", time:"10 PM–2 AM" },
-  { id:26, date:`${y}-09-07`, venue:"Bayside Clam Bar w/ Tradewinds",    location:"East Islip, NY",      type:"bar",          status:"confirmed", time:"5–8 PM" },
-  { id:27, date:`${y}-09-19`, venue:"Wedding @ Delamar Mystic",          location:"Mystic, CT",          type:"wedding",      status:"confirmed", time:"6:30–11 PM" },
-  { id:28, date:`${y}-10-10`, venue:"Wedding @ The Halyard",             location:"Greenport, NY",       type:"wedding",      status:"confirmed", time:"6–10 PM" },
-  { id:29, date:`${y}-10-24`, venue:"Wedding @ Southward Ho CC",         location:"Bay Shore, NY",       type:"wedding",      status:"confirmed", time:"7–11 PM" },
-  { id:30, date:`${y}-11-06`, venue:"Plattedeutsche",                    location:"Franklin Square, NY", type:"bar",          status:"confirmed", time:"7–11 PM" },
-  { id:31, date:`${y}-11-20`, venue:"Wedding @ Giorgio's Baiting Hollow",location:"Baiting Hollow, NY",  type:"wedding",      status:"confirmed", time:"7–11 PM" },
+  {id:1, date:`${yr}-06-13`,venue:"Amsterdam",               location:"Patchogue, NY",       type:"bar",          status:"confirmed",time:"7:30–10:30 PM"},
+  {id:2, date:`${yr}-06-14`,venue:"The Patch",               location:"Patchogue, NY",       type:"bar",          status:"confirmed",time:"4:30–8:30 PM"},
+  {id:3, date:`${yr}-06-19`,venue:"Bayside Clam Bar & Grill",location:"East Islip, NY",      type:"bar",          status:"confirmed",time:"7–10 PM"},
+  {id:4, date:`${yr}-06-20`,venue:"Sand Bar",                location:"Fire Island, NY",     type:"bar",          status:"confirmed",time:"7–10 PM"},
+  {id:5, date:`${yr}-06-27`,venue:"Black Pearl @ Danford's", location:"Port Jefferson, NY",  type:"bar",          status:"confirmed",time:"7–10 PM"},
+  {id:6, date:`${yr}-06-28`,venue:"Sandbar",                 location:"Fire Island, NY",     type:"bar",          status:"confirmed",time:"2–6 PM"},
+  {id:7, date:`${yr}-07-03`,venue:"Stephen Talkhouse",       location:"Amagansett, NY",      type:"bar",          status:"confirmed",time:"10 PM–midnight"},
+  {id:8, date:`${yr}-07-05`,venue:"Sand Bar",                location:"Fire Island, NY",     type:"bar",          status:"confirmed",time:"2–6 PM"},
+  {id:9, date:`${yr}-07-11`,venue:"Tiki Joe's",              location:"Smith Point, NY",     type:"bar",          status:"confirmed",time:"6:30–9:30 PM"},
+  {id:10,date:`${yr}-07-18`,venue:"Bayside Clam & Grill",    location:"East Islip, NY",      type:"bar",          status:"confirmed",time:"7–10 PM"},
+  {id:11,date:`${yr}-07-25`,venue:"Wedding @ Pavilion at Sunken Meadow",location:"Kings Park, NY",type:"wedding", status:"confirmed",time:"7–11 PM"},
+  {id:12,date:`${yr}-07-26`,venue:"Wedding @ Crescent Beach Club",location:"Bayville, NY",   type:"wedding",      status:"confirmed",time:"8 PM–midnight"},
+  {id:13,date:`${yr}-07-30`,venue:"Echo Park Concert Series",location:"West Hempstead, NY",  type:"other",        status:"confirmed",time:"7:30–9 PM"},
+  {id:14,date:`${yr}-08-01`,venue:"Claudio's Waterfront",    location:"Greenport, NY",       type:"bar",          status:"confirmed",time:"1:30–5:30 PM"},
+  {id:15,date:`${yr}-08-02`,venue:"Black Pearl @ Danford's", location:"Port Jefferson, NY",  type:"bar",          status:"confirmed",time:"7–10 PM"},
+  {id:16,date:`${yr}-08-07`,venue:"Plattedeutsche",          location:"Franklin Square, NY", type:"bar",          status:"confirmed",time:"6:30–10:30 PM"},
+  {id:17,date:`${yr}-08-08`,venue:"Wedding @ Webb Institute",location:"Glen Cove, NY",       type:"wedding",      status:"confirmed",time:"7–11 PM"},
+  {id:18,date:`${yr}-08-14`,venue:"Glen Oaks Club",          location:"Old Westbury, NY",    type:"private event",status:"confirmed",time:"7:30–10 PM"},
+  {id:19,date:`${yr}-08-15`,venue:"Mastic Beach Marina",     location:"Mastic Beach, NY",    type:"bar",          status:"confirmed",time:"6–10 PM"},
+  {id:20,date:`${yr}-08-16`,venue:"Sand Bar",                location:"Fire Island, NY",     type:"bar",          status:"confirmed",time:"2–6 PM"},
+  {id:21,date:`${yr}-08-18`,venue:"Andrew J. Parise Park",   location:"Cedarhurst, NY",      type:"other",        status:"confirmed",time:"8–9:30 PM"},
+  {id:22,date:`${yr}-08-22`,venue:"Sand Bar",                location:"Fire Island, NY",     type:"bar",          status:"confirmed",time:"2–6 PM"},
+  {id:23,date:`${yr}-08-29`,venue:"Wedding @ Surf Club on the Sound",location:"New Rochelle, NY",type:"wedding",  status:"confirmed",time:"6:30–10:30 PM"},
+  {id:24,date:`${yr}-09-04`,venue:"Black Pearl @ Danford's", location:"Port Jefferson, NY",  type:"bar",          status:"confirmed",time:"7–10 PM"},
+  {id:25,date:`${yr}-09-06`,venue:"Breezy Point Mardi Gras", location:"Breezy Point, NY",    type:"other",        status:"confirmed",time:"10 PM–2 AM"},
+  {id:26,date:`${yr}-09-07`,venue:"Bayside Clam Bar w/ Tradewinds",location:"East Islip, NY",type:"bar",          status:"confirmed",time:"5–8 PM"},
+  {id:27,date:`${yr}-09-19`,venue:"Wedding @ Delamar Mystic",location:"Mystic, CT",          type:"wedding",      status:"confirmed",time:"6:30–11 PM"},
+  {id:28,date:`${yr}-10-10`,venue:"Wedding @ The Halyard",   location:"Greenport, NY",       type:"wedding",      status:"confirmed",time:"6–10 PM"},
+  {id:29,date:`${yr}-10-24`,venue:"Wedding @ Southward Ho CC",location:"Bay Shore, NY",      type:"wedding",      status:"confirmed",time:"7–11 PM"},
+  {id:30,date:`${yr}-11-06`,venue:"Plattedeutsche",          location:"Franklin Square, NY", type:"bar",          status:"confirmed",time:"7–11 PM"},
+  {id:31,date:`${yr}-11-20`,venue:"Wedding @ Giorgio's Baiting Hollow",location:"Baiting Hollow, NY",type:"wedding",status:"confirmed",time:"7–11 PM"},
 ];
 
-function typeStyle(type) {
-  if (type === "wedding")      return { bg:"#EEEDFE", color:"#534AB7" };
-  if (type === "private event") return { bg:"#FAECE7", color:"#993C1D" };
-  return { bg:"#E1F5EE", color:"#085041" };
+function Badge({status}){
+  const s=STATUS_STYLE[status];
+  return e('span',{className:'badge',style:{background:s.bg,color:s.color}},s.label);
 }
 
-function Badge({ status }) {
-  const s = STATUS_STYLE[status];
-  return <span className="badge" style={{ background:s.bg, color:s.color }}>{s.label}</span>;
-}
-
-function Modal({ gig, onSave, onDelete, onClose }) {
-  const blank = { date:"", venue:"", location:"", type:"bar", status:"confirmed", time:"" };
-  const [form, setForm] = useState(gig || blank);
-  const set = (k,v) => setForm(f => ({...f,[k]:v}));
-  const isNew = !gig?.id;
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"1rem" }}>
-          <span style={{ fontSize:16, fontWeight:500 }}>{isNew ? "Add gig" : "Edit gig"}</span>
-          <button onClick={onClose} style={{ border:"none", background:"none", fontSize:20, color:"#9ca3af", padding:"0 4px" }}>×</button>
-        </div>
-        {[["date","Date","date"],["venue","Venue name","text"],["location","Location","text"],["time","Set time","text"]].map(([k,lbl,tp]) => (
-          <div key={k}><label>{lbl}</label><input type={tp} value={form[k]||""} onChange={e=>set(k,e.target.value)} /></div>
-        ))}
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginTop:12 }}>
-          {[["type","Gig type",TYPES],["status","Status",STATUSES]].map(([k,lbl,opts]) => (
-            <div key={k}><label>{lbl}</label>
-              <select value={form[k]} onChange={e=>set(k,e.target.value)}>
-                {opts.map(o=><option key={o} value={o}>{o.charAt(0).toUpperCase()+o.slice(1)}</option>)}
-              </select>
-            </div>
-          ))}
-        </div>
-        <div style={{ display:"flex", gap:8, justifyContent:"flex-end", marginTop:"1.25rem" }}>
-          {!isNew && <button onClick={()=>onDelete(gig.id)} style={{ marginRight:"auto", color:"#b91c1c", borderColor:"#fca5a5" }}>Delete</button>}
-          <button onClick={onClose}>Cancel</button>
-          <button onClick={()=>{ if(form.date&&form.venue) onSave({...form, id:gig?.id||Date.now()}); }}
-            style={{ background:"#1D9E75", color:"#fff", border:"none", fontWeight:500 }}>
-            {isNew ? "Add gig" : "Save changes"}
-          </button>
-        </div>
-      </div>
-    </div>
+function Modal({gig,onSave,onDelete,onClose}){
+  const blank={date:'',venue:'',location:'',type:'bar',status:'confirmed',time:''};
+  const [form,setForm]=useState(gig||blank);
+  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+  const isNew=!gig?.id;
+  return e('div',{className:'overlay',onClick:onClose},
+    e('div',{className:'modal',onClick:ev=>ev.stopPropagation()},
+      e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'1rem'}},
+        e('span',{style:{fontSize:16,fontWeight:500}},isNew?'Add gig':'Edit gig'),
+        e('button',{onClick:onClose,style:{border:'none',background:'none',fontSize:20,color:'#9ca3af',padding:'0 4px'}},'×')
+      ),
+      [['date','Date','date'],['venue','Venue name','text'],['location','Location','text'],['time','Set time','text']].map(([k,lbl,tp])=>
+        e('div',{key:k},
+          e('label',null,lbl),
+          e('input',{type:tp,value:form[k]||'',onChange:ev=>set(k,ev.target.value)})
+        )
+      ),
+      e('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginTop:12}},
+        [['type','Gig type',TYPES],['status','Status',STATUSES]].map(([k,lbl,opts])=>
+          e('div',{key:k},
+            e('label',null,lbl),
+            e('select',{value:form[k],onChange:ev=>set(k,ev.target.value)},
+              opts.map(o=>e('option',{key:o,value:o},o.charAt(0).toUpperCase()+o.slice(1)))
+            )
+          )
+        )
+      ),
+      e('div',{style:{display:'flex',gap:8,justifyContent:'flex-end',marginTop:'1.25rem'}},
+        !isNew&&e('button',{onClick:()=>onDelete(gig.id),style:{marginRight:'auto',color:'#b91c1c',borderColor:'#fca5a5'}},'Delete'),
+        e('button',{onClick:onClose},'Cancel'),
+        e('button',{
+          onClick:()=>{if(form.date&&form.venue)onSave({...form,id:gig?.id||Date.now()})},
+          style:{background:'#1D9E75',color:'#fff',border:'none',fontWeight:500}
+        },isNew?'Add gig':'Save changes')
+      )
+    )
   );
 }
 
-function App() {
-  const [gigs, setGigs] = useState(() => {
-    try {
-      const saved = localStorage.getItem("pmtf_gigs");
-      return saved ? JSON.parse(saved) : SAMPLE;
-    } catch { return SAMPLE; }
+function App(){
+  const [gigs,setGigs]=useState(()=>{
+    try{const s=localStorage.getItem('pmtf_gigs');return s?JSON.parse(s):SAMPLE;}catch{return SAMPLE;}
   });
-  const [tab, setTab]           = useState("calendar");
-  const [calMonth, setCalMonth] = useState(today.getMonth());
-  const [calYear, setCalYear]   = useState(today.getFullYear());
-  const [chartYear, setChartYear] = useState(today.getFullYear());
-  const [chartType, setChartType] = useState("bar");
-  const [modal, setModal]       = useState(null);
-  const [sort, setSort]         = useState({ col:"date", dir:1 });
+  const [tab,setTab]=useState('calendar');
+  const [calMonth,setCalMonth]=useState(today.getMonth());
+  const [calYear,setCalYear]=useState(today.getFullYear());
+  const [chartYear,setChartYear]=useState(today.getFullYear());
+  const [chartType,setChartType]=useState('bar');
+  const [modal,setModal]=useState(null);
+  const [sort,setSort]=useState({col:'date',dir:1});
 
-  useEffect(() => {
-    try { localStorage.setItem("pmtf_gigs", JSON.stringify(gigs)); } catch {}
-  }, [gigs]);
+  useEffect(()=>{try{localStorage.setItem('pmtf_gigs',JSON.stringify(gigs));}catch{}},[gigs]);
 
-  const closeModal = () => setModal(null);
-  const openAdd    = () => setModal({ mode:"add" });
-  const openEdit   = (g) => setModal({ mode:"edit", gig:g });
+  const closeModal=()=>setModal(null);
+  const openAdd=()=>setModal({mode:'add'});
+  const openEdit=g=>setModal({mode:'edit',gig:g});
+  const saveGig=g=>{setGigs(p=>p.find(x=>x.id===g.id)?p.map(x=>x.id===g.id?g:x):[...p,g]);closeModal();};
+  const deleteGig=id=>{setGigs(p=>p.filter(x=>x.id!==id));closeModal();};
 
-  const saveGig = (g) => {
-    setGigs(prev => prev.find(x=>x.id===g.id) ? prev.map(x=>x.id===g.id?g:x) : [...prev,g]);
-    closeModal();
-  };
-  const deleteGig = (id) => { setGigs(p=>p.filter(x=>x.id!==id)); closeModal(); };
-
-  const todayStr = today.toISOString().slice(0,10);
-
-  const upcoming = useMemo(() => [...gigs].filter(g=>g.date>=todayStr).sort((a,b)=>{
-    const va=a[sort.col]||"", vb=b[sort.col]||"";
+  const todayStr=today.toISOString().slice(0,10);
+  const upcoming=useMemo(()=>[...gigs].filter(g=>g.date>=todayStr).sort((a,b)=>{
+    const va=a[sort.col]||'',vb=b[sort.col]||'';
     return va<vb?-sort.dir:va>vb?sort.dir:0;
-  }), [gigs, sort]);
+  }),[gigs,sort]);
 
-  const chartData = useMemo(() => MONTHS.map((m,i)=>{
-    const mg = gigs.filter(g=>{ const d=new Date(g.date+"T12:00:00"); return d.getFullYear()===chartYear&&d.getMonth()===i; });
-    return { month:m, count:mg.length, weddings:mg.filter(g=>g.type==="wedding").length, private:mg.filter(g=>g.type==="private event").length, regular:mg.filter(g=>g.type==="bar"||g.type==="other").length };
-  }), [gigs, chartYear]);
+  const chartData=useMemo(()=>MONTHS.map((m,i)=>{
+    const mg=gigs.filter(g=>{const d=new Date(g.date+'T12:00:00');return d.getFullYear()===chartYear&&d.getMonth()===i;});
+    return{month:m,count:mg.length,weddings:mg.filter(g=>g.type==='wedding').length,private:mg.filter(g=>g.type==='private event').length,regular:mg.filter(g=>g.type==='bar'||g.type==='other').length};
+  }),[gigs,chartYear]);
 
-  const gigsByDate = useMemo(()=>{ const m={}; gigs.forEach(g=>{ if(!m[g.date])m[g.date]=[]; m[g.date].push(g); }); return m; }, [gigs]);
+  const gigsByDate=useMemo(()=>{const m={};gigs.forEach(g=>{if(!m[g.date])m[g.date]=[];m[g.date].push(g);});return m;},[gigs]);
+  const firstDay=new Date(calYear,calMonth,1).getDay();
+  const daysInMonth=new Date(calYear,calMonth+1,0).getDate();
+  const cells=Array(firstDay).fill(null).concat(Array.from({length:daysInMonth},(_,i)=>i+1));
+  const toggleSort=col=>setSort(s=>s.col===col?{col,dir:-s.dir}:{col,dir:1});
+  const nextGig=gigs.filter(g=>g.date>=todayStr).sort((a,b)=>a.date>b.date?1:-1)[0];
+  const confirmed=gigs.filter(g=>g.status==='confirmed').length;
+  const weddings=gigs.filter(g=>g.type==='wedding').length;
 
-  const firstDay    = new Date(calYear, calMonth, 1).getDay();
-  const daysInMonth = new Date(calYear, calMonth+1, 0).getDate();
-  const cells       = Array(firstDay).fill(null).concat(Array.from({length:daysInMonth},(_,i)=>i+1));
+  const navMonth=(dir)=>{
+    let m=calMonth+dir,y2=calYear;
+    if(m<0){m=11;y2--;}if(m>11){m=0;y2++;}
+    setCalMonth(m);setCalYear(y2);
+  };
 
-  const toggleSort = (col) => setSort(s=>s.col===col?{col,dir:-s.dir}:{col,dir:1});
+  return e('div',{style:{maxWidth:720,margin:'0 auto',paddingBottom:'2rem'}},
 
-  const nextGig = gigs.filter(g=>g.date>=todayStr).sort((a,b)=>a.date>b.date?1:-1)[0];
-  const confirmed = gigs.filter(g=>g.status==="confirmed").length;
-  const weddings  = gigs.filter(g=>g.type==="wedding").length;
+    // Header
+    e('div',{style:{background:'#0F6E56',borderRadius:'0 0 20px 20px',padding:'1.25rem 1.25rem 1.5rem',marginBottom:'1.25rem'}},
+      e('div',{style:{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:8,flexWrap:'wrap'}},
+        e('div',null,
+          e('div',{style:{fontSize:11,color:'#9FE1CB',fontWeight:500,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:4}},'Gig Dashboard'),
+          e('div',{style:{fontSize:22,fontWeight:600,color:'#fff',lineHeight:1.2}},'Peat Moss & The Fertilizers')
+        ),
+        e('button',{onClick:openAdd,style:{background:'#1D9E75',color:'#fff',border:'1px solid #5DCAA5',borderRadius:10,padding:'7px 14px',fontWeight:500,fontSize:13,whiteSpace:'nowrap'}},'+ Add gig')
+      ),
+      e('div',{style:{display:'flex',gap:10,marginTop:'1rem',flexWrap:'wrap'}},
+        [{label:'Total gigs',value:gigs.length,accent:'#5DCAA5'},{label:'Confirmed',value:confirmed,accent:'#9FE1CB'},{label:'Weddings',value:weddings,accent:'#AFA9EC'}].map(c=>
+          e('div',{key:c.label,style:{flex:1,minWidth:80,background:'rgba(255,255,255,0.1)',borderRadius:10,padding:'10px 14px',border:'1px solid rgba(255,255,255,0.15)'}},
+            e('div',{style:{fontSize:10,color:c.accent,fontWeight:500,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:2}},c.label),
+            e('div',{style:{fontSize:26,fontWeight:500,color:'#fff',lineHeight:1}},c.value)
+          )
+        )
+      ),
+      nextGig&&e('div',{style:{marginTop:12,background:'rgba(255,255,255,0.08)',borderRadius:10,padding:'8px 14px',border:'1px solid rgba(255,255,255,0.12)',display:'flex',alignItems:'center',gap:10}},
+        e('div',{style:{width:8,height:8,borderRadius:'50%',background:'#5DCAA5',flexShrink:0}}),
+        e('div',{style:{fontSize:12,color:'#E1F5EE',overflow:'hidden'}},
+          'Next up: ',e('span',{style:{fontWeight:500,color:'#fff'}},nextGig.venue),
+          e('span',{style:{color:'#9FE1CB'}},` · ${nextGig.location} · ${nextGig.date}${nextGig.time?' · '+nextGig.time:''}`)
+        )
+      )
+    ),
 
-  return (
-    <div style={{ maxWidth:720, margin:"0 auto", paddingBottom:"2rem" }}>
+    e('div',{style:{padding:'0 1rem'}},
 
-      {/* Header */}
-      <div style={{ background:"#0F6E56", borderRadius:"0 0 20px 20px", padding:"1.25rem 1.25rem 1.5rem", marginBottom:"1.25rem" }}>
-        <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:8, flexWrap:"wrap" }}>
-          <div>
-            <div style={{ fontSize:11, color:"#9FE1CB", fontWeight:500, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:4 }}>Gig Dashboard</div>
-            <div style={{ fontSize:22, fontWeight:600, color:"#fff", lineHeight:1.2 }}>Peat Moss &amp; The Fertilizers</div>
-          </div>
-          <button onClick={openAdd} style={{ background:"#1D9E75", color:"#fff", border:"1px solid #5DCAA5", borderRadius:10, padding:"7px 14px", fontWeight:500, fontSize:13, whiteSpace:"nowrap" }}>
-            + Add gig
-          </button>
-        </div>
-        <div className="header-stats" style={{ display:"flex", gap:10, marginTop:"1rem", flexWrap:"wrap" }}>
-          {[
-            { label:"Total gigs", value:gigs.length,  accent:"#5DCAA5" },
-            { label:"Confirmed",  value:confirmed,     accent:"#9FE1CB" },
-            { label:"Weddings",   value:weddings,      accent:"#AFA9EC" },
-          ].map(c=>(
-            <div key={c.label} style={{ flex:1, minWidth:80, background:"rgba(255,255,255,0.1)", borderRadius:10, padding:"10px 14px", border:"1px solid rgba(255,255,255,0.15)" }}>
-              <div style={{ fontSize:10, color:c.accent, fontWeight:500, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:2 }}>{c.label}</div>
-              <div style={{ fontSize:26, fontWeight:500, color:"#fff", lineHeight:1 }}>{c.value}</div>
-            </div>
-          ))}
-        </div>
-        {nextGig && (
-          <div style={{ marginTop:12, background:"rgba(255,255,255,0.08)", borderRadius:10, padding:"8px 14px", border:"1px solid rgba(255,255,255,0.12)", display:"flex", alignItems:"center", gap:10 }}>
-            <div style={{ width:8, height:8, borderRadius:"50%", background:"#5DCAA5", flexShrink:0 }} />
-            <div style={{ fontSize:12, color:"#E1F5EE", overflow:"hidden" }}>
-              Next up: <span style={{ fontWeight:500, color:"#fff" }}>{nextGig.venue}</span>
-              <span style={{ color:"#9FE1CB" }}> · {nextGig.location} · {nextGig.date}{nextGig.time?` · ${nextGig.time}`:""}</span>
-            </div>
-          </div>
-        )}
-      </div>
+      // Tabs
+      e('div',{className:'tab-bar'},
+        [{id:'calendar',label:'Calendar'},{id:'list',label:'List'},{id:'chart',label:'Chart'}].map(t=>
+          e('button',{key:t.id,className:'tab-btn'+(tab===t.id?' active':''),onClick:()=>setTab(t.id)},t.label)
+        )
+      ),
 
-      <div style={{ padding:"0 1rem" }}>
-        {/* Tabs */}
-        <div className="tab-bar">
-          {[{id:"calendar",label:"Calendar"},{id:"list",label:"List"},{id:"chart",label:"Chart"}].map(t=>(
-            <button key={t.id} className={`tab-btn${tab===t.id?" active":""}`} onClick={()=>setTab(t.id)}>{t.label}</button>
-          ))}
-        </div>
+      // Calendar
+      tab==='calendar'&&e('div',null,
+        e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'1rem'}},
+          e('button',{onClick:()=>navMonth(-1)},'‹'),
+          e('span',{style:{fontWeight:500,fontSize:15}},MONTHS[calMonth]+' '+calYear),
+          e('button',{onClick:()=>navMonth(1)},'›')
+        ),
+        e('div',{style:{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:3,marginBottom:8}},
+          DAYS.map(d=>e('div',{key:d,style:{textAlign:'center',fontSize:11,color:'#6b7280',padding:'4px 0',fontWeight:500}},d)),
+          cells.map((day,i)=>{
+            if(!day)return e('div',{key:'e'+i});
+            const ds=`${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+            const dg=gigsByDate[ds]||[];
+            const isToday=ds===todayStr;
+            const hasgig=dg.length>0;
+            return e('div',{key:day,onClick:()=>dg.length&&openEdit(dg[0]),style:{minHeight:56,padding:'4px 5px',borderRadius:8,cursor:dg.length?'pointer':'default',background:hasgig?'#E1F5EE':'#f9fafb',border:isToday?'2px solid #1D9E75':hasgig?'1px solid #5DCAA5':'1px solid #e5e7eb'}},
+              e('div',{style:{fontSize:12,fontWeight:isToday?500:400,color:isToday?'#0F6E56':hasgig?'#085041':'#9ca3af'}},day),
+              dg.map(g=>e('div',{key:g.id,style:{fontSize:9,marginTop:2,color:STATUS_STYLE[g.status].color,background:STATUS_STYLE[g.status].bg,borderRadius:3,padding:'1px 4px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},g.venue))
+            );
+          })
+        ),
+        e('div',{style:{display:'flex',gap:12,fontSize:12,color:'#6b7280'}},
+          e('span',{style:{display:'flex',alignItems:'center',gap:5}},e('span',{style:{width:10,height:10,borderRadius:3,background:'#E1F5EE',border:'1px solid #5DCAA5',display:'inline-block'}}),' has gig'),
+          e('span',{style:{display:'flex',alignItems:'center',gap:5}},e('span',{style:{width:10,height:10,borderRadius:3,background:'#f9fafb',border:'1px solid #e5e7eb',display:'inline-block'}}),' open')
+        )
+      ),
 
-        {/* Calendar */}
-        {tab==="calendar" && (
-          <div>
-            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"1rem" }}>
-              <button onClick={()=>{ let m=calMonth-1,y2=calYear; if(m<0){m=11;y2--;} setCalMonth(m);setCalYear(y2); }}>‹</button>
-              <span style={{ fontWeight:500, fontSize:15 }}>{MONTHS[calMonth]} {calYear}</span>
-              <button onClick={()=>{ let m=calMonth+1,y2=calYear; if(m>11){m=0;y2++;} setCalMonth(m);setCalYear(y2); }}>›</button>
-            </div>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:3, marginBottom:8 }}>
-              {DAYS.map(d=><div key={d} style={{ textAlign:"center", fontSize:11, color:"#6b7280", padding:"4px 0", fontWeight:500 }}>{d}</div>)}
-              {cells.map((day,i)=>{
-                if(!day) return <div key={`e${i}`} />;
-                const ds=`${calYear}-${String(calMonth+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
-                const dg=gigsByDate[ds]||[];
-                const isToday=ds===todayStr;
-                const hasgig=dg.length>0;
-                return (
-                  <div key={day} onClick={()=>dg.length&&openEdit(dg[0])} style={{ minHeight:56, padding:"4px 5px", borderRadius:8, cursor:dg.length?"pointer":"default", background:hasgig?"#E1F5EE":"#f9fafb", border:isToday?"2px solid #1D9E75":hasgig?"1px solid #5DCAA5":"1px solid #e5e7eb" }}>
-                    <div style={{ fontSize:12, fontWeight:isToday?500:400, color:isToday?"#0F6E56":hasgig?"#085041":"#9ca3af" }}>{day}</div>
-                    {dg.map(g=>(
-                      <div key={g.id} style={{ fontSize:9, marginTop:2, color:STATUS_STYLE[g.status].color, background:STATUS_STYLE[g.status].bg, borderRadius:3, padding:"1px 4px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{g.venue}</div>
-                    ))}
-                  </div>
-                );
-              })}
-            </div>
-            <div style={{ display:"flex", gap:12, fontSize:12, color:"#6b7280" }}>
-              <span style={{ display:"flex", alignItems:"center", gap:5 }}><span style={{ width:10, height:10, borderRadius:3, background:"#E1F5EE", border:"1px solid #5DCAA5", display:"inline-block" }} /> has gig</span>
-              <span style={{ display:"flex", alignItems:"center", gap:5 }}><span style={{ width:10, height:10, borderRadius:3, background:"#f9fafb", border:"1px solid #e5e7eb", display:"inline-block" }} /> open</span>
-            </div>
-          </div>
-        )}
+      // List
+      tab==='list'&&e('div',null,
+        e('div',{style:{borderRadius:12,border:'1px solid #e5e7eb',overflow:'hidden'}},
+          upcoming.length===0&&e('div',{style:{padding:'2rem',textAlign:'center',color:'#6b7280',fontSize:13}},'No upcoming gigs'),
+          upcoming.map((g,idx)=>{
+            const tc=typeStyle(g.type);
+            return e('div',{key:g.id,style:{padding:'12px 14px',borderBottom:idx<upcoming.length-1?'1px solid #e5e7eb':'none',background:idx%2===0?'#fff':'#f9fafb',display:'flex',alignItems:'center',gap:12}},
+              e('div',{style:{background:tc.bg,borderRadius:8,padding:'8px 0',width:44,flexShrink:0,textAlign:'center'}},
+                e('div',{style:{fontSize:16,fontWeight:500,color:tc.color,lineHeight:1}},g.date.slice(8)),
+                e('div',{style:{fontSize:10,color:tc.color,marginTop:2}},MONTHS[parseInt(g.date.slice(5,7))-1])
+              ),
+              e('div',{style:{flex:1,minWidth:0}},
+                e('div',{style:{fontWeight:500,fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},g.venue),
+                e('div',{style:{fontSize:12,color:'#6b7280',marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},g.location+(g.time?' · '+g.time:'')),
+                e('div',{style:{display:'flex',gap:6,marginTop:5,flexWrap:'wrap'}},
+                  e('span',{className:'badge',style:{background:tc.bg,color:tc.color}},g.type),
+                  e(Badge,{status:g.status})
+                )
+              ),
+              e('button',{onClick:()=>openEdit(g),style:{fontSize:12,padding:'5px 12px',flexShrink:0}},'Edit')
+            );
+          })
+        ),
+        e('div',{style:{marginTop:10,fontSize:13,color:'#6b7280'}},upcoming.length+' upcoming gig'+(upcoming.length!==1?'s':''))
+      ),
 
-        {/* List */}
-        {tab==="list" && (
-          <div>
-            <div style={{ borderRadius:12, border:"1px solid #e5e7eb", overflow:"hidden" }}>
-              {upcoming.length===0 && <div style={{ padding:"2rem", textAlign:"center", color:"#6b7280", fontSize:13 }}>No upcoming gigs</div>}
-              {upcoming.map((g,idx)=>{
-                const tc=typeStyle(g.type);
-                return (
-                  <div key={g.id} style={{ padding:"12px 14px", borderBottom:idx<upcoming.length-1?"1px solid #e5e7eb":"none", background:idx%2===0?"#fff":"#f9fafb", display:"flex", alignItems:"center", gap:12 }}>
-                    <div style={{ background:tc.bg, borderRadius:8, padding:"8px 0", width:44, flexShrink:0, textAlign:"center" }}>
-                      <div style={{ fontSize:16, fontWeight:500, color:tc.color, lineHeight:1 }}>{g.date.slice(8)}</div>
-                      <div style={{ fontSize:10, color:tc.color, marginTop:2 }}>{MONTHS[parseInt(g.date.slice(5,7))-1]}</div>
-                    </div>
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontWeight:500, fontSize:14, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{g.venue}</div>
-                      <div style={{ fontSize:12, color:"#6b7280", marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{g.location}{g.time?` · ${g.time}`:""}</div>
-                      <div style={{ display:"flex", gap:6, marginTop:5, flexWrap:"wrap" }}>
-                        <span className="badge" style={{ background:tc.bg, color:tc.color }}>{g.type}</span>
-                        <Badge status={g.status} />
-                      </div>
-                    </div>
-                    <button onClick={()=>openEdit(g)} style={{ fontSize:12, padding:"5px 12px", flexShrink:0 }}>Edit</button>
-                  </div>
-                );
-              })}
-            </div>
-            <div style={{ marginTop:10, fontSize:13, color:"#6b7280" }}>{upcoming.length} upcoming gig{upcoming.length!==1?"s":""}</div>
-          </div>
-        )}
+      // Chart
+      tab==='chart'&&e('div',null,
+        e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'1rem',flexWrap:'wrap',gap:8}},
+          e('div',{style:{display:'flex',alignItems:'center',gap:10}},
+            e('button',{onClick:()=>setChartYear(y=>y-1)},'‹'),
+            e('span',{style:{fontWeight:500,minWidth:40,textAlign:'center'}},chartYear),
+            e('button',{onClick:()=>setChartYear(y=>y+1)},'›')
+          ),
+          e('div',{style:{display:'flex',gap:4,background:'#e9ecef',borderRadius:8,padding:3}},
+            ['bar','line'].map(t=>e('button',{key:t,onClick:()=>setChartType(t),style:{fontSize:12,padding:'5px 14px',borderRadius:6,border:'none',background:chartType===t?'#fff':'transparent',fontWeight:chartType===t?500:400,color:chartType===t?'#0F6E56':'#6b7280'}},t==='bar'?'Bar':'Line'))
+          )
+        ),
+        e('div',{style:{height:260}},
+          e(ResponsiveContainer,{width:'100%',height:'100%'},
+            chartType==='bar'
+              ? e(BarChart,{data:chartData,margin:{top:8,right:8,bottom:0,left:-20}},
+                  e(XAxis,{dataKey:'month',tick:{fontSize:11,fill:'#6b7280'},axisLine:false,tickLine:false}),
+                  e(YAxis,{allowDecimals:false,tick:{fontSize:11,fill:'#6b7280'},axisLine:false,tickLine:false}),
+                  e(Tooltip,{contentStyle:{fontSize:12,borderRadius:10}}),
+                  e(Legend,{wrapperStyle:{fontSize:12,paddingTop:8}}),
+                  e(Bar,{dataKey:'regular',name:'Bar / Other',stackId:'a',fill:'#1D9E75'}),
+                  e(Bar,{dataKey:'private',name:'Private events',stackId:'a',fill:'#D85A30'}),
+                  e(Bar,{dataKey:'weddings',name:'Weddings',stackId:'a',fill:'#7F77DD',radius:[4,4,0,0]})
+                )
+              : e(LineChart,{data:chartData,margin:{top:8,right:8,bottom:0,left:-20}},
+                  e(XAxis,{dataKey:'month',tick:{fontSize:11,fill:'#6b7280'},axisLine:false,tickLine:false}),
+                  e(YAxis,{allowDecimals:false,tick:{fontSize:11,fill:'#6b7280'},axisLine:false,tickLine:false}),
+                  e(Tooltip,{contentStyle:{fontSize:12,borderRadius:10}}),
+                  e(Legend,{wrapperStyle:{fontSize:12,paddingTop:8}}),
+                  e(Line,{type:'monotone',dataKey:'regular',name:'Bar / Other',stroke:'#1D9E75',strokeWidth:2,dot:{r:3},activeDot:{r:5}}),
+                  e(Line,{type:'monotone',dataKey:'weddings',name:'Weddings',stroke:'#7F77DD',strokeWidth:2,dot:{r:3},activeDot:{r:5}}),
+                  e(Line,{type:'monotone',dataKey:'private',name:'Private events',stroke:'#D85A30',strokeWidth:2,dot:{r:3},activeDot:{r:5}})
+                )
+          )
+        ),
+        e('div',{style:{marginTop:12,display:'flex',gap:12,flexWrap:'wrap'}},
+          [
+            {label:'Total gigs',value:chartData.reduce((s,d)=>s+d.count,0),color:'#0F6E56',bg:'#E1F5EE'},
+            {label:'Busiest month',value:MONTHS[chartData.indexOf(chartData.reduce((a,b)=>b.count>a.count?b:a))],color:'#0F6E56',bg:'#E1F5EE'},
+            {label:'Weddings',value:chartData.reduce((s,d)=>s+d.weddings,0),color:'#534AB7',bg:'#EEEDFE'},
+          ].map(c=>e('div',{key:c.label,style:{background:c.bg,borderRadius:8,padding:'8px 14px',border:`1px solid ${c.color}33`}},
+            e('div',{style:{fontSize:10,color:c.color,fontWeight:500,textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:2}},c.label),
+            e('div',{style:{fontSize:20,fontWeight:500,color:c.color}},c.value)
+          ))
+        )
+      )
+    ),
 
-        {/* Chart */}
-        {tab==="chart" && (
-          <div>
-            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"1rem", flexWrap:"wrap", gap:8 }}>
-              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                <button onClick={()=>setChartYear(y=>y-1)}>‹</button>
-                <span style={{ fontWeight:500, minWidth:40, textAlign:"center" }}>{chartYear}</span>
-                <button onClick={()=>setChartYear(y=>y+1)}>›</button>
-              </div>
-              <div style={{ display:"flex", gap:4, background:"#e9ecef", borderRadius:8, padding:3 }}>
-                {["bar","line"].map(t=>(
-                  <button key={t} onClick={()=>setChartType(t)} style={{ fontSize:12, padding:"5px 14px", borderRadius:6, border:"none", background:chartType===t?"#fff":"transparent", fontWeight:chartType===t?500:400, color:chartType===t?"#0F6E56":"#6b7280" }}>{t==="bar"?"Bar":"Line"}</button>
-                ))}
-              </div>
-            </div>
-            <div style={{ height:260 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                {chartType==="bar" ? (
-                  <BarChart data={chartData} margin={{ top:8, right:8, bottom:0, left:-20 }}>
-                    <XAxis dataKey="month" tick={{ fontSize:11, fill:"#6b7280" }} axisLine={false} tickLine={false} />
-                    <YAxis allowDecimals={false} tick={{ fontSize:11, fill:"#6b7280" }} axisLine={false} tickLine={false} />
-                    <Tooltip contentStyle={{ fontSize:12, borderRadius:10 }} />
-                    <Legend wrapperStyle={{ fontSize:12, paddingTop:8 }} />
-                    <Bar dataKey="regular" name="Bar / Other" stackId="a" fill="#1D9E75" />
-                    <Bar dataKey="private" name="Private events" stackId="a" fill="#D85A30" />
-                    <Bar dataKey="weddings" name="Weddings" stackId="a" fill="#7F77DD" radius={[4,4,0,0]} />
-                  </BarChart>
-                ) : (
-                  <LineChart data={chartData} margin={{ top:8, right:8, bottom:0, left:-20 }}>
-                    <XAxis dataKey="month" tick={{ fontSize:11, fill:"#6b7280" }} axisLine={false} tickLine={false} />
-                    <YAxis allowDecimals={false} tick={{ fontSize:11, fill:"#6b7280" }} axisLine={false} tickLine={false} />
-                    <Tooltip contentStyle={{ fontSize:12, borderRadius:10 }} />
-                    <Legend wrapperStyle={{ fontSize:12, paddingTop:8 }} />
-                    <Line type="monotone" dataKey="regular" name="Bar / Other" stroke="#1D9E75" strokeWidth={2} dot={{ r:3 }} activeDot={{ r:5 }} />
-                    <Line type="monotone" dataKey="weddings" name="Weddings" stroke="#7F77DD" strokeWidth={2} dot={{ r:3 }} activeDot={{ r:5 }} />
-                    <Line type="monotone" dataKey="private" name="Private events" stroke="#D85A30" strokeWidth={2} dot={{ r:3 }} activeDot={{ r:5 }} />
-                  </LineChart>
-                )}
-              </ResponsiveContainer>
-            </div>
-            <div style={{ marginTop:12, display:"flex", gap:12, flexWrap:"wrap" }}>
-              {[
-                { label:"Total gigs", value:chartData.reduce((s,d)=>s+d.count,0), color:"#0F6E56", bg:"#E1F5EE" },
-                { label:"Busiest month", value:MONTHS[chartData.indexOf(chartData.reduce((a,b)=>b.count>a.count?b:a))], color:"#0F6E56", bg:"#E1F5EE" },
-                { label:"Weddings", value:chartData.reduce((s,d)=>s+d.weddings,0), color:"#534AB7", bg:"#EEEDFE" },
-              ].map(c=>(
-                <div key={c.label} style={{ background:c.bg, borderRadius:8, padding:"8px 14px", border:`1px solid ${c.color}33` }}>
-                  <div style={{ fontSize:10, color:c.color, fontWeight:500, textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:2 }}>{c.label}</div>
-                  <div style={{ fontSize:20, fontWeight:500, color:c.color }}>{c.value}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {modal && <Modal gig={modal.mode==="edit"?modal.gig:null} onSave={saveGig} onDelete={deleteGig} onClose={closeModal} />}
-    </div>
+    modal&&e(Modal,{gig:modal.mode==='edit'?modal.gig:null,onSave:saveGig,onDelete:deleteGig,onClose:closeModal})
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+ReactDOM.createRoot(document.getElementById('root')).render(e(App));
 </script>
 </body>
 </html>
