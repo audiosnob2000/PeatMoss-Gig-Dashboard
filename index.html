@@ -10,7 +10,9 @@
 <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{overflow-x:hidden;width:100%}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f4f6f8;min-height:100vh}
+#root{width:100%;max-width:100vw;overflow-x:hidden}
 input,select{font-family:inherit;font-size:14px;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;width:100%;outline:none;background:#fff}
 input:focus,select:focus{border-color:#1D9E75;box-shadow:0 0 0 3px rgba(29,158,117,0.15)}
 button{font-family:inherit;cursor:pointer;border-radius:8px;font-size:13px;padding:7px 14px;border:1px solid #d1d5db;background:#fff;color:#374151}
@@ -24,6 +26,13 @@ button:active{transform:scale(0.98)}
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:100;padding:1rem}
 .modal{background:#fff;border-radius:16px;padding:1.5rem;width:min(420px,100%)}
 label{font-size:12px;font-weight:500;color:#6b7280;display:block;margin-bottom:4px;margin-top:12px}
+@media (max-width:480px){
+  .cal-cell{min-height:48px!important;padding:3px 2px!important}
+  .cal-cell .cal-day{font-size:10px!important}
+  .cal-cell .cal-gig{font-size:7px!important;padding:1px 2px!important}
+  .header-stat{padding:8px 8px!important}
+  .header-stat .stat-val{font-size:20px!important}
+}
 </style>
 </head>
 <body>
@@ -191,9 +200,9 @@ function App(){
       ),
       e('div',{style:{display:'flex',gap:10,marginTop:'1rem',flexWrap:'wrap'}},
         [{label:'Total gigs',value:gigs.length,accent:'#5DCAA5'},{label:'Confirmed',value:confirmed,accent:'#9FE1CB'},{label:'Weddings',value:weddings,accent:'#AFA9EC'}].map(c=>
-          e('div',{key:c.label,style:{flex:1,minWidth:80,background:'rgba(255,255,255,0.1)',borderRadius:10,padding:'10px 14px',border:'1px solid rgba(255,255,255,0.15)'}},
+          e('div',{key:c.label,className:'header-stat',style:{flex:1,minWidth:80,background:'rgba(255,255,255,0.1)',borderRadius:10,padding:'10px 14px',border:'1px solid rgba(255,255,255,0.15)'}},
             e('div',{style:{fontSize:10,color:c.accent,fontWeight:500,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:2}},c.label),
-            e('div',{style:{fontSize:26,fontWeight:500,color:'#fff',lineHeight:1}},c.value)
+            e('div',{className:'stat-val',style:{fontSize:26,fontWeight:500,color:'#fff',lineHeight:1}},c.value)
           )
         )
       ),
@@ -222,7 +231,7 @@ function App(){
           e('span',{style:{fontWeight:500,fontSize:15}},MONTHS[calMonth]+' '+calYear),
           e('button',{onClick:()=>navMonth(1)},'›')
         ),
-        e('div',{style:{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:3,marginBottom:8}},
+        e('div',{style:{display:'grid',gridTemplateColumns:'repeat(7,minmax(0,1fr))',gap:3,marginBottom:8,width:'100%'}},
           DAYS.map(d=>e('div',{key:d,style:{textAlign:'center',fontSize:11,color:'#6b7280',padding:'4px 0',fontWeight:500}},d)),
           cells.map((day,i)=>{
             if(!day)return e('div',{key:'e'+i});
@@ -231,9 +240,9 @@ function App(){
             const isToday=ds===todayStr;
             const hasgig=dg.length>0;
             const allCancelled=hasgig&&dg.every(g=>g.status==='cancelled');
-            return e('div',{key:day,onClick:()=>dg.length&&openEdit(dg[0]),style:{minHeight:56,padding:'4px 5px',borderRadius:8,cursor:dg.length?'pointer':'default',background:allCancelled?'#FEE2E2':hasgig?'#E1F5EE':'#f9fafb',border:isToday?'2px solid #1D9E75':allCancelled?'1px solid #F87171':hasgig?'1px solid #5DCAA5':'1px solid #e5e7eb'}},
-              e('div',{style:{fontSize:12,fontWeight:isToday?500:400,color:isToday?'#0F6E56':allCancelled?'#B91C1C':hasgig?'#085041':'#9ca3af'}},day),
-              dg.map(g=>e('div',{key:g.id,style:{fontSize:9,marginTop:2,color:STATUS_STYLE[g.status].color,background:STATUS_STYLE[g.status].bg,borderRadius:3,padding:'1px 4px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},g.venue))
+            return e('div',{key:day,className:'cal-cell',onClick:()=>dg.length&&openEdit(dg[0]),style:{minHeight:56,padding:'4px 5px',borderRadius:8,cursor:dg.length?'pointer':'default',background:allCancelled?'#FEE2E2':hasgig?'#E1F5EE':'#f9fafb',border:isToday?'2px solid #1D9E75':allCancelled?'1px solid #F87171':hasgig?'1px solid #5DCAA5':'1px solid #e5e7eb',overflow:'hidden'}},
+              e('div',{className:'cal-day',style:{fontSize:12,fontWeight:isToday?500:400,color:isToday?'#0F6E56':allCancelled?'#B91C1C':hasgig?'#085041':'#9ca3af'}},day),
+              dg.map(g=>e('div',{key:g.id,className:'cal-gig',style:{fontSize:9,marginTop:2,color:STATUS_STYLE[g.status].color,background:STATUS_STYLE[g.status].bg,borderRadius:3,padding:'1px 4px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},g.venue))
             );
           })
         ),
