@@ -181,8 +181,9 @@ function App(){
   const cells=Array(firstDay).fill(null).concat(Array.from({length:daysInMonth},(_,i)=>i+1));
   const toggleSort=col=>setSort(s=>s.col===col?{col,dir:-s.dir}:{col,dir:1});
   const nextGig=gigs.filter(g=>g.date>=todayStr).sort((a,b)=>a.date>b.date?1:-1)[0];
-  const confirmed=gigs.filter(g=>g.status==='confirmed').length;
-  const weddings=gigs.filter(g=>g.type==='wedding').length;
+  const upcoming_count=gigs.filter(g=>g.date>=todayStr).length;
+  const confirmed=gigs.filter(g=>g.date>=todayStr&&g.status==='confirmed').length;
+  const weddings=gigs.filter(g=>g.date>=todayStr&&g.type==='wedding').length;
 
   const navMonth=(dir)=>{
     let m=calMonth+dir,y2=calYear;
@@ -202,7 +203,7 @@ function App(){
         e('button',{onClick:openAdd,style:{background:'#1D9E75',color:'#fff',border:'1px solid #5DCAA5',borderRadius:10,padding:'7px 14px',fontWeight:500,fontSize:13,whiteSpace:'nowrap'}},'+ Add gig')
       ),
       e('div',{style:{display:'flex',gap:10,marginTop:'1rem',flexWrap:'wrap'}},
-        [{label:'Total gigs',value:gigs.length,accent:'#5DCAA5'},{label:'Confirmed',value:confirmed,accent:'#9FE1CB'},{label:'Weddings',value:weddings,accent:'#AFA9EC'}].map(c=>
+        [{label:'Upcoming gigs',value:upcoming_count,accent:'#5DCAA5'},{label:'Confirmed',value:confirmed,accent:'#9FE1CB'},{label:'Weddings',value:weddings,accent:'#AFA9EC'}].map(c=>
           e('div',{key:c.label,className:'header-stat',style:{flex:1,minWidth:80,background:'rgba(255,255,255,0.1)',borderRadius:10,padding:'10px 14px',border:'1px solid rgba(255,255,255,0.15)'}},
             e('div',{style:{fontSize:10,color:c.accent,fontWeight:500,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:2}},c.label),
             e('div',{className:'stat-val',style:{fontSize:26,fontWeight:500,color:'#fff',lineHeight:1}},c.value)
