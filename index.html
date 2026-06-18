@@ -6,7 +6,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
 <meta http-equiv="Pragma" content="no-cache"/>
 <meta http-equiv="Expires" content="0"/>
-<title>Peat Moss & The Fertilizers</title>
+<title>Peat Moss & The Fertilizers — Gig Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/prop-types@15/prop-types.min.js"></script>
@@ -164,7 +164,7 @@ function App(){
   const saveGig=g=>{setGigs(p=>p.find(x=>x.id===g.id)?p.map(x=>x.id===g.id?g:x):[...p,g]);closeModal();};
   const deleteGig=id=>{setGigs(p=>p.filter(x=>x.id!==id));closeModal();};
 
-  const todayStr=today.toISOString().slice(0,10);
+  const todayStr=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
   const upcoming=useMemo(()=>[...gigs].filter(g=>g.date>=todayStr).sort((a,b)=>{
     const va=a[sort.col]||'',vb=b[sort.col]||'';
     return va<vb?-sort.dir:va>vb?sort.dir:0;
@@ -222,7 +222,7 @@ function App(){
 
       // Tabs
       e('div',{className:'tab-bar'},
-        [{id:'calendar',label:'Calendar'},{id:'list',label:'List'},{id:'chart',label:'Chart'}].map(t=>
+        [{id:'calendar',label:'Calendar'},{id:'list',label:'Shows'},{id:'chart',label:'Chart'}].map(t=>
           e('button',{key:t.id,className:'tab-btn'+(tab===t.id?' active':''),onClick:()=>setTab(t.id)},t.label)
         )
       ),
