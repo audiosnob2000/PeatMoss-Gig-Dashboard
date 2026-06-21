@@ -153,10 +153,21 @@ function App(){
   const [calYear,setCalYear]=useState(today.getFullYear());
   const [chartYear,setChartYear]=useState(today.getFullYear());
   const [chartType,setChartType]=useState('bar');
+  const [members,setMembers]=useState(()=>{
+    try{const s=localStorage.getItem('pmtf_members');return s?JSON.parse(s):[];}catch{return [];}
+  });
+  const [activeMember,setActiveMember]=useState(null);
+  const [newItemText,setNewItemText]=useState('');
+  const [newMemberName,setNewMemberName]=useState('');
+  const [addingMember,setAddingMember]=useState(false);
+  const [confirmDelete,setConfirmDelete]=useState(null);
+  const [editingName,setEditingName]=useState(false);
+  const [editNameValue,setEditNameValue]=useState('');
   const [modal,setModal]=useState(null);
   const [sort,setSort]=useState({col:'date',dir:1});
 
   useEffect(()=>{try{localStorage.setItem('pmtf_gigs',JSON.stringify(gigs));}catch{}},[gigs]);
+  useEffect(()=>{try{localStorage.setItem('pmtf_members',JSON.stringify(members));}catch{}},[members]);
 
   const closeModal=()=>setModal(null);
   const openAdd=()=>setModal({mode:'add'});
@@ -191,6 +202,37 @@ function App(){
     setCalMonth(m);setCalYear(y2);
   };
 
+  const toggleItem=(memberId,itemId)=>{
+    setMembers(prev=>prev.map(m=>m.id!==memberId?m:{...m,items:m.items.map(it=>it.id===itemId?{...it,checked:!it.checked}:it)}));
+  };
+  const resetMember=(memberId)=>{
+    setMembers(prev=>prev.map(m=>m.id!==memberId?m:{...m,items:m.items.map(it=>({...it,checked:false}))}));
+  };
+  const addItem=(memberId)=>{
+    if(!newItemText.trim())return;
+    setMembers(prev=>prev.map(m=>m.id!==memberId?m:{...m,items:[...m.items,{id:'i'+Date.now(),text:newItemText.trim(),checked:false}]}));
+    setNewItemText('');
+  };
+  const deleteItem=(memberId,itemId)=>{
+    setMembers(prev=>prev.map(m=>m.id!==memberId?m:{...m,items:m.items.filter(it=>it.id!==itemId)}));
+  };
+  const addMember=()=>{
+    if(!newMemberName.trim())return;
+    setMembers(prev=>[...prev,{id:'m'+Date.now(),name:newMemberName.trim(),items:[]}]);
+    setNewMemberName('');
+    setAddingMember(false);
+  };
+  const deleteMember=(memberId)=>{
+    setMembers(prev=>prev.filter(x=>x.id!==memberId));
+    setActiveMember(null);
+    setConfirmDelete(null);
+  };
+  const renameMember=(memberId,newName)=>{
+    if(!newName.trim())return;
+    setMembers(prev=>prev.map(m=>m.id!==memberId?m:{...m,name:newName.trim()}));
+    setEditingName(false);
+  };
+
   return e('div',{style:{maxWidth:720,margin:'0 auto',paddingBottom:'2rem'}},
 
     // Header
@@ -223,7 +265,7 @@ function App(){
 
       // Tabs
       e('div',{className:'tab-bar'},
-        [{id:'calendar',label:'Calendar'},{id:'list',label:'Shows'},{id:'chart',label:'Chart'}].map(t=>
+        [{id:'calendar',label:'Calendar'},{id:'list',label:'Shows'},{id:'chart',label:'Chart'},{id:'checklist',label:'Checklists'}].map(t=>
           e('button',{key:t.id,className:'tab-btn'+(tab===t.id?' active':''),onClick:()=>setTab(t.id)},t.label)
         )
       ),
@@ -334,10 +376,84 @@ function App(){
             e('div',{style:{fontSize:20,fontWeight:500,color:c.color}},c.value)
           ))
         )
+      ),
+
+      tab==='checklist'&&e('div',null,
+        !activeMember&&e('div',null,
+          e('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill, minmax(110px,1fr))',gap:10,marginBottom:14}},
+            members.map(m=>{
+              const done=m.items.filter(it=>it.checked).length;
+              const total=m.items.length;
+              return e('button',{key:m.id,onClick:()=>setActiveMember(m.id),style:{background:'#fff',border:'1px solid #e5e7eb',borderRadius:14,padding:'16px 10px',display:'flex',flexDirection:'column',alignItems:'center',gap:8,cursor:'pointer'}},
+                e('div',{style:{width:48,height:48,borderRadius:'50%',background:'#E1F5EE',color:'#0F6E56',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:600}},m.name.charAt(0).toUpperCase()),
+                e('div',{style:{fontSize:13,fontWeight:500,color:'#111827'}},m.name),
+                e('div',{style:{fontSize:11,color:total>0&&done===total?'#0F6E56':'#9ca3af'}},total===0?'No items':`${done}/${total} packed`)
+              );
+            }),
+            e('button',{onClick:()=>setAddingMember(true),style:{background:'#f9fafb',border:'1px dashed #d1d5db',borderRadius:14,padding:'16px 10px',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:8,cursor:'pointer',minHeight:108}},
+              e('div',{style:{width:48,height:48,borderRadius:'50%',background:'#f1f5f9',color:'#6b7280',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22}},'+'),
+              e('div',{style:{fontSize:13,color:'#6b7280'}},'Add member')
+            )
+          ),
+          addingMember&&e('div',{style:{display:'flex',gap:8,background:'#fff',border:'1px solid #e5e7eb',borderRadius:12,padding:12}},
+            e('input',{autoFocus:true,value:newMemberName,onChange:ev=>setNewMemberName(ev.target.value),placeholder:'Member name',onKeyDown:ev=>{if(ev.key==='Enter')addMember();},style:{flex:1,padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,fontSize:14}}),
+            e('button',{onClick:addMember,style:{background:'#1D9E75',color:'#fff',border:'none',borderRadius:8,padding:'8px 14px',cursor:'pointer',fontWeight:500}},'Add'),
+            e('button',{onClick:()=>{setAddingMember(false);setNewMemberName('');},style:{padding:'8px 14px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'Cancel')
+          )
+        ),
+        activeMember&&members.filter(m=>m.id===activeMember).map(m=>{
+          const done=m.items.filter(it=>it.checked).length;
+          return e('div',{key:m.id},
+            e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}},
+              e('button',{onClick:()=>{setActiveMember(null);setEditingName(false);},style:{padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer',fontSize:13}},'← Back'),
+              editingName
+                ? e('div',{style:{display:'flex',alignItems:'center',gap:6}},
+                    e('input',{autoFocus:true,value:editNameValue,onChange:ev=>setEditNameValue(ev.target.value),onKeyDown:ev=>{if(ev.key==='Enter')renameMember(m.id,editNameValue);if(ev.key==='Escape')setEditingName(false);},style:{padding:'4px 8px',border:'1px solid #d1d5db',borderRadius:6,fontSize:14,width:120}}),
+                    e('button',{onClick:()=>renameMember(m.id,editNameValue),style:{padding:'4px 10px',borderRadius:6,border:'none',background:'#1D9E75',color:'#fff',cursor:'pointer',fontSize:12}},'Save')
+                  )
+                : e('span',{style:{fontWeight:500,fontSize:16,display:'flex',alignItems:'center',gap:6}},
+                    m.name+"'s Checklist",
+                    e('button',{onClick:()=>{setEditingName(true);setEditNameValue(m.name);},style:{border:'none',background:'none',cursor:'pointer',fontSize:13,color:'#9ca3af',padding:'2px 4px'}},'✏️')
+                  ),
+              e('button',{onClick:()=>setConfirmDelete(m.id),style:{padding:'5px 12px',borderRadius:8,border:'1px solid #fca5a5',color:'#b91c1c',cursor:'pointer',fontSize:13}},'Remove')
+            ),
+            e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}},
+              e('span',{style:{fontSize:13,color:'#6b7280'}},`${done}/${m.items.length} packed`),
+              e('button',{onClick:()=>resetMember(m.id),style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'Reset All')
+            ),
+            e('div',{style:{borderRadius:12,border:'1px solid #e5e7eb',overflow:'hidden',marginBottom:14}},
+              m.items.length===0&&e('div',{style:{padding:'2rem',textAlign:'center',color:'#6b7280',fontSize:13}},'No items yet — add some below'),
+              m.items.map((it,idx)=>e('div',{key:it.id,onClick:()=>toggleItem(m.id,it.id),style:{padding:'12px 14px',borderBottom:idx<m.items.length-1?'1px solid #e5e7eb':'none',background:it.checked?'#f9fafb':'#fff',display:'flex',alignItems:'center',gap:12,cursor:'pointer'}},
+                e('div',{style:{width:20,height:20,borderRadius:6,border:it.checked?'none':'2px solid #d1d5db',background:it.checked?'#1D9E75':'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}},
+                  it.checked?e('span',{style:{color:'#fff',fontSize:13,fontWeight:700}},'✓'):null
+                ),
+                e('div',{style:{flex:1,fontSize:14,color:it.checked?'#9ca3af':'#111827',textDecoration:it.checked?'line-through':'none'}},it.text),
+                e('button',{onClick:ev=>{ev.stopPropagation();deleteItem(m.id,it.id);},style:{border:'none',background:'none',color:'#d1d5db',fontSize:16,cursor:'pointer',padding:'0 4px'}},'×')
+              ))
+            ),
+            e('div',{style:{display:'flex',gap:8}},
+              e('input',{value:newItemText,onChange:ev=>setNewItemText(ev.target.value),placeholder:'Add an item...',onKeyDown:ev=>{if(ev.key==='Enter')addItem(m.id);},style:{flex:1,padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,fontSize:14}}),
+              e('button',{onClick:()=>addItem(m.id),style:{background:'#1D9E75',color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',cursor:'pointer',fontWeight:500}},'Add')
+            )
+          );
+        })
       )
     ),
 
-    modal&&e(Modal,{gig:modal.mode==='edit'?modal.gig:null,onSave:saveGig,onDelete:deleteGig,onClose:closeModal})
+    modal&&e(Modal,{gig:modal.mode==='edit'?modal.gig:null,onSave:saveGig,onDelete:deleteGig,onClose:closeModal}),
+
+    confirmDelete&&members.filter(m=>m.id===confirmDelete).map(m=>
+      e('div',{key:'confirm',onClick:()=>setConfirmDelete(null),style:{position:'fixed',inset:0,background:'rgba(0,0,0,0.45)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:'1rem'}},
+        e('div',{onClick:ev=>ev.stopPropagation(),style:{background:'#fff',borderRadius:16,padding:'1.5rem',width:'min(360px,92vw)'}},
+          e('div',{style:{fontSize:16,fontWeight:600,marginBottom:8}},`Remove ${m.name}'s checklist?`),
+          e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:20}},`This will permanently delete ${m.name} and all their checklist items. This cannot be undone.`),
+          e('div',{style:{display:'flex',gap:8,justifyContent:'flex-end'}},
+            e('button',{onClick:()=>setConfirmDelete(null),style:{padding:'6px 14px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'Cancel'),
+            e('button',{onClick:()=>deleteMember(m.id),style:{background:'#dc2626',color:'#fff',border:'none',borderRadius:8,padding:'6px 16px',cursor:'pointer',fontWeight:500}},'Remove')
+          )
+        )
+      )
+    )
   );
 }
 
