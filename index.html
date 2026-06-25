@@ -38,35 +38,36 @@ label{font-size:12px;font-weight:500;color:#6b7280;display:block;margin-bottom:4
 <body>
 <div id="root"></div>
 <script>
-const e = React.createElement;
-const {useState,useMemo,useEffect} = React;
-const {BarChart,Bar,LineChart,Line,XAxis,YAxis,Tooltip,ResponsiveContainer,Legend} = Recharts;
+const e=React.createElement;
+const {useState,useMemo,useEffect}=React;
+const {BarChart,Bar,LineChart,Line,XAxis,YAxis,Tooltip,ResponsiveContainer,Legend}=Recharts;
 
-const TYPES = ["bar","wedding","private event","other"];
-const STATUSES = ["confirmed","pending","hold","cancelled"];
-const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-const DAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const TYPES=["bar","wedding","private event","other"];
+const STATUSES=["confirmed","pending","hold","cancelled"];
+const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const DAYS=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const IRS_RATE=0.67;
 
-const THEMES = {
-  green:  {primary:"#0F6E56",mid:"#1D9E75",light:"#5DCAA5",pale:"#E1F5EE",accent:"#9FE1CB"},
-  blue:   {primary:"#185FA5",mid:"#378ADD",light:"#85B7EB",pale:"#E6F1FB",accent:"#B5D4F4"},
-  purple: {primary:"#3C3489",mid:"#7F77DD",light:"#AFA9EC",pale:"#EEEDFE",accent:"#CECBF6"},
-  red:    {primary:"#A32D2D",mid:"#E24B4A",light:"#F09595",pale:"#FCEBEB",accent:"#F7C1C1"},
-  dark:   {primary:"#1a1a2e",mid:"#16213e",light:"#0f3460",pale:"#e94560",accent:"#a8a8b3"},
+const THEMES={
+  green: {primary:"#0F6E56",mid:"#1D9E75",light:"#5DCAA5",pale:"#E1F5EE",accent:"#9FE1CB"},
+  blue:  {primary:"#185FA5",mid:"#378ADD",light:"#85B7EB",pale:"#E6F1FB",accent:"#B5D4F4"},
+  purple:{primary:"#3C3489",mid:"#7F77DD",light:"#AFA9EC",pale:"#EEEDFE",accent:"#CECBF6"},
+  red:   {primary:"#A32D2D",mid:"#E24B4A",light:"#F09595",pale:"#FCEBEB",accent:"#F7C1C1"},
+  dark:  {primary:"#1a1a2e",mid:"#16213e",light:"#0f3460",pale:"#e94560",accent:"#a8a8b3"},
 };
 
-const STATUS_STYLE = {
+const STATUS_STYLE={
   confirmed:{bg:"#d1fae5",color:"#065f46",label:"Confirmed"},
   pending:  {bg:"#fef9c3",color:"#854d0e",label:"Pending"},
   hold:     {bg:"#f1f5f9",color:"#475569",label:"Hold"},
   cancelled:{bg:"#fee2e2",color:"#b91c1c",label:"Cancelled"},
 };
 
-const today = new Date();
-const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
-const yr = today.getFullYear();
+const today=new Date();
+const todayStr=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+const yr=today.getFullYear();
 
-const SAMPLE = [
+const SAMPLE=[
   {id:1, date:`${yr}-06-13`,venue:"Amsterdam",               location:"Patchogue, NY",       type:"bar",          status:"confirmed",time:"7:30–10:30 PM"},
   {id:2, date:`${yr}-06-14`,venue:"The Patch",               location:"Patchogue, NY",       type:"bar",          status:"confirmed",time:"4:30–8:30 PM"},
   {id:3, date:`${yr}-06-19`,venue:"Bayside Clam Bar & Grill",location:"East Islip, NY",      type:"bar",          status:"confirmed",time:"7–10 PM"},
@@ -153,14 +154,16 @@ function Modal({gig,onSave,onDelete,onClose}){
   );
 }
 
-function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme}){
+function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog}){
   const [copied,setCopied]=useState(false);
   const [confirmReset,setConfirmReset]=useState(false);
   const [editingBandName,setEditingBandName]=useState(false);
   const [bandNameValue,setBandNameValue]=useState('');
+  const [mileageOpen,setMileageOpen]=useState(false);
+  const totalMiles=mileageLog.reduce((s,t)=>s+t.miles,0);
+  const totalDeduction=(totalMiles*IRS_RATE).toFixed(2);
 
   const saveBandName=()=>{if(bandNameValue.trim())setSettings(s=>({...s,bandName:bandNameValue.trim()}));setEditingBandName(false);};
-
   const copySchedule=()=>{
     const upcoming=gigs.filter(g=>g.date>=todayStr).sort((a,b)=>a.date>b.date?1:-1);
     const text=upcoming.map(g=>`${g.date} — ${g.venue}${g.location?', '+g.location:''}${g.time?' ('+g.time+')':''}`).join('\n');
@@ -196,14 +199,14 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme}){
 
       e(Section,{icon:'🎨',title:'Appearance'},
         e(Row,{label:'Band name',border:true,
-          right: editingBandName
-            ? e('div',{style:{display:'flex',alignItems:'center',gap:6}},
+          right:editingBandName
+            ?e('div',{style:{display:'flex',alignItems:'center',gap:6}},
                 e('input',{autoFocus:true,value:bandNameValue,onChange:ev=>setBandNameValue(ev.target.value),
                   onKeyDown:ev=>{if(ev.key==='Enter')saveBandName();if(ev.key==='Escape')setEditingBandName(false);},
                   style:{padding:'4px 8px',border:'1px solid #d1d5db',borderRadius:6,fontSize:13,width:160}}),
                 e('button',{onClick:saveBandName,style:{fontSize:12,padding:'4px 10px',borderRadius:6,border:'none',background:theme.mid,color:'#fff',cursor:'pointer'}},'Save')
               )
-            : e('div',{style:{display:'flex',alignItems:'center',gap:8}},
+            :e('div',{style:{display:'flex',alignItems:'center',gap:8}},
                 e('span',{style:{fontSize:12,color:'#6b7280'}},settings.bandName),
                 e('button',{onClick:()=>{setBandNameValue(settings.bandName);setEditingBandName(true);},
                   style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'Edit')
@@ -234,6 +237,42 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme}){
         e(Row,{label:'Show past gigs in Shows tab',border:false,
           right:e(Toggle,{on:settings.showPast,onToggle:()=>setSettings(s=>({...s,showPast:!s.showPast}))})
         })
+      ),
+
+      e(Section,{icon:'🚗',title:'Mileage report'},
+        e('div',{onClick:()=>setMileageOpen(o=>!o),style:{padding:'12px 14px',display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'pointer',borderBottom:mileageOpen?'1px solid #e5e7eb':'none'}},
+          e('div',null,
+            e('div',{style:{fontSize:14,color:'#111827',fontWeight:500}},'Mileage report'),
+            e('div',{style:{fontSize:12,color:'#9ca3af',marginTop:2}},`${totalMiles.toFixed(1)} mi · $${totalDeduction} deduction`)
+          ),
+          e('span',{style:{fontSize:18,color:'#9ca3af'}},mileageOpen?'∨':'›')
+        ),
+        mileageOpen&&e('div',null,
+          e('div',{style:{display:'flex',borderBottom:'1px solid #e5e7eb'}},
+            e('div',{style:{flex:1,padding:'14px',textAlign:'center',borderRight:'1px solid #e5e7eb'}},
+              e('div',{style:{fontSize:10,color:'#6b7280',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4}},'Total miles'),
+              e('div',{style:{fontSize:26,fontWeight:500,color:theme.primary}},totalMiles.toFixed(1)),
+              e('div',{style:{fontSize:11,color:'#9ca3af',marginTop:2}},today.getFullYear()+' season')
+            ),
+            e('div',{style:{flex:1,padding:'14px',textAlign:'center'}},
+              e('div',{style:{fontSize:10,color:'#6b7280',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4}},'Tax deduction'),
+              e('div',{style:{fontSize:26,fontWeight:500,color:theme.primary}},'$'+totalDeduction),
+              e('div',{style:{fontSize:11,color:'#9ca3af',marginTop:2}},'@ $0.67/mile')
+            )
+          ),
+          mileageLog.length===0&&e('div',{style:{padding:'1.5rem',textAlign:'center',color:'#9ca3af',fontSize:13}},'No trips logged yet — tap Map on a gig to start tracking'),
+          mileageLog.map((t,i)=>e('div',{key:i,style:{padding:'10px 14px',borderBottom:i<mileageLog.length-1?'1px solid #e5e7eb':'none',display:'flex',justifyContent:'space-between',alignItems:'center'}},
+            e('div',null,
+              e('div',{style:{fontSize:13,fontWeight:500,color:'#111827'}},t.venue),
+              e('div',{style:{fontSize:11,color:'#9ca3af'}},t.date)
+            ),
+            e('div',{style:{fontSize:13,fontWeight:500,color:theme.primary}},t.miles.toFixed(1)+' mi')
+          )),
+          mileageLog.length>0&&e('div',{style:{padding:'10px 14px',borderTop:'1px solid #e5e7eb'}},
+            e('button',{onClick:()=>{if(window.confirm('Clear all mileage logs?'))setMileageLog([]);},
+              style:{fontSize:12,color:'#b91c1c',borderColor:'#fca5a5',width:'100%',padding:'7px 0'}},'Clear mileage log')
+          )
+        )
       ),
 
       e(Section,{icon:'📤',title:'Data'},
@@ -268,6 +307,8 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme}){
             setSettings({bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false});
             localStorage.removeItem('pmtf_gigs');
             localStorage.removeItem('pmtf_settings');
+            localStorage.removeItem('pmtf_members');
+            localStorage.removeItem('pmtf_mileage');
             setConfirmReset(false);
             onClose();
           },style:{background:'#dc2626',color:'#fff',border:'none',borderRadius:8,padding:'6px 16px',cursor:'pointer',fontWeight:500}},'Reset')
@@ -278,17 +319,22 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme}){
 }
 
 function App(){
-  const [gigs,setGigs]=useState(()=>{
-    try{const s=localStorage.getItem('pmtf_gigs');return s?JSON.parse(s):SAMPLE;}catch{return SAMPLE;}
-  });
   const [settings,setSettings]=useState(()=>{
     try{const s=localStorage.getItem('pmtf_settings');return s?JSON.parse(s):{bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false};}
     catch{return {bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false};}
   });
+  const [gigs,setGigs]=useState(()=>{
+    try{const s=localStorage.getItem('pmtf_gigs');return s?JSON.parse(s):SAMPLE;}catch{return SAMPLE;}
+  });
   const [members,setMembers]=useState(()=>{
     try{const s=localStorage.getItem('pmtf_members');return s?JSON.parse(s):[];}catch{return [];}
   });
-  const [tab,setTab]=useState(settings.defaultTab||'calendar');
+  const [mileageLog,setMileageLog]=useState(()=>{
+    try{const s=localStorage.getItem('pmtf_mileage');return s?JSON.parse(s):[];}catch{return [];}
+  });
+  const [tab,setTab]=useState(()=>{
+    try{const s=localStorage.getItem('pmtf_settings');return s?JSON.parse(s).defaultTab||'calendar':'calendar';}catch{return 'calendar';}
+  });
   const [calMonth,setCalMonth]=useState(today.getMonth());
   const [calYear,setCalYear]=useState(today.getFullYear());
   const [chartYear,setChartYear]=useState(today.getFullYear());
@@ -304,12 +350,15 @@ function App(){
   const [editNameValue,setEditNameValue]=useState('');
   const [gigPopup,setGigPopup]=useState(null);
   const [showSettings,setShowSettings]=useState(false);
+  const [trackingMiles,setTrackingMiles]=useState(null);
+  const [askTrack,setAskTrack]=useState(null);
 
   const theme=THEMES[settings.theme]||THEMES.green;
 
   useEffect(()=>{try{localStorage.setItem('pmtf_gigs',JSON.stringify(gigs));}catch{}},[gigs]);
   useEffect(()=>{try{localStorage.setItem('pmtf_settings',JSON.stringify(settings));}catch{}},[settings]);
   useEffect(()=>{try{localStorage.setItem('pmtf_members',JSON.stringify(members));}catch{}},[members]);
+  useEffect(()=>{try{localStorage.setItem('pmtf_mileage',JSON.stringify(mileageLog));}catch{}},[mileageLog]);
 
   const closeModal=()=>setModal(null);
   const openAdd=()=>setModal({mode:'add'});
@@ -317,12 +366,38 @@ function App(){
   const saveGig=g=>{setGigs(p=>p.find(x=>x.id===g.id)?p.map(x=>x.id===g.id?g:x):[...p,g]);closeModal();};
   const deleteGig=id=>{setGigs(p=>p.filter(x=>x.id!==id));closeModal();};
 
+  const startTracking=gig=>{
+    if(!navigator.geolocation){alert('GPS not available on this device.');return;}
+    navigator.geolocation.getCurrentPosition(pos=>{
+      const watchId=navigator.geolocation.watchPosition(newPos=>{
+        setTrackingMiles(prev=>{
+          if(!prev)return prev;
+          const R=3958.8;
+          const dLat=(newPos.coords.latitude-prev.lastPos.lat)*Math.PI/180;
+          const dLon=(newPos.coords.longitude-prev.lastPos.lon)*Math.PI/180;
+          const a=Math.sin(dLat/2)**2+Math.cos(prev.lastPos.lat*Math.PI/180)*Math.cos(newPos.coords.latitude*Math.PI/180)*Math.sin(dLon/2)**2;
+          const dist=R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+          return{...prev,miles:prev.miles+dist,lastPos:{lat:newPos.coords.latitude,lon:newPos.coords.longitude}};
+        });
+      },null,{enableHighAccuracy:true,maximumAge:0});
+      setTrackingMiles({gigId:gig.id,venueName:gig.venue,date:gig.date,miles:0,watchId,lastPos:{lat:pos.coords.latitude,lon:pos.coords.longitude}});
+    },()=>alert('Unable to get your location. Please allow location access.'));
+  };
+
+  const stopTracking=()=>{
+    if(!trackingMiles)return;
+    navigator.geolocation.clearWatch(trackingMiles.watchId);
+    const trip={gigId:trackingMiles.gigId,venue:trackingMiles.venueName,date:trackingMiles.date,miles:parseFloat(trackingMiles.miles.toFixed(1))};
+    setMileageLog(prev=>[...prev,trip]);
+    setTrackingMiles(null);
+  };
+
   const upcomingGigsAll=gigs.filter(g=>g.date>=todayStr);
+  const listGigs=settings.showPast?gigs:upcomingGigsAll;
   const upcomingCount=upcomingGigsAll.length;
   const confirmed=upcomingGigsAll.filter(g=>g.status==='confirmed').length;
   const weddings=upcomingGigsAll.filter(g=>g.type==='wedding').length;
   const nextGig=[...upcomingGigsAll].sort((a,b)=>a.date>b.date?1:-1)[0];
-  const listGigs=settings.showPast?gigs:upcomingGigsAll;
 
   const upcoming=useMemo(()=>[...listGigs].sort((a,b)=>{
     const va=a[sort.col]||'',vb=b[sort.col]||'';
@@ -348,7 +423,7 @@ function App(){
   const deleteMember=mid=>{setMembers(prev=>prev.filter(x=>x.id!==mid));setActiveMember(null);setConfirmDelete(null);};
   const renameMember=(mid,n)=>{if(!n.trim())return;setMembers(prev=>prev.map(m=>m.id!==mid?m:{...m,name:n.trim()}));setEditingName(false);};
 
-  if(showSettings) return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme});
+  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog});
 
   return e('div',{style:{maxWidth:720,margin:'0 auto',paddingBottom:'2rem'}},
 
@@ -381,12 +456,10 @@ function App(){
     ),
 
     e('div',{style:{padding:'0 1rem'}},
-
       e('div',{className:'tab-bar'},
         [{id:'calendar',label:'Calendar'},{id:'list',label:'Shows'},{id:'chart',label:'Chart'},{id:'checklist',label:'Checklists'}].map(t=>
           e('button',{key:t.id,className:'tab-btn'+(tab===t.id?' active':''),
-            style:{color:tab===t.id?theme.primary:'#6b7280'},
-            onClick:()=>setTab(t.id)},t.label)
+            style:{color:tab===t.id?theme.primary:'#6b7280'},onClick:()=>setTab(t.id)},t.label)
         )
       ),
 
@@ -520,7 +593,7 @@ function App(){
             e('input',{autoFocus:true,value:newMemberName,onChange:ev=>setNewMemberName(ev.target.value),placeholder:'Member name',
               onKeyDown:ev=>{if(ev.key==='Enter')addMember();},style:{flex:1,padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,fontSize:14}}),
             e('button',{onClick:addMember,style:{background:theme.mid,color:'#fff',border:'none',borderRadius:8,padding:'8px 14px',cursor:'pointer',fontWeight:500}},'Add'),
-            e('button',{onClick:()=>{setAddingMember(false);setNewMemberName('');}},  'Cancel')
+            e('button',{onClick:()=>{setAddingMember(false);setNewMemberName('');}}, 'Cancel')
           )
         ),
         activeMember&&members.filter(m=>m.id===activeMember).map(m=>{
@@ -591,15 +664,38 @@ function App(){
           )
         ),
         e('div',{style:{display:'flex',gap:8}},
-          gigPopup.location&&e('a',{
-            href:`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(gigPopup.venue+' '+gigPopup.location)}`,
-            target:'_blank',rel:'noopener noreferrer',
-            style:{flex:1,padding:'9px 0',borderRadius:10,background:'#E0EFFE',color:'#1D4ED8',fontWeight:500,textDecoration:'none',display:'flex',alignItems:'center',justifyContent:'center',gap:6,fontSize:14}
+          gigPopup.location&&e('button',{
+            onClick:()=>{setAskTrack(gigPopup);setGigPopup(null);},
+            style:{flex:1,padding:'9px 0',borderRadius:10,background:'#E0EFFE',color:'#1D4ED8',fontWeight:500,border:'none',cursor:'pointer',fontSize:14}
           },'📍 Map'),
           e('button',{onClick:()=>{setGigPopup(null);openEdit(gigPopup);},
             style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:14}},'✏️ Edit')
         )
       )
+    ),
+
+    askTrack&&e('div',{onClick:()=>setAskTrack(null),className:'overlay'},
+      e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:360}},
+        e('div',{style:{fontSize:16,fontWeight:500,marginBottom:6}},'Track miles for this trip?'),
+        e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:20}},"We'll track your miles using GPS. Tap Stop in the app when you arrive."),
+        e('div',{style:{display:'flex',gap:8}},
+          e('button',{onClick:()=>{setAskTrack(null);window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(askTrack.venue+' '+askTrack.location)}`,'_blank');},
+            style:{flex:1,padding:'9px 0',borderRadius:10,border:'1px solid #d1d5db',cursor:'pointer',fontSize:14}},'Skip'),
+          e('button',{onClick:()=>{startTracking(askTrack);setAskTrack(null);window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(askTrack.venue+' '+askTrack.location)}`,'_blank');},
+            style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:14}},'Yes, track')
+        )
+      )
+    ),
+
+    trackingMiles&&e('div',{style:{position:'fixed',bottom:20,left:'50%',transform:'translateX(-50%)',width:'min(380px,92vw)',background:'#fff',borderRadius:14,padding:'12px 16px',boxShadow:'0 4px 20px rgba(0,0,0,0.15)',border:`1px solid ${theme.light}`,display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,zIndex:150}},
+      e('div',{style:{display:'flex',alignItems:'center',gap:10}},
+        e('div',{style:{width:8,height:8,borderRadius:'50%',background:theme.mid}}),
+        e('div',null,
+          e('div',{style:{fontSize:13,fontWeight:500,color:'#111827'}},'Tracking miles'),
+          e('div',{style:{fontSize:11,color:'#6b7280'}},trackingMiles.venueName+' · '+trackingMiles.miles.toFixed(1)+' mi')
+        )
+      ),
+      e('button',{onClick:stopTracking,style:{background:'#dc2626',color:'#fff',border:'none',borderRadius:8,padding:'6px 14px',cursor:'pointer',fontWeight:500,fontSize:13}},'Stop')
     ),
 
     confirmDelete&&members.filter(m=>m.id===confirmDelete).map(m=>
