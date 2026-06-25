@@ -1,719 +1,740 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
-<meta http-equiv="Pragma" content="no-cache"/>
-<meta http-equiv="Expires" content="0"/>
-<title>Gig Dashboard</title>
-<script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/prop-types@15/prop-types.min.js"></script>
-<script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
-<style>
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-html,body{overflow-x:hidden;width:100%}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f4f6f8;min-height:100vh}
-#root{width:100%;max-width:100vw;overflow-x:hidden}
-input,select{font-family:inherit;font-size:14px;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;width:100%;outline:none;background:#fff}
-input:focus,select:focus{border-color:#1D9E75;box-shadow:0 0 0 3px rgba(29,158,117,0.15)}
-button{font-family:inherit;cursor:pointer;border-radius:8px;font-size:13px;padding:7px 14px;border:1px solid #d1d5db;background:#fff;color:#374151}
-button:hover{background:#f3f4f6}
-.badge{font-size:11px;font-weight:500;padding:2px 10px;border-radius:99px;white-space:nowrap;display:inline-block}
-.tab-bar{display:flex;gap:6px;background:#e9ecef;border-radius:12px;padding:4px;margin-bottom:1.25rem}
-.tab-btn{flex:1;padding:8px 0;font-size:13px;border-radius:9px;border:none;cursor:pointer;transition:all 0.15s}
-.tab-btn.active{background:#fff;font-weight:500;box-shadow:0 1px 3px rgba(0,0,0,0.08)}
-.tab-btn:not(.active){background:transparent;color:#6b7280}
-.overlay{position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:100;padding:1rem}
-.modal{background:#fff;border-radius:16px;padding:1.5rem;width:min(420px,100%);box-shadow:0 20px 60px rgba(0,0,0,0.2)}
-label{font-size:12px;font-weight:500;color:#6b7280;display:block;margin-bottom:4px;margin-top:12px}
-@media(max-width:480px){
-  .cal-cell{min-height:48px!important;padding:3px 2px!important}
-  .cal-cell .cal-day{font-size:10px!important}
-  .cal-cell .cal-gig{font-size:7px!important;padding:1px 2px!important}
-}
-</style>
-</head>
-<body>
-<div id="root"></div>
-<script>
-const e=React.createElement;
-const {useState,useMemo,useEffect}=React;
-const {BarChart,Bar,LineChart,Line,XAxis,YAxis,Tooltip,ResponsiveContainer,Legend}=Recharts;
+import { useState, useMemo, useEffect } from "react";
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 
-const TYPES=["bar","wedding","private event","other"];
-const STATUSES=["confirmed","pending","hold","cancelled"];
-const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-const DAYS=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-const IRS_RATE=0.67;
+const GOOGLE_API_KEY = 'AIzaSyDDfPjbqTtgXOacnkjrr9SbGVcWWVW3hYg';
+const CALENDAR_ID = 'd1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com';
 
-const THEMES={
-  green: {primary:"#0F6E56",mid:"#1D9E75",light:"#5DCAA5",pale:"#E1F5EE",accent:"#9FE1CB"},
-  blue:  {primary:"#185FA5",mid:"#378ADD",light:"#85B7EB",pale:"#E6F1FB",accent:"#B5D4F4"},
-  purple:{primary:"#3C3489",mid:"#7F77DD",light:"#AFA9EC",pale:"#EEEDFE",accent:"#CECBF6"},
-  red:   {primary:"#A32D2D",mid:"#E24B4A",light:"#F09595",pale:"#FCEBEB",accent:"#F7C1C1"},
-  dark:  {primary:"#1a1a2e",mid:"#16213e",light:"#0f3460",pale:"#e94560",accent:"#a8a8b3"},
+const TYPES = ["bar", "wedding", "private event", "other"];
+const STATUSES = ["confirmed", "pending", "hold", "cancelled"];
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const DAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const IRS_RATE = 0.67;
+
+const THEMES = {
+  green:  { primary:"#0F6E56", mid:"#1D9E75", light:"#5DCAA5", pale:"#E1F5EE", accent:"#9FE1CB" },
+  blue:   { primary:"#185FA5", mid:"#378ADD", light:"#85B7EB", pale:"#E6F1FB", accent:"#B5D4F4" },
+  purple: { primary:"#3C3489", mid:"#7F77DD", light:"#AFA9EC", pale:"#EEEDFE", accent:"#CECBF6" },
+  red:    { primary:"#A32D2D", mid:"#E24B4A", light:"#F09595", pale:"#FCEBEB", accent:"#F7C1C1" },
+  dark:   { primary:"#1a1a2e", mid:"#16213e", light:"#0f3460", pale:"#e94560", accent:"#a8a8b3" },
 };
 
-const STATUS_STYLE={
-  confirmed:{bg:"#d1fae5",color:"#065f46",label:"Confirmed"},
-  pending:  {bg:"#fef9c3",color:"#854d0e",label:"Pending"},
-  hold:     {bg:"#f1f5f9",color:"#475569",label:"Hold"},
-  cancelled:{bg:"#fee2e2",color:"#b91c1c",label:"Cancelled"},
+const STATUS_STYLE = {
+  confirmed: { bg:"#d1fae5", color:"#065f46", label:"Confirmed" },
+  pending:   { bg:"#fef9c3", color:"#854d0e", label:"Pending" },
+  hold:      { bg:"#f1f5f9", color:"#475569", label:"Hold" },
+  cancelled: { bg:"#fee2e2", color:"#b91c1c", label:"Cancelled" },
 };
 
-const today=new Date();
-const todayStr=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
-const yr=today.getFullYear();
+const today = new Date();
+const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
+const y = today.getFullYear();
 
-const SAMPLE=[
-  {id:1, date:`${yr}-06-13`,venue:"Amsterdam",               location:"Patchogue, NY",       type:"bar",          status:"confirmed",time:"7:30–10:30 PM"},
-  {id:2, date:`${yr}-06-14`,venue:"The Patch",               location:"Patchogue, NY",       type:"bar",          status:"confirmed",time:"4:30–8:30 PM"},
-  {id:3, date:`${yr}-06-19`,venue:"Bayside Clam Bar & Grill",location:"East Islip, NY",      type:"bar",          status:"confirmed",time:"7–10 PM"},
-  {id:4, date:`${yr}-06-20`,venue:"Sand Bar",                location:"Fire Island, NY",     type:"bar",          status:"confirmed",time:"7–10 PM"},
-  {id:5, date:`${yr}-06-27`,venue:"Black Pearl @ Danford's", location:"Port Jefferson, NY",  type:"bar",          status:"confirmed",time:"7–10 PM"},
-  {id:6, date:`${yr}-06-28`,venue:"Sandbar",                 location:"Fire Island, NY",     type:"bar",          status:"confirmed",time:"2–6 PM"},
-  {id:7, date:`${yr}-07-03`,venue:"Stephen Talkhouse",       location:"Amagansett, NY",      type:"bar",          status:"confirmed",time:"10 PM–midnight"},
-  {id:8, date:`${yr}-07-05`,venue:"Sand Bar",                location:"Fire Island, NY",     type:"bar",          status:"confirmed",time:"2–6 PM"},
-  {id:9, date:`${yr}-07-10`,venue:"Maliblue",                location:"",                    type:"bar",          status:"confirmed",time:""},
-  {id:10,date:`${yr}-07-11`,venue:"Tiki Joe's",              location:"Smith Point, NY",     type:"bar",          status:"confirmed",time:"6:30–9:30 PM"},
-  {id:11,date:`${yr}-07-18`,venue:"Bayside Clam & Grill",    location:"East Islip, NY",      type:"bar",          status:"confirmed",time:"7–10 PM"},
-  {id:12,date:`${yr}-07-25`,venue:"Wedding @ Pavilion at Sunken Meadow",location:"Kings Park, NY",type:"wedding", status:"confirmed",time:"7–11 PM"},
-  {id:13,date:`${yr}-07-26`,venue:"Wedding @ Crescent Beach Club",location:"Bayville, NY",   type:"wedding",      status:"confirmed",time:"8 PM–midnight"},
-  {id:14,date:`${yr}-07-30`,venue:"Echo Park Concert Series",location:"West Hempstead, NY",  type:"other",        status:"confirmed",time:"7:30–9 PM"},
-  {id:15,date:`${yr}-07-31`,venue:"Ristegioe's",             location:"",                    type:"bar",          status:"confirmed",time:""},
-  {id:16,date:`${yr}-08-01`,venue:"Claudio's Waterfront",    location:"Greenport, NY",       type:"bar",          status:"confirmed",time:"1:30–5:30 PM"},
-  {id:17,date:`${yr}-08-02`,venue:"Black Pearl @ Danford's", location:"Port Jefferson, NY",  type:"bar",          status:"confirmed",time:"7–10 PM"},
-  {id:18,date:`${yr}-08-07`,venue:"Plattedeutsche",          location:"Franklin Square, NY", type:"bar",          status:"confirmed",time:"6:30–10:30 PM"},
-  {id:19,date:`${yr}-08-08`,venue:"Wedding @ Webb Institute",location:"Glen Cove, NY",       type:"wedding",      status:"confirmed",time:"7–11 PM"},
-  {id:20,date:`${yr}-08-14`,venue:"Glen Oaks Club",          location:"Old Westbury, NY",    type:"private event",status:"confirmed",time:"7:30–10 PM"},
-  {id:21,date:`${yr}-08-15`,venue:"Mastic Beach Marina",     location:"Mastic Beach, NY",    type:"bar",          status:"confirmed",time:"6–10 PM"},
-  {id:22,date:`${yr}-08-16`,venue:"Sand Bar",                location:"Fire Island, NY",     type:"bar",          status:"confirmed",time:"2–6 PM"},
-  {id:23,date:`${yr}-08-18`,venue:"Andrew J. Parise Park",   location:"Cedarhurst, NY",      type:"other",        status:"confirmed",time:"8–9:30 PM"},
-  {id:24,date:`${yr}-08-22`,venue:"Sand Bar",                location:"Fire Island, NY",     type:"bar",          status:"confirmed",time:"2–6 PM"},
-  {id:25,date:`${yr}-08-28`,venue:"Maliblue",                location:"",                    type:"bar",          status:"confirmed",time:""},
-  {id:26,date:`${yr}-08-29`,venue:"Wedding @ Surf Club on the Sound",location:"New Rochelle, NY",type:"wedding",  status:"confirmed",time:"6:30–10:30 PM"},
-  {id:27,date:`${yr}-09-04`,venue:"Black Pearl @ Danford's", location:"Port Jefferson, NY",  type:"bar",          status:"confirmed",time:"7–10 PM"},
-  {id:28,date:`${yr}-09-06`,venue:"Breezy Point Mardi Gras", location:"Breezy Point, NY",    type:"other",        status:"confirmed",time:"10 PM–2 AM"},
-  {id:29,date:`${yr}-09-07`,venue:"Bayside Clam Bar w/ Tradewinds",location:"East Islip, NY",type:"bar",          status:"confirmed",time:"5–8 PM"},
-  {id:30,date:`${yr}-09-19`,venue:"Wedding @ Delamar Mystic",location:"Mystic, CT",          type:"wedding",      status:"confirmed",time:"6:30–11 PM"},
-  {id:31,date:`${yr}-10-10`,venue:"Wedding @ The Halyard",   location:"Greenport, NY",       type:"wedding",      status:"confirmed",time:"6–10 PM"},
-  {id:32,date:`${yr}-10-24`,venue:"Wedding @ Southward Ho CC",location:"Bay Shore, NY",      type:"wedding",      status:"confirmed",time:"7–11 PM"},
-  {id:33,date:`${yr}-11-06`,venue:"Plattedeutsche",          location:"Franklin Square, NY", type:"bar",          status:"confirmed",time:"7–11 PM"},
-  {id:34,date:`${yr}-11-20`,venue:"Wedding @ Giorgio's Baiting Hollow",location:"Baiting Hollow, NY",type:"wedding",status:"confirmed",time:"7–11 PM"},
+const SAMPLE = [
+  { id:1,  date:`${y}-06-13`, venue:"Amsterdam",                         location:"Patchogue, NY",       type:"bar",          status:"confirmed", time:"7:30–10:30 PM" },
+  { id:2,  date:`${y}-06-14`, venue:"The Patch",                         location:"Patchogue, NY",       type:"bar",          status:"confirmed", time:"4:30–8:30 PM" },
+  { id:3,  date:`${y}-06-19`, venue:"Bayside Clam Bar & Grill",          location:"East Islip, NY",      type:"bar",          status:"confirmed", time:"7–10 PM" },
+  { id:4,  date:`${y}-06-20`, venue:"Sand Bar",                          location:"Fire Island, NY",     type:"bar",          status:"confirmed", time:"7–10 PM" },
+  { id:5,  date:`${y}-06-27`, venue:"Black Pearl @ Danford's",           location:"Port Jefferson, NY",  type:"bar",          status:"confirmed", time:"7–10 PM" },
+  { id:6,  date:`${y}-06-28`, venue:"Sandbar",                           location:"Fire Island, NY",     type:"bar",          status:"confirmed", time:"2–6 PM" },
+  { id:7,  date:`${y}-07-03`, venue:"Stephen Talkhouse",                 location:"Amagansett, NY",      type:"bar",          status:"confirmed", time:"10 PM–midnight" },
+  { id:8,  date:`${y}-07-05`, venue:"Sand Bar",                          location:"Fire Island, NY",     type:"bar",          status:"confirmed", time:"2–6 PM" },
+  { id:9,  date:`${y}-07-10`, venue:"Maliblue",                          location:"",                    type:"bar",          status:"confirmed", time:"" },
+  { id:10, date:`${y}-07-11`, venue:"Tiki Joe's",                        location:"Smith Point, NY",     type:"bar",          status:"confirmed", time:"6:30–9:30 PM" },
+  { id:11, date:`${y}-07-18`, venue:"Bayside Clam & Grill",              location:"East Islip, NY",      type:"bar",          status:"confirmed", time:"7–10 PM" },
+  { id:12, date:`${y}-07-25`, venue:"Wedding @ Pavilion at Sunken Meadow",location:"Kings Park, NY",     type:"wedding",      status:"confirmed", time:"7–11 PM" },
+  { id:13, date:`${y}-07-26`, venue:"Wedding @ Crescent Beach Club",     location:"Bayville, NY",        type:"wedding",      status:"confirmed", time:"8 PM–midnight" },
+  { id:14, date:`${y}-07-30`, venue:"Echo Park Concert Series",          location:"West Hempstead, NY",  type:"other",        status:"confirmed", time:"7:30–9 PM" },
+  { id:15, date:`${y}-07-31`, venue:"Ristegioe's",                       location:"",                    type:"bar",          status:"confirmed", time:"" },
+  { id:16, date:`${y}-08-01`, venue:"Claudio's Waterfront",              location:"Greenport, NY",       type:"bar",          status:"confirmed", time:"1:30–5:30 PM" },
+  { id:17, date:`${y}-08-02`, venue:"Black Pearl @ Danford's",           location:"Port Jefferson, NY",  type:"bar",          status:"confirmed", time:"7–10 PM" },
+  { id:18, date:`${y}-08-07`, venue:"Plattedeutsche",                    location:"Franklin Square, NY", type:"bar",          status:"confirmed", time:"6:30–10:30 PM" },
+  { id:19, date:`${y}-08-08`, venue:"Wedding @ Webb Institute",          location:"Glen Cove, NY",       type:"wedding",      status:"confirmed", time:"7–11 PM" },
+  { id:20, date:`${y}-08-14`, venue:"Glen Oaks Club",                    location:"Old Westbury, NY",    type:"private event",status:"confirmed", time:"7:30–10 PM" },
+  { id:21, date:`${y}-08-15`, venue:"Mastic Beach Marina",               location:"Mastic Beach, NY",    type:"bar",          status:"confirmed", time:"6–10 PM" },
+  { id:22, date:`${y}-08-16`, venue:"Sand Bar",                          location:"Fire Island, NY",     type:"bar",          status:"confirmed", time:"2–6 PM" },
+  { id:23, date:`${y}-08-18`, venue:"Andrew J. Parise Park",             location:"Cedarhurst, NY",      type:"other",        status:"confirmed", time:"8–9:30 PM" },
+  { id:24, date:`${y}-08-22`, venue:"Sand Bar",                          location:"Fire Island, NY",     type:"bar",          status:"confirmed", time:"2–6 PM" },
+  { id:25, date:`${y}-08-28`, venue:"Maliblue",                          location:"",                    type:"bar",          status:"confirmed", time:"" },
+  { id:26, date:`${y}-08-29`, venue:"Wedding @ Surf Club on the Sound",  location:"New Rochelle, NY",    type:"wedding",      status:"confirmed", time:"6:30–10:30 PM" },
+  { id:27, date:`${y}-09-04`, venue:"Black Pearl @ Danford's",           location:"Port Jefferson, NY",  type:"bar",          status:"confirmed", time:"7–10 PM" },
+  { id:28, date:`${y}-09-06`, venue:"Breezy Point Mardi Gras",           location:"Breezy Point, NY",    type:"other",        status:"confirmed", time:"10 PM–2 AM" },
+  { id:29, date:`${y}-09-07`, venue:"Bayside Clam Bar w/ Tradewinds",    location:"East Islip, NY",      type:"bar",          status:"confirmed", time:"5–8 PM" },
+  { id:30, date:`${y}-09-19`, venue:"Wedding @ Delamar Mystic",          location:"Mystic, CT",          type:"wedding",      status:"confirmed", time:"6:30–11 PM" },
+  { id:31, date:`${y}-10-10`, venue:"Wedding @ The Halyard",             location:"Greenport, NY",       type:"wedding",      status:"confirmed", time:"6–10 PM" },
+  { id:32, date:`${y}-10-24`, venue:"Wedding @ Southward Ho CC",         location:"Bay Shore, NY",       type:"wedding",      status:"confirmed", time:"7–11 PM" },
+  { id:33, date:`${y}-11-06`, venue:"Plattedeutsche",                    location:"Franklin Square, NY", type:"bar",          status:"confirmed", time:"7–11 PM" },
+  { id:34, date:`${y}-11-20`, venue:"Wedding @ Giorgio's Baiting Hollow",location:"Baiting Hollow, NY",  type:"wedding",      status:"confirmed", time:"7–11 PM" },
 ];
 
-function typeStyle(t){
-  if(t==="wedding")      return {bg:"#EEEDFE",color:"#534AB7"};
-  if(t==="private event")return {bg:"#FAECE7",color:"#993C1D"};
-  return {bg:"#E1F5EE",color:"#085041"};
+function typeStyle(type) {
+  if (type==="wedding")       return { bg:"#EEEDFE", color:"#534AB7" };
+  if (type==="private event") return { bg:"#FAECE7", color:"#993C1D" };
+  return { bg:"#E1F5EE", color:"#085041" };
 }
 
-function Badge({status}){
-  const s=STATUS_STYLE[status];
-  return e('span',{className:'badge',style:{background:s.bg,color:s.color}},s.label);
+function Badge({ status }) {
+  const s = STATUS_STYLE[status];
+  return <span style={{ background:s.bg, color:s.color, fontSize:11, fontWeight:500, padding:"2px 10px", borderRadius:99, whiteSpace:"nowrap" }}>{s.label}</span>;
 }
 
-function Toggle({on,onToggle}){
-  return e('div',{onClick:onToggle,style:{width:44,height:26,borderRadius:99,background:on?'#1D9E75':'#e5e7eb',cursor:'pointer',position:'relative',flexShrink:0,transition:'background 0.2s'}},
-    e('div',{style:{width:20,height:20,borderRadius:'50%',background:'#fff',position:'absolute',top:3,left:on?21:3,transition:'left 0.2s'}})
+function Toggle({ on, onToggle }) {
+  return (
+    <div onClick={onToggle} style={{ width:44, height:26, borderRadius:99, background:on?"#1D9E75":"#e5e7eb", cursor:"pointer", position:"relative", flexShrink:0, transition:"background 0.2s" }}>
+      <div style={{ width:20, height:20, borderRadius:"50%", background:"#fff", position:"absolute", top:3, left:on?21:3, transition:"left 0.2s" }} />
+    </div>
   );
 }
 
-function Modal({gig,onSave,onDelete,onClose}){
-  const blank={date:'',venue:'',location:'',type:'bar',status:'confirmed',time:''};
-  const [form,setForm]=useState(gig||blank);
-  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
-  const isNew=!gig?.id;
-  return e('div',{className:'overlay',onClick:onClose},
-    e('div',{className:'modal',onClick:ev=>ev.stopPropagation()},
-      e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'1rem'}},
-        e('span',{style:{fontSize:16,fontWeight:500}},isNew?'Add gig':'Edit gig'),
-        e('button',{onClick:onClose,style:{border:'none',background:'none',fontSize:20,color:'#9ca3af',padding:'0 4px'}},'×')
-      ),
-      [['date','Date','date'],['venue','Venue name','text'],['location','Location','text'],['time','Set time','text']].map(([k,lbl,tp])=>
-        e('div',{key:k},e('label',null,lbl),e('input',{type:tp,value:form[k]||'',onChange:ev=>set(k,ev.target.value)}))
-      ),
-      e('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginTop:12}},
-        [['type','Gig type',TYPES],['status','Status',STATUSES]].map(([k,lbl,opts])=>
-          e('div',{key:k},e('label',null,lbl),
-            e('select',{value:form[k],onChange:ev=>set(k,ev.target.value)},
-              opts.map(o=>e('option',{key:o,value:o},o.charAt(0).toUpperCase()+o.slice(1)))
-            )
-          )
-        )
-      ),
-      e('div',{style:{display:'flex',gap:8,justifyContent:'flex-end',marginTop:'1.25rem'}},
-        !isNew&&e('button',{onClick:()=>onDelete(gig.id),style:{marginRight:'auto',color:'#b91c1c',borderColor:'#fca5a5'}},'Delete'),
-        e('button',{onClick:onClose},'Cancel'),
-        e('button',{onClick:()=>{if(form.date&&form.venue)onSave({...form,id:gig?.id||Date.now()})},
-          style:{background:'#1D9E75',color:'#fff',border:'none',fontWeight:500}},isNew?'Add gig':'Save changes')
-      )
-    )
+function Modal({ gig, onSave, onDelete, onClose }) {
+  const blank = { date:"", venue:"", location:"", type:"bar", status:"confirmed", time:"" };
+  const [form, setForm] = useState(gig||blank);
+  const set = (k,v) => setForm(f=>({...f,[k]:v}));
+  const isNew = !gig?.id;
+  return (
+    <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.45)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:100 }}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:"#fff", borderRadius:16, padding:"1.5rem", width:"min(420px,92vw)", boxShadow:"0 20px 60px rgba(0,0,0,0.2)" }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"1rem" }}>
+          <h3 style={{ margin:0, fontSize:16, fontWeight:500 }}>{isNew?"Add gig":"Edit gig"}</h3>
+          <button onClick={onClose} style={{ border:"none", background:"none", fontSize:18, cursor:"pointer", color:"#9ca3af" }}>×</button>
+        </div>
+        {[["date","Date","date"],["venue","Venue name","text"],["location","Location","text"],["time","Set time","text"]].map(([k,lbl,tp])=>(
+          <div key={k} style={{ marginBottom:12 }}>
+            <label style={{ fontSize:12, color:"#6b7280", display:"block", marginBottom:4, fontWeight:500 }}>{lbl}</label>
+            <input type={tp} value={form[k]||""} onChange={e=>set(k,e.target.value)} style={{ width:"100%", boxSizing:"border-box", padding:"8px 10px", border:"1px solid #d1d5db", borderRadius:8, fontSize:14 }} />
+          </div>
+        ))}
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:16 }}>
+          {[["type","Gig type",TYPES],["status","Status",STATUSES]].map(([k,lbl,opts])=>(
+            <div key={k}>
+              <label style={{ fontSize:12, color:"#6b7280", display:"block", marginBottom:4, fontWeight:500 }}>{lbl}</label>
+              <select value={form[k]} onChange={e=>set(k,e.target.value)} style={{ width:"100%", padding:"8px 10px", border:"1px solid #d1d5db", borderRadius:8, fontSize:14 }}>
+                {opts.map(o=><option key={o} value={o}>{o.charAt(0).toUpperCase()+o.slice(1)}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
+        <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+          {!isNew && <button onClick={()=>onDelete(gig.id)} style={{ marginRight:"auto", color:"#b91c1c", borderColor:"#fca5a5", padding:"6px 14px", borderRadius:8, border:"1px solid", cursor:"pointer" }}>Delete</button>}
+          <button onClick={onClose} style={{ padding:"6px 14px", borderRadius:8, border:"1px solid #d1d5db", cursor:"pointer" }}>Cancel</button>
+          <button onClick={()=>{ if(form.date&&form.venue) onSave({...form, id:gig?.id||Date.now()}); }}
+            style={{ background:"#1D9E75", color:"#fff", border:"none", borderRadius:8, padding:"6px 16px", cursor:"pointer", fontWeight:500 }}>
+            {isNew?"Add gig":"Save changes"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
-function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog}){
-  const [copied,setCopied]=useState(false);
-  const [confirmReset,setConfirmReset]=useState(false);
-  const [editingBandName,setEditingBandName]=useState(false);
-  const [bandNameValue,setBandNameValue]=useState('');
-  const [mileageOpen,setMileageOpen]=useState(false);
-  const totalMiles=mileageLog.reduce((s,t)=>s+t.miles,0);
-  const totalDeduction=(totalMiles*IRS_RATE).toFixed(2);
-
-  const saveBandName=()=>{if(bandNameValue.trim())setSettings(s=>({...s,bandName:bandNameValue.trim()}));setEditingBandName(false);};
-  const copySchedule=()=>{
-    const upcoming=gigs.filter(g=>g.date>=todayStr).sort((a,b)=>a.date>b.date?1:-1);
-    const text=upcoming.map(g=>`${g.date} — ${g.venue}${g.location?', '+g.location:''}${g.time?' ('+g.time+')':''}`).join('\n');
-    navigator.clipboard.writeText(text).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000);});
+function SettingsPage({ gigs, setGigs, settings, setSettings, onClose, theme, mileageLog, setMileageLog }) {
+  const [copied, setCopied] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [editingBandName, setEditingBandName] = useState(false);
+  const [bandNameValue, setBandNameValue] = useState("");
+  const [mileageOpen, setMileageOpen] = useState(false);
+  const totalMiles = mileageLog.reduce((s,t)=>s+t.miles,0);
+  const totalDeduction = (totalMiles*IRS_RATE).toFixed(2);
+  const saveBandName = () => { if(bandNameValue.trim()) setSettings(s=>({...s,bandName:bandNameValue.trim()})); setEditingBandName(false); };
+  const copySchedule = () => {
+    const upcoming = gigs.filter(g=>g.date>=todayStr).sort((a,b)=>a.date>b.date?1:-1);
+    const text = upcoming.map(g=>`${g.date} — ${g.venue}${g.location?", "+g.location:""}${g.time?" ("+g.time+")":""}`).join("\n");
+    navigator.clipboard.writeText(text).then(()=>{ setCopied(true); setTimeout(()=>setCopied(false),2000); });
   };
-
-  const Section=({icon,title,children})=>e('div',{style:{marginBottom:20}},
-    e('div',{style:{fontSize:11,fontWeight:500,color:'#6b7280',textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:8}},[icon,' ',title]),
-    e('div',{style:{background:'#fff',borderRadius:12,border:'1px solid #e5e7eb',overflow:'hidden'}},children)
+  const Section = ({ icon, title, children }) => (
+    <div style={{ marginBottom:20 }}>
+      <div style={{ fontSize:11, fontWeight:500, color:"#6b7280", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:8 }}>{icon} {title}</div>
+      <div style={{ background:"#fff", borderRadius:12, border:"1px solid #e5e7eb", overflow:"hidden" }}>{children}</div>
+    </div>
   );
-
-  const Row=({label,sub,right,danger,border=true})=>e('div',{style:{padding:'12px 14px',borderBottom:border?'1px solid #e5e7eb':'none',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}},
-    e('div',null,
-      e('div',{style:{fontSize:14,color:danger?'#b91c1c':'#111827'}},label),
-      sub&&e('div',{style:{fontSize:12,color:'#9ca3af',marginTop:2}},sub)
-    ),
-    right&&e('div',{style:{flexShrink:0}},right)
+  const Row = ({ label, sub, right, danger, border=true }) => (
+    <div style={{ padding:"12px 14px", borderBottom:border?"1px solid #e5e7eb":"none", display:"flex", alignItems:"center", justifyContent:"space-between", gap:12 }}>
+      <div>
+        <div style={{ fontSize:14, color:danger?"#b91c1c":"#111827" }}>{label}</div>
+        {sub && <div style={{ fontSize:12, color:"#9ca3af", marginTop:2 }}>{sub}</div>}
+      </div>
+      {right && <div style={{ flexShrink:0 }}>{right}</div>}
+    </div>
   );
-
-  return e('div',{style:{position:'fixed',inset:0,background:'#f4f6f8',zIndex:200,overflowY:'auto'}},
-    e('div',{style:{background:theme.primary,padding:'1.25rem 1rem 1rem'}},
-      e('div',{style:{display:'flex',alignItems:'center',gap:12}},
-        e('button',{onClick:onClose,style:{background:'rgba(255,255,255,0.15)',border:'none',borderRadius:8,color:'#fff',padding:'6px 12px',cursor:'pointer',fontSize:13}},'← Back'),
-        e('span',{style:{fontSize:18,fontWeight:600,color:'#fff'}},'Settings')
-      )
-    ),
-    e('div',{style:{padding:'1rem',maxWidth:520,margin:'0 auto'}},
-
-      e(Section,{icon:'🔔',title:'Notifications'},
-        e(Row,{label:'Push notifications',sub:'Coming soon — requires Firebase setup',border:false,
-          right:e(Toggle,{on:false,onToggle:()=>{}})})
-      ),
-
-      e(Section,{icon:'🎨',title:'Appearance'},
-        e(Row,{label:'Band name',border:true,
-          right:editingBandName
-            ?e('div',{style:{display:'flex',alignItems:'center',gap:6}},
-                e('input',{autoFocus:true,value:bandNameValue,onChange:ev=>setBandNameValue(ev.target.value),
-                  onKeyDown:ev=>{if(ev.key==='Enter')saveBandName();if(ev.key==='Escape')setEditingBandName(false);},
-                  style:{padding:'4px 8px',border:'1px solid #d1d5db',borderRadius:6,fontSize:13,width:160}}),
-                e('button',{onClick:saveBandName,style:{fontSize:12,padding:'4px 10px',borderRadius:6,border:'none',background:theme.mid,color:'#fff',cursor:'pointer'}},'Save')
-              )
-            :e('div',{style:{display:'flex',alignItems:'center',gap:8}},
-                e('span',{style:{fontSize:12,color:'#6b7280'}},settings.bandName),
-                e('button',{onClick:()=>{setBandNameValue(settings.bandName);setEditingBandName(true);},
-                  style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'Edit')
-              )
-        }),
-        e(Row,{label:'Color scheme',border:false,
-          right:e('div',{style:{display:'flex',gap:8}},
-            Object.entries(THEMES).map(([k,v])=>
-              e('div',{key:k,onClick:()=>setSettings(s=>({...s,theme:k})),
-                style:{width:24,height:24,borderRadius:'50%',background:v.primary,cursor:'pointer',
-                  border:settings.theme===k?'3px solid #fff':'3px solid transparent',
-                  boxShadow:settings.theme===k?`0 0 0 2px ${v.primary}`:'none'}})
-            )
-          )
-        })
-      ),
-
-      e(Section,{icon:'📅',title:'Calendar'},
-        e(Row,{label:'Default view',border:true,
-          right:e('select',{value:settings.defaultTab,onChange:ev=>setSettings(s=>({...s,defaultTab:ev.target.value})),
-            style:{padding:'5px 8px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'auto'}},
-            e('option',{value:'calendar'},'Calendar'),
-            e('option',{value:'list'},'Shows'),
-            e('option',{value:'chart'},'Chart'),
-            e('option',{value:'checklist'},'Checklists')
-          )
-        }),
-        e(Row,{label:'Show past gigs in Shows tab',border:false,
-          right:e(Toggle,{on:settings.showPast,onToggle:()=>setSettings(s=>({...s,showPast:!s.showPast}))})
-        })
-      ),
-
-      e(Section,{icon:'🚗',title:'Mileage report'},
-        e('div',{onClick:()=>setMileageOpen(o=>!o),style:{padding:'12px 14px',display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'pointer',borderBottom:mileageOpen?'1px solid #e5e7eb':'none'}},
-          e('div',null,
-            e('div',{style:{fontSize:14,color:'#111827',fontWeight:500}},'Mileage report'),
-            e('div',{style:{fontSize:12,color:'#9ca3af',marginTop:2}},`${totalMiles.toFixed(1)} mi · $${totalDeduction} deduction`)
-          ),
-          e('span',{style:{fontSize:18,color:'#9ca3af'}},mileageOpen?'∨':'›')
-        ),
-        mileageOpen&&e('div',null,
-          e('div',{style:{display:'flex',borderBottom:'1px solid #e5e7eb'}},
-            e('div',{style:{flex:1,padding:'14px',textAlign:'center',borderRight:'1px solid #e5e7eb'}},
-              e('div',{style:{fontSize:10,color:'#6b7280',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4}},'Total miles'),
-              e('div',{style:{fontSize:26,fontWeight:500,color:theme.primary}},totalMiles.toFixed(1)),
-              e('div',{style:{fontSize:11,color:'#9ca3af',marginTop:2}},today.getFullYear()+' season')
-            ),
-            e('div',{style:{flex:1,padding:'14px',textAlign:'center'}},
-              e('div',{style:{fontSize:10,color:'#6b7280',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4}},'Tax deduction'),
-              e('div',{style:{fontSize:26,fontWeight:500,color:theme.primary}},'$'+totalDeduction),
-              e('div',{style:{fontSize:11,color:'#9ca3af',marginTop:2}},'@ $0.67/mile')
-            )
-          ),
-          mileageLog.length===0&&e('div',{style:{padding:'1.5rem',textAlign:'center',color:'#9ca3af',fontSize:13}},'No trips logged yet — tap Map on a gig to start tracking'),
-          mileageLog.map((t,i)=>e('div',{key:i,style:{padding:'10px 14px',borderBottom:i<mileageLog.length-1?'1px solid #e5e7eb':'none',display:'flex',justifyContent:'space-between',alignItems:'center'}},
-            e('div',null,
-              e('div',{style:{fontSize:13,fontWeight:500,color:'#111827'}},t.venue),
-              e('div',{style:{fontSize:11,color:'#9ca3af'}},t.date)
-            ),
-            e('div',{style:{fontSize:13,fontWeight:500,color:theme.primary}},t.miles.toFixed(1)+' mi')
-          )),
-          mileageLog.length>0&&e('div',{style:{padding:'10px 14px',borderTop:'1px solid #e5e7eb'}},
-            e('button',{onClick:()=>{if(window.confirm('Clear all mileage logs?'))setMileageLog([]);},
-              style:{fontSize:12,color:'#b91c1c',borderColor:'#fca5a5',width:'100%',padding:'7px 0'}},'Clear mileage log')
-          )
-        )
-      ),
-
-      e(Section,{icon:'📤',title:'Data'},
-        e(Row,{label:'Copy schedule to clipboard',sub:'Copies all upcoming gigs as plain text',border:true,
-          right:e('button',{onClick:copySchedule,
-            style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer',
-              background:copied?'#d1fae5':'#fff',color:copied?'#065f46':'#374151'}},
-            copied?'✓ Copied!':'Copy')
-        }),
-        e(Row,{label:'Reset all data',sub:'Clears all gigs and returns to defaults',danger:true,border:false,
-          right:e('button',{onClick:()=>setConfirmReset(true),
-            style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #fca5a5',color:'#b91c1c',cursor:'pointer'}},'Reset')
-        })
-      ),
-
-      e(Section,{icon:'ℹ️',title:'About'},
-        e(Row,{label:'Version',sub:'1.0.0',border:true,right:null}),
-        e(Row,{label:'Share app',sub:'Coming soon',border:false,
-          right:e('button',{disabled:true,style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #e5e7eb',color:'#9ca3af',cursor:'not-allowed',background:'#f9fafb'}},'Coming soon')
-        })
-      )
-    ),
-
-    confirmReset&&e('div',{onClick:()=>setConfirmReset(false),className:'overlay'},
-      e('div',{onClick:ev=>ev.stopPropagation(),className:'modal'},
-        e('div',{style:{fontSize:16,fontWeight:600,marginBottom:8}},'Reset all data?'),
-        e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:20}},'This will delete all gigs and reset the app to its defaults. This cannot be undone.'),
-        e('div',{style:{display:'flex',gap:8,justifyContent:'flex-end'}},
-          e('button',{onClick:()=>setConfirmReset(false)},'Cancel'),
-          e('button',{onClick:()=>{
-            setGigs(SAMPLE);
-            setSettings({bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false});
-            localStorage.removeItem('pmtf_gigs');
-            localStorage.removeItem('pmtf_settings');
-            localStorage.removeItem('pmtf_members');
-            localStorage.removeItem('pmtf_mileage');
-            setConfirmReset(false);
-            onClose();
-          },style:{background:'#dc2626',color:'#fff',border:'none',borderRadius:8,padding:'6px 16px',cursor:'pointer',fontWeight:500}},'Reset')
-        )
-      )
-    )
+  return (
+    <div style={{ position:"fixed", inset:0, background:"#f4f6f8", zIndex:200, overflowY:"auto" }}>
+      <div style={{ background:theme.primary, padding:"1.25rem 1rem 1rem" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+          <button onClick={onClose} style={{ background:"rgba(255,255,255,0.15)", border:"none", borderRadius:8, color:"#fff", padding:"6px 12px", cursor:"pointer", fontSize:13 }}>← Back</button>
+          <span style={{ fontSize:18, fontWeight:600, color:"#fff" }}>Settings</span>
+        </div>
+      </div>
+      <div style={{ padding:"1rem", maxWidth:520, margin:"0 auto" }}>
+        <Section icon="🔔" title="Notifications">
+          <Row label="Push notifications" sub="Coming soon — requires Firebase setup" border={false} right={<Toggle on={false} onToggle={()=>{}} />} />
+        </Section>
+        <Section icon="🎨" title="Appearance">
+          <Row label="Band name" border right={editingBandName ? (
+            <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+              <input autoFocus value={bandNameValue} onChange={e=>setBandNameValue(e.target.value)}
+                onKeyDown={e=>{ if(e.key==="Enter") saveBandName(); if(e.key==="Escape") setEditingBandName(false); }}
+                style={{ padding:"4px 8px", border:"1px solid #d1d5db", borderRadius:6, fontSize:13, width:160 }} />
+              <button onClick={saveBandName} style={{ fontSize:12, padding:"4px 10px", borderRadius:6, border:"none", background:theme.mid, color:"#fff", cursor:"pointer" }}>Save</button>
+            </div>
+          ) : (
+            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+              <span style={{ fontSize:12, color:"#6b7280" }}>{settings.bandName}</span>
+              <button onClick={()=>{ setBandNameValue(settings.bandName); setEditingBandName(true); }} style={{ fontSize:12, padding:"5px 12px", borderRadius:8, border:"1px solid #d1d5db", cursor:"pointer" }}>Edit</button>
+            </div>
+          )} />
+          <Row label="Color scheme" border={false} right={
+            <div style={{ display:"flex", gap:8 }}>
+              {Object.entries(THEMES).map(([k,v])=>(
+                <div key={k} onClick={()=>setSettings(s=>({...s,theme:k}))} style={{ width:24, height:24, borderRadius:"50%", background:v.primary, cursor:"pointer", border:settings.theme===k?"3px solid #fff":"3px solid transparent", boxShadow:settings.theme===k?`0 0 0 2px ${v.primary}`:"none" }} />
+              ))}
+            </div>
+          } />
+        </Section>
+        <Section icon="📅" title="Calendar">
+          <Row label="Default view" border right={
+            <select value={settings.defaultTab} onChange={e=>setSettings(s=>({...s,defaultTab:e.target.value}))} style={{ padding:"5px 8px", border:"1px solid #d1d5db", borderRadius:8, fontSize:13, width:"auto" }}>
+              <option value="calendar">Calendar</option>
+              <option value="list">Shows</option>
+              <option value="chart">Chart</option>
+              <option value="checklist">Checklists</option>
+            </select>
+          } />
+          <Row label="Show past gigs in Shows tab" border={false} right={<Toggle on={settings.showPast} onToggle={()=>setSettings(s=>({...s,showPast:!s.showPast}))} />} />
+        </Section>
+        <Section icon="🚗" title="Mileage report">
+          <div onClick={()=>setMileageOpen(o=>!o)} style={{ padding:"12px 14px", display:"flex", alignItems:"center", justifyContent:"space-between", cursor:"pointer", borderBottom:mileageOpen?"1px solid #e5e7eb":"none" }}>
+            <div>
+              <div style={{ fontSize:14, color:"#111827", fontWeight:500 }}>Mileage report</div>
+              <div style={{ fontSize:12, color:"#9ca3af", marginTop:2 }}>{totalMiles.toFixed(1)} mi · ${totalDeduction} deduction</div>
+            </div>
+            <span style={{ fontSize:18, color:"#9ca3af" }}>{mileageOpen?"∨":"›"}</span>
+          </div>
+          {mileageOpen && (
+            <div>
+              <div style={{ display:"flex", borderBottom:"1px solid #e5e7eb" }}>
+                <div style={{ flex:1, padding:"14px", textAlign:"center", borderRight:"1px solid #e5e7eb" }}>
+                  <div style={{ fontSize:10, color:"#6b7280", textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:4 }}>Total miles</div>
+                  <div style={{ fontSize:26, fontWeight:500, color:theme.primary }}>{totalMiles.toFixed(1)}</div>
+                  <div style={{ fontSize:11, color:"#9ca3af", marginTop:2 }}>{today.getFullYear()} season</div>
+                </div>
+                <div style={{ flex:1, padding:"14px", textAlign:"center" }}>
+                  <div style={{ fontSize:10, color:"#6b7280", textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:4 }}>Tax deduction</div>
+                  <div style={{ fontSize:26, fontWeight:500, color:theme.primary }}>${totalDeduction}</div>
+                  <div style={{ fontSize:11, color:"#9ca3af", marginTop:2 }}>@ $0.67/mile</div>
+                </div>
+              </div>
+              {mileageLog.length===0 && <div style={{ padding:"1.5rem", textAlign:"center", color:"#9ca3af", fontSize:13 }}>No trips logged yet — tap Map on a gig to start tracking</div>}
+              {mileageLog.map((t,i)=>(
+                <div key={i} style={{ padding:"10px 14px", borderBottom:i<mileageLog.length-1?"1px solid #e5e7eb":"none", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                  <div>
+                    <div style={{ fontSize:13, fontWeight:500, color:"#111827" }}>{t.venue}</div>
+                    <div style={{ fontSize:11, color:"#9ca3af" }}>{t.date}</div>
+                  </div>
+                  <div style={{ fontSize:13, fontWeight:500, color:theme.primary }}>{t.miles.toFixed(1)} mi</div>
+                </div>
+              ))}
+              {mileageLog.length>0 && (
+                <div style={{ padding:"10px 14px", borderTop:"1px solid #e5e7eb" }}>
+                  <button onClick={()=>{ if(window.confirm("Clear all mileage logs?")) setMileageLog([]); }} style={{ fontSize:12, color:"#b91c1c", borderColor:"#fca5a5", width:"100%", padding:"7px 0" }}>Clear mileage log</button>
+                </div>
+              )}
+            </div>
+          )}
+        </Section>
+        <Section icon="📤" title="Data">
+          <Row label="Copy schedule to clipboard" sub="Copies all upcoming gigs as plain text" border right={
+            <button onClick={copySchedule} style={{ fontSize:12, padding:"5px 12px", borderRadius:8, border:"1px solid #d1d5db", cursor:"pointer", background:copied?"#d1fae5":"#fff", color:copied?"#065f46":"#374151" }}>
+              {copied?"✓ Copied!":"Copy"}
+            </button>
+          } />
+          <Row label="Reset all data" sub="Clears all gigs and returns to defaults" danger border={false} right={
+            <button onClick={()=>setConfirmReset(true)} style={{ fontSize:12, padding:"5px 12px", borderRadius:8, border:"1px solid #fca5a5", color:"#b91c1c", cursor:"pointer" }}>Reset</button>
+          } />
+        </Section>
+        <Section icon="ℹ️" title="About">
+          <Row label="Version" sub="1.0.0" border />
+          <Row label="Share app" sub="Coming soon" border={false} right={
+            <button disabled style={{ fontSize:12, padding:"5px 12px", borderRadius:8, border:"1px solid #e5e7eb", color:"#9ca3af", cursor:"not-allowed", background:"#f9fafb" }}>Coming soon</button>
+          } />
+        </Section>
+      </div>
+      {confirmReset && (
+        <div onClick={()=>setConfirmReset(false)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.45)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300, padding:"1rem" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:"#fff", borderRadius:16, padding:"1.5rem", width:"min(360px,92vw)" }}>
+            <div style={{ fontSize:16, fontWeight:600, marginBottom:8 }}>Reset all data?</div>
+            <div style={{ fontSize:13, color:"#6b7280", marginBottom:20 }}>This will delete all gigs and reset the app to defaults. This cannot be undone.</div>
+            <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+              <button onClick={()=>setConfirmReset(false)} style={{ padding:"6px 14px", borderRadius:8, border:"1px solid #d1d5db", cursor:"pointer" }}>Cancel</button>
+              <button onClick={()=>{ setGigs(SAMPLE); setSettings({bandName:"Peat Moss & The Fertilizers",theme:"green",defaultTab:"calendar",showPast:false}); setConfirmReset(false); onClose(); }}
+                style={{ background:"#dc2626", color:"#fff", border:"none", borderRadius:8, padding:"6px 16px", cursor:"pointer", fontWeight:500 }}>Reset</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
-function App(){
-  const [settings,setSettings]=useState(()=>{
-    try{const s=localStorage.getItem('pmtf_settings');return s?JSON.parse(s):{bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false};}
-    catch{return {bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false};}
-  });
-  const [gigs,setGigs]=useState(()=>{
-    try{const s=localStorage.getItem('pmtf_gigs');return s?JSON.parse(s):SAMPLE;}catch{return SAMPLE;}
-  });
-  const [members,setMembers]=useState(()=>{
-    try{const s=localStorage.getItem('pmtf_members');return s?JSON.parse(s):[];}catch{return [];}
-  });
-  const [mileageLog,setMileageLog]=useState(()=>{
-    try{const s=localStorage.getItem('pmtf_mileage');return s?JSON.parse(s):[];}catch{return [];}
-  });
-  const [tab,setTab]=useState(()=>{
-    try{const s=localStorage.getItem('pmtf_settings');return s?JSON.parse(s).defaultTab||'calendar':'calendar';}catch{return 'calendar';}
-  });
-  const [calMonth,setCalMonth]=useState(today.getMonth());
-  const [calYear,setCalYear]=useState(today.getFullYear());
-  const [chartYear,setChartYear]=useState(today.getFullYear());
-  const [chartType,setChartType]=useState('bar');
-  const [modal,setModal]=useState(null);
-  const [sort,setSort]=useState({col:'date',dir:1});
-  const [activeMember,setActiveMember]=useState(null);
-  const [newItemText,setNewItemText]=useState('');
-  const [newMemberName,setNewMemberName]=useState('');
-  const [addingMember,setAddingMember]=useState(false);
-  const [confirmDelete,setConfirmDelete]=useState(null);
-  const [editingName,setEditingName]=useState(false);
-  const [editNameValue,setEditNameValue]=useState('');
-  const [gigPopup,setGigPopup]=useState(null);
-  const [showSettings,setShowSettings]=useState(false);
-  const [trackingMiles,setTrackingMiles]=useState(null);
-  const [askTrack,setAskTrack]=useState(null);
+export default function App() {
+  const [settings, setSettings] = useState({ bandName:"Peat Moss & The Fertilizers", theme:"green", defaultTab:"calendar", showPast:false });
+  const [gigs, setGigs] = useState(SAMPLE);
+  const [members, setMembers] = useState([]);
+  const [mileageLog, setMileageLog] = useState([]);
+  const [tab, setTab] = useState(settings.defaultTab||"calendar");
+  const [calMonth, setCalMonth] = useState(today.getMonth());
+  const [calYear, setCalYear] = useState(today.getFullYear());
+  const [chartYear, setChartYear] = useState(today.getFullYear());
+  const [modal, setModal] = useState(null);
+  const [sort, setSort] = useState({ col:"date", dir:1 });
+  const [chartType, setChartType] = useState("bar");
+  const [activeMember, setActiveMember] = useState(null);
+  const [newItemText, setNewItemText] = useState("");
+  const [newMemberName, setNewMemberName] = useState("");
+  const [addingMember, setAddingMember] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [editingName, setEditingName] = useState(false);
+  const [editNameValue, setEditNameValue] = useState("");
+  const [gigPopup, setGigPopup] = useState(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [trackingMiles, setTrackingMiles] = useState(null);
+  const [askTrack, setAskTrack] = useState(null);
+  const [calSyncing, setCalSyncing] = useState(false);
+  const [lastSynced, setLastSynced] = useState(null);
 
-  const theme=THEMES[settings.theme]||THEMES.green;
+  const theme = THEMES[settings.theme] || THEMES.green;
 
-  useEffect(()=>{try{localStorage.setItem('pmtf_gigs',JSON.stringify(gigs));}catch{}},[gigs]);
-  useEffect(()=>{try{localStorage.setItem('pmtf_settings',JSON.stringify(settings));}catch{}},[settings]);
-  useEffect(()=>{try{localStorage.setItem('pmtf_members',JSON.stringify(members));}catch{}},[members]);
-  useEffect(()=>{try{localStorage.setItem('pmtf_mileage',JSON.stringify(mileageLog));}catch{}},[mileageLog]);
-
-  const closeModal=()=>setModal(null);
-  const openAdd=()=>setModal({mode:'add'});
-  const openEdit=g=>setModal({mode:'edit',gig:g});
-  const saveGig=g=>{setGigs(p=>p.find(x=>x.id===g.id)?p.map(x=>x.id===g.id?g:x):[...p,g]);closeModal();};
-  const deleteGig=id=>{setGigs(p=>p.filter(x=>x.id!==id));closeModal();};
-
-  const startTracking=gig=>{
-    if(!navigator.geolocation){alert('GPS not available on this device.');return;}
-    navigator.geolocation.getCurrentPosition(pos=>{
-      const watchId=navigator.geolocation.watchPosition(newPos=>{
-        setTrackingMiles(prev=>{
-          if(!prev)return prev;
-          const R=3958.8;
-          const dLat=(newPos.coords.latitude-prev.lastPos.lat)*Math.PI/180;
-          const dLon=(newPos.coords.longitude-prev.lastPos.lon)*Math.PI/180;
-          const a=Math.sin(dLat/2)**2+Math.cos(prev.lastPos.lat*Math.PI/180)*Math.cos(newPos.coords.latitude*Math.PI/180)*Math.sin(dLon/2)**2;
-          const dist=R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
-          return{...prev,miles:prev.miles+dist,lastPos:{lat:newPos.coords.latitude,lon:newPos.coords.longitude}};
+  const syncFromGoogleCalendar = async () => {
+    setCalSyncing(true);
+    try {
+      const now = new Date();
+      const start = new Date(now.getFullYear(),0,1).toISOString();
+      const end = new Date(now.getFullYear(),11,31).toISOString();
+      const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDAR_ID)}/events?key=${GOOGLE_API_KEY}&timeMin=${start}&timeMax=${end}&singleEvents=true&orderBy=startTime&maxResults=100`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.items) {
+        const calGigs = data.items.map(ev => {
+          const date = ev.start.date || ev.start.dateTime?.slice(0,10);
+          const timeStart = ev.start.dateTime ? new Date(ev.start.dateTime).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}) : '';
+          const timeEnd = ev.end?.dateTime ? new Date(ev.end.dateTime).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}) : '';
+          const time = timeStart && timeEnd ? `${timeStart}–${timeEnd}` : timeStart;
+          const venue = ev.summary||'Untitled';
+          const location = ev.location||'';
+          return { id:ev.id, date, venue, location, type:venue.toLowerCase().includes('wedding')?'wedding':'bar', status:'confirmed', time, fromCalendar:true };
         });
-      },null,{enableHighAccuracy:true,maximumAge:0});
-      setTrackingMiles({gigId:gig.id,venueName:gig.venue,date:gig.date,miles:0,watchId,lastPos:{lat:pos.coords.latitude,lon:pos.coords.longitude}});
-    },()=>alert('Unable to get your location. Please allow location access.'));
+        setGigs(prev => [...prev.filter(g=>!g.fromCalendar), ...calGigs]);
+        setLastSynced(new Date().toLocaleTimeString());
+      }
+    } catch(err) {
+      console.log('Calendar sync failed:', err);
+    }
+    setCalSyncing(false);
   };
 
-  const stopTracking=()=>{
-    if(!trackingMiles)return;
+  const openAdd  = () => setModal({ mode:"add" });
+  const openEdit = (g) => setModal({ mode:"edit", gig:g });
+  const closeModal = () => setModal(null);
+  const saveGig = (g) => { setGigs(p=>p.find(x=>x.id===g.id)?p.map(x=>x.id===g.id?g:x):[...p,g]); closeModal(); };
+  const deleteGig = (id) => { setGigs(p=>p.filter(x=>x.id!==id)); closeModal(); };
+
+  const startTracking = (gig) => {
+    if (!navigator.geolocation) { alert("GPS not available."); return; }
+    navigator.geolocation.getCurrentPosition(pos => {
+      const watchId = navigator.geolocation.watchPosition(newPos => {
+        setTrackingMiles(prev => {
+          if (!prev) return prev;
+          const R = 3958.8;
+          const dLat = (newPos.coords.latitude - prev.lastPos.lat) * Math.PI/180;
+          const dLon = (newPos.coords.longitude - prev.lastPos.lon) * Math.PI/180;
+          const a = Math.sin(dLat/2)**2 + Math.cos(prev.lastPos.lat*Math.PI/180)*Math.cos(newPos.coords.latitude*Math.PI/180)*Math.sin(dLon/2)**2;
+          const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+          return { ...prev, miles: prev.miles+dist, lastPos:{ lat:newPos.coords.latitude, lon:newPos.coords.longitude } };
+        });
+      }, null, { enableHighAccuracy:true, maximumAge:0 });
+      setTrackingMiles({ gigId:gig.id, venueName:gig.venue, date:gig.date, miles:0, watchId, lastPos:{ lat:pos.coords.latitude, lon:pos.coords.longitude } });
+    }, () => alert("Unable to get location."));
+  };
+
+  const stopTracking = () => {
+    if (!trackingMiles) return;
     navigator.geolocation.clearWatch(trackingMiles.watchId);
-    const trip={gigId:trackingMiles.gigId,venue:trackingMiles.venueName,date:trackingMiles.date,miles:parseFloat(trackingMiles.miles.toFixed(1))};
-    setMileageLog(prev=>[...prev,trip]);
+    setMileageLog(prev=>[...prev, { gigId:trackingMiles.gigId, venue:trackingMiles.venueName, date:trackingMiles.date, miles:parseFloat(trackingMiles.miles.toFixed(1)) }]);
     setTrackingMiles(null);
   };
 
-  const upcomingGigsAll=gigs.filter(g=>g.date>=todayStr);
-  const listGigs=settings.showPast?gigs:upcomingGigsAll;
-  const upcomingCount=upcomingGigsAll.length;
-  const confirmed=upcomingGigsAll.filter(g=>g.status==='confirmed').length;
-  const weddings=upcomingGigsAll.filter(g=>g.type==='wedding').length;
-  const nextGig=[...upcomingGigsAll].sort((a,b)=>a.date>b.date?1:-1)[0];
+  const upcomingGigs = settings.showPast ? gigs : gigs.filter(g=>g.date>=todayStr);
+  const upcomingCount = gigs.filter(g=>g.date>=todayStr).length;
+  const confirmed = gigs.filter(g=>g.date>=todayStr&&g.status==="confirmed").length;
+  const weddings  = gigs.filter(g=>g.date>=todayStr&&g.type==="wedding").length;
+  const nextGig   = gigs.filter(g=>g.date>=todayStr).sort((a,b)=>a.date>b.date?1:-1)[0];
 
-  const upcoming=useMemo(()=>[...listGigs].sort((a,b)=>{
-    const va=a[sort.col]||'',vb=b[sort.col]||'';
+  const upcoming = useMemo(()=>[...upcomingGigs].sort((a,b)=>{
+    const va=a[sort.col]||"", vb=b[sort.col]||"";
     return va<vb?-sort.dir:va>vb?sort.dir:0;
-  }),[gigs,sort,settings.showPast]);
+  }), [gigs, sort, settings.showPast]);
 
-  const chartData=useMemo(()=>MONTHS.map((m,i)=>{
-    const mg=gigs.filter(g=>{const d=new Date(g.date+'T12:00:00');return d.getFullYear()===chartYear&&d.getMonth()===i;});
-    return{month:m,count:mg.length,weddings:mg.filter(g=>g.type==='wedding').length,private:mg.filter(g=>g.type==='private event').length,regular:mg.filter(g=>g.type==='bar'||g.type==='other').length};
-  }),[gigs,chartYear]);
+  const chartData = useMemo(()=>MONTHS.map((m,i)=>{
+    const mg=gigs.filter(g=>{ const d=new Date(g.date+"T12:00:00"); return d.getFullYear()===chartYear&&d.getMonth()===i; });
+    return { month:m, count:mg.length, weddings:mg.filter(g=>g.type==="wedding").length, private:mg.filter(g=>g.type==="private event").length, regular:mg.filter(g=>g.type==="bar"||g.type==="other").length };
+  }), [gigs, chartYear]);
 
-  const gigsByDate=useMemo(()=>{const m={};gigs.forEach(g=>{if(!m[g.date])m[g.date]=[];m[g.date].push(g);});return m;},[gigs]);
-  const firstDay=new Date(calYear,calMonth,1).getDay();
-  const daysInMonth=new Date(calYear,calMonth+1,0).getDate();
-  const cells=Array(firstDay).fill(null).concat(Array.from({length:daysInMonth},(_,i)=>i+1));
-  const navMonth=dir=>{let m=calMonth+dir,y2=calYear;if(m<0){m=11;y2--;}if(m>11){m=0;y2++;}setCalMonth(m);setCalYear(y2);};
+  const gigsByDate = useMemo(()=>{ const m={}; gigs.forEach(g=>{ if(!m[g.date])m[g.date]=[]; m[g.date].push(g); }); return m; }, [gigs]);
+  const firstDay = new Date(calYear,calMonth,1).getDay();
+  const daysInMonth = new Date(calYear,calMonth+1,0).getDate();
+  const cells = Array(firstDay).fill(null).concat(Array.from({length:daysInMonth},(_,i)=>i+1));
 
   const toggleItem=(mid,iid)=>setMembers(prev=>prev.map(m=>m.id!==mid?m:{...m,items:m.items.map(it=>it.id===iid?{...it,checked:!it.checked}:it)}));
   const resetMember=mid=>setMembers(prev=>prev.map(m=>m.id!==mid?m:{...m,items:m.items.map(it=>({...it,checked:false}))}));
-  const addItem=mid=>{if(!newItemText.trim())return;setMembers(prev=>prev.map(m=>m.id!==mid?m:{...m,items:[...m.items,{id:'i'+Date.now(),text:newItemText.trim(),checked:false}]}));setNewItemText('');};
+  const addItem=mid=>{if(!newItemText.trim())return;setMembers(prev=>prev.map(m=>m.id!==mid?m:{...m,items:[...m.items,{id:"i"+Date.now(),text:newItemText.trim(),checked:false}]}));setNewItemText("");};
   const deleteItem=(mid,iid)=>setMembers(prev=>prev.map(m=>m.id!==mid?m:{...m,items:m.items.filter(it=>it.id!==iid)}));
-  const addMember=()=>{if(!newMemberName.trim())return;setMembers(prev=>[...prev,{id:'m'+Date.now(),name:newMemberName.trim(),items:[]}]);setNewMemberName('');setAddingMember(false);};
+  const addMember=()=>{if(!newMemberName.trim())return;setMembers(prev=>[...prev,{id:"m"+Date.now(),name:newMemberName.trim(),items:[]}]);setNewMemberName("");setAddingMember(false);};
   const deleteMember=mid=>{setMembers(prev=>prev.filter(x=>x.id!==mid));setActiveMember(null);setConfirmDelete(null);};
   const renameMember=(mid,n)=>{if(!n.trim())return;setMembers(prev=>prev.map(m=>m.id!==mid?m:{...m,name:n.trim()}));setEditingName(false);};
 
-  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog});
+  if (showSettings) return <SettingsPage gigs={gigs} setGigs={setGigs} settings={settings} setSettings={setSettings} onClose={()=>setShowSettings(false)} theme={theme} mileageLog={mileageLog} setMileageLog={setMileageLog} />;
 
-  return e('div',{style:{maxWidth:720,margin:'0 auto',paddingBottom:'2rem'}},
+  return (
+    <div style={{ fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", maxWidth:720, margin:"0 auto", paddingBottom:"2rem", background:"#f4f6f8", minHeight:"100vh" }}>
 
-    e('div',{style:{background:theme.primary,borderRadius:'0 0 20px 20px',padding:'1.25rem 1.25rem 1.5rem',marginBottom:'1.25rem'}},
-      e('div',{style:{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:8}},
-        e('div',null,
-          e('div',{style:{fontSize:11,color:theme.accent,fontWeight:500,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:4}},'Gig Dashboard'),
-          e('div',{style:{fontSize:22,fontWeight:600,color:'#fff',lineHeight:1.2}},settings.bandName)
-        ),
-        e('div',{style:{display:'flex',alignItems:'center',gap:8,flexShrink:0}},
-          e('button',{onClick:()=>setShowSettings(true),style:{background:'none',border:'none',cursor:'pointer',fontSize:18,opacity:0.6,padding:0}},'⚙️'),
-          e('button',{onClick:openAdd,style:{background:theme.mid,color:'#fff',border:`1px solid ${theme.light}`,borderRadius:10,padding:'7px 14px',cursor:'pointer',fontWeight:500,fontSize:13,whiteSpace:'nowrap'}},'+ Add gig')
-        )
-      ),
-      e('div',{style:{display:'flex',gap:10,marginTop:'1rem',flexWrap:'wrap'}},
-        [{label:'Upcoming Gigs',value:upcomingCount,accent:theme.light},{label:'Confirmed',value:confirmed,accent:theme.accent},{label:'Weddings',value:weddings,accent:'#AFA9EC'}].map(c=>
-          e('div',{key:c.label,style:{flex:1,minWidth:80,background:'rgba(255,255,255,0.1)',borderRadius:10,padding:'10px 14px',border:'1px solid rgba(255,255,255,0.15)'}},
-            e('div',{style:{fontSize:10,color:c.accent,fontWeight:500,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:2}},c.label),
-            e('div',{style:{fontSize:26,fontWeight:500,color:'#fff',lineHeight:1}},c.value)
-          )
-        )
-      ),
-      nextGig&&e('div',{style:{marginTop:12,background:'rgba(255,255,255,0.08)',borderRadius:10,padding:'8px 14px',border:'1px solid rgba(255,255,255,0.12)',display:'flex',alignItems:'center',gap:10}},
-        e('div',{style:{width:8,height:8,borderRadius:'50%',background:theme.light,flexShrink:0}}),
-        e('div',{style:{fontSize:12,color:'#E1F5EE',overflow:'hidden'}},
-          'Next up: ',e('span',{style:{fontWeight:500,color:'#fff'}},nextGig.venue),
-          e('span',{style:{color:theme.accent}},` · ${nextGig.location} · ${nextGig.date}${nextGig.time?' · '+nextGig.time:''}`)
-        )
-      )
-    ),
+      <div style={{ background:theme.primary, borderRadius:"0 0 20px 20px", padding:"1.25rem 1.25rem 1.5rem", marginBottom:"1.25rem" }}>
+        <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:8 }}>
+          <div>
+            <div style={{ fontSize:11, color:theme.accent, fontWeight:500, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:4 }}>Gig Dashboard</div>
+            <div style={{ fontSize:22, fontWeight:600, color:"#fff", lineHeight:1.2 }}>{settings.bandName}</div>
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:8, flexShrink:0 }}>
+            <button onClick={()=>setShowSettings(true)} style={{ background:"none", border:"none", cursor:"pointer", fontSize:18, opacity:0.6, padding:0 }}>⚙️</button>
+            <button onClick={syncFromGoogleCalendar} disabled={calSyncing} style={{ background:"rgba(255,255,255,0.15)", color:"#fff", border:"1px solid rgba(255,255,255,0.3)", borderRadius:10, padding:"7px 12px", cursor:"pointer", fontSize:12, whiteSpace:"nowrap" }}>
+              {calSyncing?"Syncing...":"🔄 Sync"}
+            </button>
+            <button onClick={openAdd} style={{ background:theme.mid, color:"#fff", border:`1px solid ${theme.light}`, borderRadius:10, padding:"7px 14px", cursor:"pointer", fontWeight:500, fontSize:13, whiteSpace:"nowrap" }}>+ Add gig</button>
+          </div>
+        </div>
+        <div style={{ display:"flex", gap:10, marginTop:"1rem", flexWrap:"wrap" }}>
+          {[
+            { label:"Upcoming Gigs", value:upcomingCount, accent:theme.light },
+            { label:"Confirmed",     value:confirmed,     accent:theme.accent },
+            { label:"Weddings",      value:weddings,      accent:"#AFA9EC" },
+          ].map(c=>(
+            <div key={c.label} style={{ flex:1, minWidth:80, background:"rgba(255,255,255,0.1)", borderRadius:10, padding:"10px 14px", border:"1px solid rgba(255,255,255,0.15)" }}>
+              <div style={{ fontSize:10, color:c.accent, fontWeight:500, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:2 }}>{c.label}</div>
+              <div style={{ fontSize:26, fontWeight:500, color:"#fff", lineHeight:1 }}>{c.value}</div>
+            </div>
+          ))}
+        </div>
+        {nextGig && (
+          <div style={{ marginTop:12, background:"rgba(255,255,255,0.08)", borderRadius:10, padding:"8px 14px", border:"1px solid rgba(255,255,255,0.12)", display:"flex", alignItems:"center", gap:10 }}>
+            <div style={{ width:8, height:8, borderRadius:"50%", background:theme.light, flexShrink:0 }} />
+            <div style={{ fontSize:12, color:"#E1F5EE", overflow:"hidden" }}>
+              Next up: <span style={{ fontWeight:500, color:"#fff" }}>{nextGig.venue}</span>
+              <span style={{ color:theme.accent }}> · {nextGig.location} · {nextGig.date}{nextGig.time?` · ${nextGig.time}`:""}</span>
+            </div>
+          </div>
+        )}
+        {lastSynced && <div style={{ marginTop:8, fontSize:11, color:"rgba(255,255,255,0.5)", textAlign:"right" }}>Last synced: {lastSynced}</div>}
+      </div>
 
-    e('div',{style:{padding:'0 1rem'}},
-      e('div',{className:'tab-bar'},
-        [{id:'calendar',label:'Calendar'},{id:'list',label:'Shows'},{id:'chart',label:'Chart'},{id:'checklist',label:'Checklists'}].map(t=>
-          e('button',{key:t.id,className:'tab-btn'+(tab===t.id?' active':''),
-            style:{color:tab===t.id?theme.primary:'#6b7280'},onClick:()=>setTab(t.id)},t.label)
-        )
-      ),
+      <div style={{ padding:"0 1rem" }}>
+        <div style={{ display:"flex", gap:6, marginBottom:"1.25rem", background:"#e9ecef", borderRadius:12, padding:4 }}>
+          {[{id:"calendar",label:"Calendar"},{id:"list",label:"Shows"},{id:"chart",label:"Chart"},{id:"checklist",label:"Checklists"}].map(t=>(
+            <button key={t.id} onClick={()=>setTab(t.id)} style={{
+              flex:1, padding:"8px 0", fontSize:13, borderRadius:9, border:"none", cursor:"pointer",
+              background:tab===t.id?"#fff":"transparent", fontWeight:tab===t.id?500:400,
+              color:tab===t.id?theme.primary:"#6b7280", boxShadow:tab===t.id?"0 1px 3px rgba(0,0,0,0.08)":"none",
+            }}>{t.label}</button>
+          ))}
+        </div>
 
-      tab==='calendar'&&e('div',null,
-        e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'1rem'}},
-          e('button',{onClick:()=>navMonth(-1),style:{padding:'4px 12px'}},'‹'),
-          e('span',{style:{fontWeight:500,fontSize:15}},MONTHS[calMonth]+' '+calYear),
-          e('button',{onClick:()=>navMonth(1),style:{padding:'4px 12px'}},'›')
-        ),
-        e('div',{style:{display:'grid',gridTemplateColumns:'repeat(7,minmax(0,1fr))',gap:3,marginBottom:8}},
-          DAYS.map(d=>e('div',{key:d,style:{textAlign:'center',fontSize:11,color:'#6b7280',padding:'4px 0',fontWeight:500}},d)),
-          cells.map((day,i)=>{
-            if(!day)return e('div',{key:'e'+i});
-            const ds=`${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-            const dg=gigsByDate[ds]||[];
-            const isToday=ds===todayStr;
-            const hasgig=dg.length>0;
-            const allCancelled=hasgig&&dg.every(g=>g.status==='cancelled');
-            return e('div',{key:day,className:'cal-cell',onClick:()=>dg.length&&setGigPopup(dg[0]),
-              style:{minHeight:56,padding:'4px 5px',borderRadius:8,cursor:dg.length?'pointer':'default',
-                background:allCancelled?'#FEE2E2':hasgig?theme.pale:'#f9fafb',
-                border:isToday?`2px solid ${theme.mid}`:allCancelled?'1px solid #F87171':hasgig?`1px solid ${theme.light}`:'1px solid #e5e7eb',
-                overflow:'hidden'}},
-              e('div',{className:'cal-day',style:{fontSize:12,fontWeight:isToday?500:400,color:isToday?theme.primary:allCancelled?'#B91C1C':hasgig?'#085041':'#9ca3af'}},day),
-              dg.map(g=>e('div',{key:g.id,className:'cal-gig',style:{fontSize:9,marginTop:2,color:STATUS_STYLE[g.status].color,background:STATUS_STYLE[g.status].bg,borderRadius:3,padding:'1px 4px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},g.venue))
-            );
-          })
-        ),
-        e('div',{style:{display:'flex',gap:12,fontSize:12,color:'#6b7280',flexWrap:'wrap'}},
-          e('span',{style:{display:'flex',alignItems:'center',gap:5}},e('span',{style:{width:10,height:10,borderRadius:3,background:theme.pale,border:`1px solid ${theme.light}`,display:'inline-block'}}),' has gig'),
-          e('span',{style:{display:'flex',alignItems:'center',gap:5}},e('span',{style:{width:10,height:10,borderRadius:3,background:'#FEE2E2',border:'1px solid #F87171',display:'inline-block'}}),' cancelled'),
-          e('span',{style:{display:'flex',alignItems:'center',gap:5}},e('span',{style:{width:10,height:10,borderRadius:3,background:'#f9fafb',border:'1px solid #e5e7eb',display:'inline-block'}}),' open')
-        )
-      ),
+        {tab==="calendar" && (
+          <div>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"1rem" }}>
+              <button onClick={()=>{ let m=calMonth-1,y2=calYear; if(m<0){m=11;y2--;} setCalMonth(m);setCalYear(y2); }} style={{ padding:"4px 12px", borderRadius:8, border:"1px solid #d1d5db", cursor:"pointer" }}>‹</button>
+              <span style={{ fontWeight:500, fontSize:15 }}>{MONTHS[calMonth]} {calYear}</span>
+              <button onClick={()=>{ let m=calMonth+1,y2=calYear; if(m>11){m=0;y2++;} setCalMonth(m);setCalYear(y2); }} style={{ padding:"4px 12px", borderRadius:8, border:"1px solid #d1d5db", cursor:"pointer" }}>›</button>
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(7,minmax(0,1fr))", gap:3, marginBottom:8 }}>
+              {DAYS.map(d=><div key={d} style={{ textAlign:"center", fontSize:11, color:"#6b7280", padding:"4px 0", fontWeight:500 }}>{d}</div>)}
+              {cells.map((day,i)=>{
+                if(!day) return <div key={`e${i}`} />;
+                const ds=`${calYear}-${String(calMonth+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+                const dg=gigsByDate[ds]||[];
+                const isToday=ds===todayStr;
+                const hasgig=dg.length>0;
+                const allCancelled=hasgig&&dg.every(g=>g.status==="cancelled");
+                return (
+                  <div key={day} onClick={()=>dg.length&&setGigPopup(dg[0])} style={{
+                    minHeight:56, padding:"4px 5px", borderRadius:8, cursor:dg.length?"pointer":"default",
+                    background:allCancelled?"#FEE2E2":hasgig?theme.pale:"#f9fafb",
+                    border:isToday?`2px solid ${theme.mid}`:allCancelled?"1px solid #F87171":hasgig?`1px solid ${theme.light}`:"1px solid #e5e7eb",
+                    overflow:"hidden",
+                  }}>
+                    <div style={{ fontSize:12, fontWeight:isToday?500:400, color:isToday?theme.primary:allCancelled?"#B91C1C":hasgig?"#085041":"#9ca3af" }}>{day}</div>
+                    {dg.map(g=>(
+                      <div key={g.id} style={{ fontSize:9, marginTop:2, color:STATUS_STYLE[g.status].color, background:STATUS_STYLE[g.status].bg, borderRadius:3, padding:"1px 4px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{g.venue}</div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ display:"flex", gap:12, fontSize:12, color:"#6b7280", flexWrap:"wrap" }}>
+              <span style={{ display:"flex", alignItems:"center", gap:5 }}><span style={{ width:10, height:10, borderRadius:3, background:theme.pale, border:`1px solid ${theme.light}`, display:"inline-block" }}/> has gig</span>
+              <span style={{ display:"flex", alignItems:"center", gap:5 }}><span style={{ width:10, height:10, borderRadius:3, background:"#FEE2E2", border:"1px solid #F87171", display:"inline-block" }}/> cancelled</span>
+              <span style={{ display:"flex", alignItems:"center", gap:5 }}><span style={{ width:10, height:10, borderRadius:3, background:"#f9fafb", border:"1px solid #e5e7eb", display:"inline-block" }}/> open</span>
+            </div>
+          </div>
+        )}
 
-      tab==='list'&&e('div',null,
-        e('div',{style:{borderRadius:12,border:'1px solid #e5e7eb',overflow:'hidden'}},
-          upcoming.length===0&&e('div',{style:{padding:'2rem',textAlign:'center',color:'#6b7280',fontSize:13}},'No upcoming gigs'),
-          upcoming.map((g,idx)=>{
-            const tc=typeStyle(g.type);
-            return e('div',{key:g.id,style:{padding:'12px 14px',borderBottom:idx<upcoming.length-1?'1px solid #e5e7eb':'none',background:idx%2===0?'#fff':'#f9fafb',display:'flex',alignItems:'center',gap:12}},
-              e('div',{style:{background:tc.bg,borderRadius:8,padding:'8px 0',width:44,flexShrink:0,textAlign:'center'}},
-                e('div',{style:{fontSize:16,fontWeight:500,color:tc.color,lineHeight:1}},g.date.slice(8)),
-                e('div',{style:{fontSize:10,color:tc.color,marginTop:2}},MONTHS[parseInt(g.date.slice(5,7))-1])
-              ),
-              e('div',{style:{flex:1,minWidth:0}},
-                e('div',{style:{fontWeight:500,fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},g.venue),
-                e('div',{style:{fontSize:12,color:'#6b7280',marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},g.location+(g.time?' · '+g.time:'')),
-                e('div',{style:{display:'flex',gap:6,marginTop:5,flexWrap:'wrap',alignItems:'center'}},
-                  e('span',{className:'badge',style:{background:tc.bg,color:tc.color}},g.type),
-                  e(Badge,{status:g.status}),
-                  g.location&&e('a',{href:`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(g.venue+' '+g.location)}`,target:'_blank',rel:'noopener noreferrer',
-                    style:{fontSize:11,padding:'2px 8px',borderRadius:99,background:'#E0EFFE',color:'#1D4ED8',fontWeight:500,textDecoration:'none',display:'inline-flex',alignItems:'center',gap:3}},'📍 Map')
-                )
-              ),
-              e('button',{onClick:()=>openEdit(g),style:{fontSize:12,padding:'5px 12px',flexShrink:0}},'Edit')
-            );
-          })
-        ),
-        e('div',{style:{marginTop:10,fontSize:13,color:'#6b7280'}},upcoming.length+' upcoming gig'+(upcoming.length!==1?'s':''))
-      ),
+        {tab==="list" && (
+          <div>
+            <div style={{ borderRadius:12, border:"1px solid #e5e7eb", overflow:"hidden" }}>
+              {upcoming.length===0 && <div style={{ padding:"2rem", textAlign:"center", color:"#6b7280", fontSize:13 }}>No upcoming gigs</div>}
+              {upcoming.map((g,idx)=>{
+                const tc=typeStyle(g.type);
+                return (
+                  <div key={g.id} style={{ padding:"12px 14px", borderBottom:idx<upcoming.length-1?"1px solid #e5e7eb":"none", background:idx%2===0?"#fff":"#f9fafb", display:"flex", alignItems:"center", gap:12 }}>
+                    <div style={{ background:tc.bg, borderRadius:8, padding:"8px 0", width:44, flexShrink:0, textAlign:"center" }}>
+                      <div style={{ fontSize:16, fontWeight:500, color:tc.color, lineHeight:1 }}>{g.date.slice(8)}</div>
+                      <div style={{ fontSize:10, color:tc.color, marginTop:2 }}>{MONTHS[parseInt(g.date.slice(5,7))-1]}</div>
+                    </div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontWeight:500, fontSize:14, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{g.venue}</div>
+                      <div style={{ fontSize:12, color:"#6b7280", marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{g.location}{g.time?` · ${g.time}`:""}</div>
+                      <div style={{ display:"flex", gap:6, marginTop:5, flexWrap:"wrap", alignItems:"center" }}>
+                        <span style={{ fontSize:11, padding:"2px 8px", borderRadius:99, background:tc.bg, color:tc.color, fontWeight:500 }}>{g.type}</span>
+                        <Badge status={g.status} />
+                        {g.location && (
+                          <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(g.venue+" "+g.location)}`} target="_blank" rel="noopener noreferrer"
+                            style={{ fontSize:11, padding:"2px 8px", borderRadius:99, background:"#E0EFFE", color:"#1D4ED8", fontWeight:500, textDecoration:"none", display:"inline-flex", alignItems:"center", gap:3 }}>
+                            📍 Map
+                          </a>
+                        )}
+                        {g.fromCalendar && <span style={{ fontSize:10, color:"#9ca3af" }}>📅 Cal</span>}
+                      </div>
+                    </div>
+                    <button onClick={()=>openEdit(g)} style={{ fontSize:12, padding:"5px 12px", flexShrink:0, borderRadius:8, border:"1px solid #d1d5db", cursor:"pointer" }}>Edit</button>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ marginTop:10, fontSize:13, color:"#6b7280" }}>{upcoming.length} upcoming gig{upcoming.length!==1?"s":""}</div>
+          </div>
+        )}
 
-      tab==='chart'&&e('div',null,
-        e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'1rem',flexWrap:'wrap',gap:8}},
-          e('div',{style:{display:'flex',alignItems:'center',gap:10}},
-            e('button',{onClick:()=>setChartYear(y=>y-1),style:{padding:'4px 12px'}},'‹'),
-            e('span',{style:{fontWeight:500,minWidth:40,textAlign:'center'}},chartYear),
-            e('button',{onClick:()=>setChartYear(y=>y+1),style:{padding:'4px 12px'}},'›')
-          ),
-          e('div',{style:{display:'flex',gap:4,background:'#e9ecef',borderRadius:8,padding:3}},
-            ['bar','line'].map(t=>e('button',{key:t,onClick:()=>setChartType(t),
-              style:{fontSize:12,padding:'5px 14px',borderRadius:6,border:'none',cursor:'pointer',
-                background:chartType===t?'#fff':'transparent',fontWeight:chartType===t?500:400,
-                color:chartType===t?theme.primary:'#6b7280'}},t==='bar'?'Bar':'Line'))
-          )
-        ),
-        e('div',{style:{height:260}},
-          e(ResponsiveContainer,{width:'100%',height:'100%'},
-            chartType==='bar'
-              ?e(BarChart,{data:chartData,margin:{top:8,right:8,bottom:0,left:-20}},
-                  e(XAxis,{dataKey:'month',tick:{fontSize:11,fill:'#6b7280'},axisLine:false,tickLine:false}),
-                  e(YAxis,{allowDecimals:false,tick:{fontSize:11,fill:'#6b7280'},axisLine:false,tickLine:false}),
-                  e(Tooltip,{contentStyle:{fontSize:12,borderRadius:10}}),
-                  e(Legend,{wrapperStyle:{fontSize:12,paddingTop:8}}),
-                  e(Bar,{dataKey:'regular',name:'Bar / Other',stackId:'a',fill:theme.mid}),
-                  e(Bar,{dataKey:'private',name:'Private events',stackId:'a',fill:'#D85A30'}),
-                  e(Bar,{dataKey:'weddings',name:'Weddings',stackId:'a',fill:'#7F77DD',radius:[4,4,0,0]})
-                )
-              :e(LineChart,{data:chartData,margin:{top:8,right:8,bottom:0,left:-20}},
-                  e(XAxis,{dataKey:'month',tick:{fontSize:11,fill:'#6b7280'},axisLine:false,tickLine:false}),
-                  e(YAxis,{allowDecimals:false,tick:{fontSize:11,fill:'#6b7280'},axisLine:false,tickLine:false}),
-                  e(Tooltip,{contentStyle:{fontSize:12,borderRadius:10}}),
-                  e(Legend,{wrapperStyle:{fontSize:12,paddingTop:8}}),
-                  e(Line,{type:'monotone',dataKey:'regular',name:'Bar / Other',stroke:theme.mid,strokeWidth:2,dot:{r:3},activeDot:{r:5}}),
-                  e(Line,{type:'monotone',dataKey:'weddings',name:'Weddings',stroke:'#7F77DD',strokeWidth:2,dot:{r:3},activeDot:{r:5}}),
-                  e(Line,{type:'monotone',dataKey:'private',name:'Private events',stroke:'#D85A30',strokeWidth:2,dot:{r:3},activeDot:{r:5}})
-                )
-          )
-        ),
-        e('div',{style:{marginTop:12,display:'flex',gap:12,flexWrap:'wrap'}},
-          [{label:'Total gigs',value:chartData.reduce((s,d)=>s+d.count,0),color:theme.primary,bg:theme.pale},
-           {label:'Busiest month',value:MONTHS[chartData.indexOf(chartData.reduce((a,b)=>b.count>a.count?b:a))],color:theme.primary,bg:theme.pale},
-           {label:'Weddings',value:chartData.reduce((s,d)=>s+d.weddings,0),color:'#534AB7',bg:'#EEEDFE'}
-          ].map(c=>e('div',{key:c.label,style:{background:c.bg,borderRadius:8,padding:'8px 14px',border:`1px solid ${c.color}33`}},
-            e('div',{style:{fontSize:10,color:c.color,fontWeight:500,textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:2}},c.label),
-            e('div',{style:{fontSize:20,fontWeight:500,color:c.color}},c.value)
-          ))
-        )
-      ),
+        {tab==="chart" && (
+          <div>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"1rem", flexWrap:"wrap", gap:8 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                <button onClick={()=>setChartYear(y=>y-1)} style={{ padding:"4px 12px", borderRadius:8, border:"1px solid #d1d5db", cursor:"pointer" }}>‹</button>
+                <span style={{ fontWeight:500, minWidth:40, textAlign:"center" }}>{chartYear}</span>
+                <button onClick={()=>setChartYear(y=>y+1)} style={{ padding:"4px 12px", borderRadius:8, border:"1px solid #d1d5db", cursor:"pointer" }}>›</button>
+              </div>
+              <div style={{ display:"flex", gap:4, background:"#e9ecef", borderRadius:8, padding:3 }}>
+                {["bar","line"].map(t=>(
+                  <button key={t} onClick={()=>setChartType(t)} style={{ fontSize:12, padding:"5px 14px", borderRadius:6, border:"none", cursor:"pointer", background:chartType===t?"#fff":"transparent", fontWeight:chartType===t?500:400, color:chartType===t?theme.primary:"#6b7280" }}>
+                    {t==="bar"?"Bar":"Line"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div style={{ height:260 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                {chartType==="bar" ? (
+                  <BarChart data={chartData} margin={{ top:8, right:8, bottom:0, left:-20 }}>
+                    <XAxis dataKey="month" tick={{ fontSize:11, fill:"#6b7280" }} axisLine={false} tickLine={false} />
+                    <YAxis allowDecimals={false} tick={{ fontSize:11, fill:"#6b7280" }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={{ fontSize:12, borderRadius:10 }} />
+                    <Legend wrapperStyle={{ fontSize:12, paddingTop:8 }} />
+                    <Bar dataKey="regular" name="Bar / Other" stackId="a" fill={theme.mid} />
+                    <Bar dataKey="private" name="Private events" stackId="a" fill="#D85A30" />
+                    <Bar dataKey="weddings" name="Weddings" stackId="a" fill="#7F77DD" radius={[4,4,0,0]} />
+                  </BarChart>
+                ) : (
+                  <LineChart data={chartData} margin={{ top:8, right:8, bottom:0, left:-20 }}>
+                    <XAxis dataKey="month" tick={{ fontSize:11, fill:"#6b7280" }} axisLine={false} tickLine={false} />
+                    <YAxis allowDecimals={false} tick={{ fontSize:11, fill:"#6b7280" }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={{ fontSize:12, borderRadius:10 }} />
+                    <Legend wrapperStyle={{ fontSize:12, paddingTop:8 }} />
+                    <Line type="monotone" dataKey="regular" name="Bar / Other" stroke={theme.mid} strokeWidth={2} dot={{ r:3 }} activeDot={{ r:5 }} />
+                    <Line type="monotone" dataKey="weddings" name="Weddings" stroke="#7F77DD" strokeWidth={2} dot={{ r:3 }} activeDot={{ r:5 }} />
+                    <Line type="monotone" dataKey="private" name="Private events" stroke="#D85A30" strokeWidth={2} dot={{ r:3 }} activeDot={{ r:5 }} />
+                  </LineChart>
+                )}
+              </ResponsiveContainer>
+            </div>
+            <div style={{ marginTop:12, display:"flex", gap:12, flexWrap:"wrap" }}>
+              {[
+                { label:"Total gigs", value:chartData.reduce((s,d)=>s+d.count,0), color:theme.primary, bg:theme.pale },
+                { label:"Busiest month", value:MONTHS[chartData.indexOf(chartData.reduce((a,b)=>b.count>a.count?b:a))], color:theme.primary, bg:theme.pale },
+                { label:"Weddings", value:chartData.reduce((s,d)=>s+d.weddings,0), color:"#534AB7", bg:"#EEEDFE" },
+              ].map(c=>(
+                <div key={c.label} style={{ background:c.bg, borderRadius:8, padding:"8px 14px", border:`1px solid ${c.color}33` }}>
+                  <div style={{ fontSize:10, color:c.color, fontWeight:500, textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:2 }}>{c.label}</div>
+                  <div style={{ fontSize:20, fontWeight:500, color:c.color }}>{c.value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
-      tab==='checklist'&&e('div',null,
-        !activeMember&&e('div',null,
-          e('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill, minmax(110px,1fr))',gap:10,marginBottom:14}},
-            members.map(m=>{
+        {tab==="checklist" && (
+          <div>
+            {!activeMember && (
+              <div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(110px,1fr))", gap:10, marginBottom:14 }}>
+                  {members.map(m=>{
+                    const done=m.items.filter(it=>it.checked).length;
+                    const total=m.items.length;
+                    return (
+                      <button key={m.id} onClick={()=>setActiveMember(m.id)} style={{ background:"#fff", border:"1px solid #e5e7eb", borderRadius:14, padding:"16px 10px", display:"flex", flexDirection:"column", alignItems:"center", gap:8, cursor:"pointer" }}>
+                        <div style={{ width:48, height:48, borderRadius:"50%", background:theme.pale, color:theme.primary, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, fontWeight:600 }}>{m.name.charAt(0).toUpperCase()}</div>
+                        <div style={{ fontSize:13, fontWeight:500, color:"#111827" }}>{m.name}</div>
+                        <div style={{ fontSize:11, color:total>0&&done===total?theme.primary:"#9ca3af" }}>{total===0?"No items":`${done}/${total} packed`}</div>
+                      </button>
+                    );
+                  })}
+                  <button onClick={()=>setAddingMember(true)} style={{ background:"#f9fafb", border:"1px dashed #d1d5db", borderRadius:14, padding:"16px 10px", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:8, cursor:"pointer", minHeight:108 }}>
+                    <div style={{ width:48, height:48, borderRadius:"50%", background:"#f1f5f9", color:"#6b7280", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>+</div>
+                    <div style={{ fontSize:13, color:"#6b7280" }}>Add member</div>
+                  </button>
+                </div>
+                {addingMember && (
+                  <div style={{ display:"flex", gap:8, background:"#fff", border:"1px solid #e5e7eb", borderRadius:12, padding:12 }}>
+                    <input autoFocus value={newMemberName} onChange={e=>setNewMemberName(e.target.value)} placeholder="Member name"
+                      onKeyDown={e=>{ if(e.key==="Enter") addMember(); }}
+                      style={{ flex:1, padding:"8px 10px", border:"1px solid #d1d5db", borderRadius:8, fontSize:14 }} />
+                    <button onClick={addMember} style={{ background:theme.mid, color:"#fff", border:"none", borderRadius:8, padding:"8px 14px", cursor:"pointer", fontWeight:500 }}>Add</button>
+                    <button onClick={()=>{ setAddingMember(false); setNewMemberName(""); }} style={{ padding:"8px 14px", borderRadius:8, border:"1px solid #d1d5db", cursor:"pointer" }}>Cancel</button>
+                  </div>
+                )}
+              </div>
+            )}
+            {activeMember && members.filter(m=>m.id===activeMember).map(m=>{
               const done=m.items.filter(it=>it.checked).length;
-              const total=m.items.length;
-              return e('button',{key:m.id,onClick:()=>setActiveMember(m.id),
-                style:{background:'#fff',border:'1px solid #e5e7eb',borderRadius:14,padding:'16px 10px',display:'flex',flexDirection:'column',alignItems:'center',gap:8,cursor:'pointer'}},
-                e('div',{style:{width:48,height:48,borderRadius:'50%',background:theme.pale,color:theme.primary,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:600}},m.name.charAt(0).toUpperCase()),
-                e('div',{style:{fontSize:13,fontWeight:500,color:'#111827'}},m.name),
-                e('div',{style:{fontSize:11,color:total>0&&done===total?theme.primary:'#9ca3af'}},total===0?'No items':`${done}/${total} packed`)
+              return (
+                <div key={m.id}>
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
+                    <button onClick={()=>{ setActiveMember(null); setEditingName(false); }} style={{ padding:"5px 12px", borderRadius:8, border:"1px solid #d1d5db", cursor:"pointer", fontSize:13 }}>← Back</button>
+                    {editingName ? (
+                      <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                        <input autoFocus value={editNameValue} onChange={e=>setEditNameValue(e.target.value)}
+                          onKeyDown={e=>{ if(e.key==="Enter") renameMember(m.id,editNameValue); if(e.key==="Escape") setEditingName(false); }}
+                          style={{ padding:"4px 8px", border:"1px solid #d1d5db", borderRadius:6, fontSize:14, width:120 }} />
+                        <button onClick={()=>renameMember(m.id,editNameValue)} style={{ padding:"4px 10px", borderRadius:6, border:"none", background:theme.mid, color:"#fff", cursor:"pointer", fontSize:12 }}>Save</button>
+                      </div>
+                    ) : (
+                      <span style={{ fontWeight:500, fontSize:16, display:"flex", alignItems:"center", gap:6 }}>
+                        {m.name}'s Checklist
+                        <button onClick={()=>{ setEditingName(true); setEditNameValue(m.name); }} style={{ border:"none", background:"none", cursor:"pointer", fontSize:13, color:"#9ca3af", padding:"2px 4px" }}>✏️</button>
+                      </span>
+                    )}
+                    <button onClick={()=>setConfirmDelete(m.id)} style={{ padding:"5px 12px", borderRadius:8, border:"1px solid #fca5a5", color:"#b91c1c", cursor:"pointer", fontSize:13 }}>Remove</button>
+                  </div>
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+                    <span style={{ fontSize:13, color:"#6b7280" }}>{done}/{m.items.length} packed</span>
+                    <button onClick={()=>resetMember(m.id)} style={{ fontSize:12, padding:"5px 12px", borderRadius:8, border:"1px solid #d1d5db", cursor:"pointer" }}>Reset All</button>
+                  </div>
+                  <div style={{ borderRadius:12, border:"1px solid #e5e7eb", overflow:"hidden", marginBottom:14 }}>
+                    {m.items.length===0 && <div style={{ padding:"2rem", textAlign:"center", color:"#6b7280", fontSize:13 }}>No items yet — add some below</div>}
+                    {m.items.map((it,idx)=>(
+                      <div key={it.id} onClick={()=>toggleItem(m.id,it.id)} style={{ padding:"12px 14px", borderBottom:idx<m.items.length-1?"1px solid #e5e7eb":"none", background:it.checked?"#f9fafb":"#fff", display:"flex", alignItems:"center", gap:12, cursor:"pointer" }}>
+                        <div style={{ width:20, height:20, borderRadius:6, border:it.checked?"none":"2px solid #d1d5db", background:it.checked?theme.mid:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                          {it.checked && <span style={{ color:"#fff", fontSize:13, fontWeight:700 }}>✓</span>}
+                        </div>
+                        <div style={{ flex:1, fontSize:14, color:it.checked?"#9ca3af":"#111827", textDecoration:it.checked?"line-through":"none" }}>{it.text}</div>
+                        <button onClick={e=>{ e.stopPropagation(); deleteItem(m.id,it.id); }} style={{ border:"none", background:"none", color:"#d1d5db", fontSize:16, cursor:"pointer", padding:"0 4px" }}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ display:"flex", gap:8 }}>
+                    <input value={newItemText} onChange={e=>setNewItemText(e.target.value)} placeholder="Add an item..."
+                      onKeyDown={e=>{ if(e.key==="Enter") addItem(m.id); }}
+                      style={{ flex:1, padding:"8px 10px", border:"1px solid #d1d5db", borderRadius:8, fontSize:14 }} />
+                    <button onClick={()=>addItem(m.id)} style={{ background:theme.mid, color:"#fff", border:"none", borderRadius:8, padding:"8px 16px", cursor:"pointer", fontWeight:500 }}>Add</button>
+                  </div>
+                </div>
               );
-            }),
-            e('button',{onClick:()=>setAddingMember(true),
-              style:{background:'#f9fafb',border:'1px dashed #d1d5db',borderRadius:14,padding:'16px 10px',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:8,cursor:'pointer',minHeight:108}},
-              e('div',{style:{width:48,height:48,borderRadius:'50%',background:'#f1f5f9',color:'#6b7280',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22}},'+'),
-              e('div',{style:{fontSize:13,color:'#6b7280'}},'Add member')
-            )
-          ),
-          addingMember&&e('div',{style:{display:'flex',gap:8,background:'#fff',border:'1px solid #e5e7eb',borderRadius:12,padding:12}},
-            e('input',{autoFocus:true,value:newMemberName,onChange:ev=>setNewMemberName(ev.target.value),placeholder:'Member name',
-              onKeyDown:ev=>{if(ev.key==='Enter')addMember();},style:{flex:1,padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,fontSize:14}}),
-            e('button',{onClick:addMember,style:{background:theme.mid,color:'#fff',border:'none',borderRadius:8,padding:'8px 14px',cursor:'pointer',fontWeight:500}},'Add'),
-            e('button',{onClick:()=>{setAddingMember(false);setNewMemberName('');}}, 'Cancel')
-          )
-        ),
-        activeMember&&members.filter(m=>m.id===activeMember).map(m=>{
-          const done=m.items.filter(it=>it.checked).length;
-          return e('div',{key:m.id},
-            e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}},
-              e('button',{onClick:()=>{setActiveMember(null);setEditingName(false);}},'← Back'),
-              editingName
-                ?e('div',{style:{display:'flex',alignItems:'center',gap:6}},
-                    e('input',{autoFocus:true,value:editNameValue,onChange:ev=>setEditNameValue(ev.target.value),
-                      onKeyDown:ev=>{if(ev.key==='Enter')renameMember(m.id,editNameValue);if(ev.key==='Escape')setEditingName(false);},
-                      style:{padding:'4px 8px',border:'1px solid #d1d5db',borderRadius:6,fontSize:14,width:120}}),
-                    e('button',{onClick:()=>renameMember(m.id,editNameValue),
-                      style:{padding:'4px 10px',borderRadius:6,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontSize:12}},'Save')
-                  )
-                :e('span',{style:{fontWeight:500,fontSize:16,display:'flex',alignItems:'center',gap:6}},
-                    m.name+"'s Checklist",
-                    e('button',{onClick:()=>{setEditingName(true);setEditNameValue(m.name);},
-                      style:{border:'none',background:'none',cursor:'pointer',fontSize:13,color:'#9ca3af',padding:'2px 4px'}},'✏️')
-                  ),
-              e('button',{onClick:()=>setConfirmDelete(m.id),style:{color:'#b91c1c',borderColor:'#fca5a5'}},'Remove')
-            ),
-            e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}},
-              e('span',{style:{fontSize:13,color:'#6b7280'}},`${done}/${m.items.length} packed`),
-              e('button',{onClick:()=>resetMember(m.id),style:{fontSize:12,padding:'5px 12px'}},'Reset All')
-            ),
-            e('div',{style:{borderRadius:12,border:'1px solid #e5e7eb',overflow:'hidden',marginBottom:14}},
-              m.items.length===0&&e('div',{style:{padding:'2rem',textAlign:'center',color:'#6b7280',fontSize:13}},'No items yet — add some below'),
-              m.items.map((it,idx)=>e('div',{key:it.id,onClick:()=>toggleItem(m.id,it.id),
-                style:{padding:'12px 14px',borderBottom:idx<m.items.length-1?'1px solid #e5e7eb':'none',background:it.checked?'#f9fafb':'#fff',display:'flex',alignItems:'center',gap:12,cursor:'pointer'}},
-                e('div',{style:{width:20,height:20,borderRadius:6,border:it.checked?'none':'2px solid #d1d5db',background:it.checked?theme.mid:'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}},
-                  it.checked?e('span',{style:{color:'#fff',fontSize:13,fontWeight:700}},'✓'):null
-                ),
-                e('div',{style:{flex:1,fontSize:14,color:it.checked?'#9ca3af':'#111827',textDecoration:it.checked?'line-through':'none'}},it.text),
-                e('button',{onClick:ev=>{ev.stopPropagation();deleteItem(m.id,it.id);},style:{border:'none',background:'none',color:'#d1d5db',fontSize:16,cursor:'pointer',padding:'0 4px'}},'×')
-              ))
-            ),
-            e('div',{style:{display:'flex',gap:8}},
-              e('input',{value:newItemText,onChange:ev=>setNewItemText(ev.target.value),placeholder:'Add an item...',
-                onKeyDown:ev=>{if(ev.key==='Enter')addItem(m.id);},style:{flex:1,padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,fontSize:14}}),
-              e('button',{onClick:()=>addItem(m.id),style:{background:theme.mid,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',cursor:'pointer',fontWeight:500}},'Add')
-            )
-          );
-        })
-      )
-    ),
+            })}
+          </div>
+        )}
+      </div>
 
-    modal&&e(Modal,{gig:modal.mode==='edit'?modal.gig:null,onSave:saveGig,onDelete:deleteGig,onClose:closeModal}),
+      {modal && <Modal gig={modal.mode==="edit"?modal.gig:null} onSave={saveGig} onDelete={deleteGig} onClose={closeModal} />}
 
-    gigPopup&&e('div',{onClick:()=>setGigPopup(null),className:'overlay'},
-      e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:360}},
-        e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}},
-          e('span',{className:'badge',style:{background:typeStyle(gigPopup.type).bg,color:typeStyle(gigPopup.type).color}},gigPopup.type),
-          e('button',{onClick:()=>setGigPopup(null),style:{border:'none',background:'none',fontSize:20,color:'#9ca3af',cursor:'pointer',padding:'0 4px'}},'×')
-        ),
-        e('div',{style:{fontSize:18,fontWeight:600,marginBottom:4}},gigPopup.venue),
-        e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:12}},gigPopup.location),
-        e('div',{style:{display:'flex',flexDirection:'column',gap:8,borderTop:'1px solid #e5e7eb',paddingTop:12,marginBottom:16}},
-          [['Date',gigPopup.date],['Time',gigPopup.time||'—']].map(([lbl,val])=>
-            e('div',{key:lbl,style:{display:'flex',justifyContent:'space-between'}},
-              e('span',{style:{fontSize:13,color:'#6b7280'}},lbl),
-              e('span',{style:{fontSize:13,fontWeight:500}},val)
-            )
-          ),
-          e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
-            e('span',{style:{fontSize:13,color:'#6b7280'}},'Status'),
-            e(Badge,{status:gigPopup.status})
-          )
-        ),
-        e('div',{style:{display:'flex',gap:8}},
-          gigPopup.location&&e('button',{
-            onClick:()=>{setAskTrack(gigPopup);setGigPopup(null);},
-            style:{flex:1,padding:'9px 0',borderRadius:10,background:'#E0EFFE',color:'#1D4ED8',fontWeight:500,border:'none',cursor:'pointer',fontSize:14}
-          },'📍 Map'),
-          e('button',{onClick:()=>{setGigPopup(null);openEdit(gigPopup);},
-            style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:14}},'✏️ Edit')
-        )
-      )
-    ),
+      {gigPopup && (
+        <div onClick={()=>setGigPopup(null)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.45)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:100, padding:"1rem" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:"#fff", borderRadius:16, padding:"1.5rem", width:"min(360px,92vw)", boxShadow:"0 20px 60px rgba(0,0,0,0.2)" }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
+              <span style={{ fontSize:11, fontWeight:500, textTransform:"uppercase", letterSpacing:"0.06em", padding:"3px 10px", borderRadius:99, background:typeStyle(gigPopup.type).bg, color:typeStyle(gigPopup.type).color }}>{gigPopup.type}</span>
+              <button onClick={()=>setGigPopup(null)} style={{ border:"none", background:"none", fontSize:20, color:"#9ca3af", cursor:"pointer" }}>×</button>
+            </div>
+            <div style={{ fontSize:18, fontWeight:600, marginBottom:4 }}>{gigPopup.venue}</div>
+            <div style={{ fontSize:13, color:"#6b7280", marginBottom:12 }}>{gigPopup.location}</div>
+            <div style={{ display:"flex", flexDirection:"column", gap:8, borderTop:"1px solid #e5e7eb", paddingTop:12, marginBottom:16 }}>
+              {[["Date",gigPopup.date],["Time",gigPopup.time||"—"]].map(([lbl,val])=>(
+                <div key={lbl} style={{ display:"flex", justifyContent:"space-between" }}>
+                  <span style={{ fontSize:13, color:"#6b7280" }}>{lbl}</span>
+                  <span style={{ fontSize:13, fontWeight:500 }}>{val}</span>
+                </div>
+              ))}
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <span style={{ fontSize:13, color:"#6b7280" }}>Status</span>
+                <Badge status={gigPopup.status} />
+              </div>
+            </div>
+            <div style={{ display:"flex", gap:8 }}>
+              {gigPopup.location && (
+                <button onClick={()=>{ setAskTrack(gigPopup); setGigPopup(null); }}
+                  style={{ flex:1, padding:"9px 0", borderRadius:10, background:"#E0EFFE", color:"#1D4ED8", fontWeight:500, border:"none", cursor:"pointer", fontSize:14 }}>
+                  📍 Map
+                </button>
+              )}
+              <button onClick={()=>{ setGigPopup(null); openEdit(gigPopup); }} style={{ flex:1, padding:"9px 0", borderRadius:10, background:theme.mid, color:"#fff", border:"none", fontWeight:500, cursor:"pointer", fontSize:14 }}>
+                ✏️ Edit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
-    askTrack&&e('div',{onClick:()=>setAskTrack(null),className:'overlay'},
-      e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:360}},
-        e('div',{style:{fontSize:16,fontWeight:500,marginBottom:6}},'Track miles for this trip?'),
-        e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:20}},"We'll track your miles using GPS. Tap Stop in the app when you arrive."),
-        e('div',{style:{display:'flex',gap:8}},
-          e('button',{onClick:()=>{setAskTrack(null);window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(askTrack.venue+' '+askTrack.location)}`,'_blank');},
-            style:{flex:1,padding:'9px 0',borderRadius:10,border:'1px solid #d1d5db',cursor:'pointer',fontSize:14}},'Skip'),
-          e('button',{onClick:()=>{startTracking(askTrack);setAskTrack(null);window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(askTrack.venue+' '+askTrack.location)}`,'_blank');},
-            style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:14}},'Yes, track')
-        )
-      )
-    ),
+      {askTrack && (
+        <div onClick={()=>setAskTrack(null)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.45)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:100, padding:"1rem" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:"#fff", borderRadius:16, padding:"1.5rem", width:"min(360px,92vw)", boxShadow:"0 20px 60px rgba(0,0,0,0.2)" }}>
+            <div style={{ fontSize:16, fontWeight:500, marginBottom:6 }}>Track miles for this trip?</div>
+            <div style={{ fontSize:13, color:"#6b7280", marginBottom:20 }}>We'll track your miles using GPS. Tap Stop in the app when you arrive.</div>
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={()=>{ setAskTrack(null); window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(askTrack.venue+" "+askTrack.location)}`,"_blank"); }}
+                style={{ flex:1, padding:"9px 0", borderRadius:10, border:"1px solid #d1d5db", cursor:"pointer", fontSize:14 }}>Skip</button>
+              <button onClick={()=>{ startTracking(askTrack); setAskTrack(null); window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(askTrack.venue+" "+askTrack.location)}`,"_blank"); }}
+                style={{ flex:1, padding:"9px 0", borderRadius:10, background:theme.mid, color:"#fff", border:"none", fontWeight:500, cursor:"pointer", fontSize:14 }}>Yes, track</button>
+            </div>
+          </div>
+        </div>
+      )}
 
-    trackingMiles&&e('div',{style:{position:'fixed',bottom:20,left:'50%',transform:'translateX(-50%)',width:'min(380px,92vw)',background:'#fff',borderRadius:14,padding:'12px 16px',boxShadow:'0 4px 20px rgba(0,0,0,0.15)',border:`1px solid ${theme.light}`,display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,zIndex:150}},
-      e('div',{style:{display:'flex',alignItems:'center',gap:10}},
-        e('div',{style:{width:8,height:8,borderRadius:'50%',background:theme.mid}}),
-        e('div',null,
-          e('div',{style:{fontSize:13,fontWeight:500,color:'#111827'}},'Tracking miles'),
-          e('div',{style:{fontSize:11,color:'#6b7280'}},trackingMiles.venueName+' · '+trackingMiles.miles.toFixed(1)+' mi')
-        )
-      ),
-      e('button',{onClick:stopTracking,style:{background:'#dc2626',color:'#fff',border:'none',borderRadius:8,padding:'6px 14px',cursor:'pointer',fontWeight:500,fontSize:13}},'Stop')
-    ),
+      {trackingMiles && (
+        <div style={{ position:"fixed", bottom:20, left:"50%", transform:"translateX(-50%)", width:"min(380px,92vw)", background:"#fff", borderRadius:14, padding:"12px 16px", boxShadow:"0 4px 20px rgba(0,0,0,0.15)", border:`1px solid ${theme.light}`, display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, zIndex:150 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <div style={{ width:8, height:8, borderRadius:"50%", background:theme.mid }} />
+            <div>
+              <div style={{ fontSize:13, fontWeight:500, color:"#111827" }}>Tracking miles</div>
+              <div style={{ fontSize:11, color:"#6b7280" }}>{trackingMiles.venueName} · {trackingMiles.miles.toFixed(1)} mi</div>
+            </div>
+          </div>
+          <button onClick={stopTracking} style={{ background:"#dc2626", color:"#fff", border:"none", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontWeight:500, fontSize:13 }}>Stop</button>
+        </div>
+      )}
 
-    confirmDelete&&members.filter(m=>m.id===confirmDelete).map(m=>
-      e('div',{key:'confirm',onClick:()=>setConfirmDelete(null),className:'overlay'},
-        e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:360}},
-          e('div',{style:{fontSize:16,fontWeight:600,marginBottom:8}},`Remove ${m.name}'s checklist?`),
-          e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:20}},`This will permanently delete ${m.name} and all their items. This cannot be undone.`),
-          e('div',{style:{display:'flex',gap:8,justifyContent:'flex-end'}},
-            e('button',{onClick:()=>setConfirmDelete(null)},'Cancel'),
-            e('button',{onClick:()=>deleteMember(m.id),style:{background:'#dc2626',color:'#fff',border:'none',borderRadius:8,padding:'6px 16px',cursor:'pointer',fontWeight:500}},'Remove')
-          )
-        )
-      )
-    )
+      {confirmDelete && members.filter(m=>m.id===confirmDelete).map(m=>(
+        <div key="confirm" onClick={()=>setConfirmDelete(null)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.45)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, padding:"1rem" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:"#fff", borderRadius:16, padding:"1.5rem", width:"min(360px,92vw)" }}>
+            <div style={{ fontSize:16, fontWeight:600, marginBottom:8 }}>Remove {m.name}'s checklist?</div>
+            <div style={{ fontSize:13, color:"#6b7280", marginBottom:20 }}>This will permanently delete {m.name} and all their items. This cannot be undone.</div>
+            <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+              <button onClick={()=>setConfirmDelete(null)} style={{ padding:"6px 14px", borderRadius:8, border:"1px solid #d1d5db", cursor:"pointer" }}>Cancel</button>
+              <button onClick={()=>deleteMember(m.id)} style={{ background:"#dc2626", color:"#fff", border:"none", borderRadius:8, padding:"6px 16px", cursor:"pointer", fontWeight:500 }}>Remove</button>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
-
-ReactDOM.createRoot(document.getElementById('root')).render(e(App));
-</script>
-</body>
-</html>
