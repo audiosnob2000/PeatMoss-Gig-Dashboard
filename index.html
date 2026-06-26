@@ -652,11 +652,13 @@ function App(){
         e('div',{style:{display:'flex',gap:8}},
           e('button',{onClick:()=>{setAskTrack(null);window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(askTrack.venue+' '+askTrack.location)}`,'_blank');},
             style:{flex:1,padding:'9px 0',borderRadius:10,border:'1px solid #d1d5db',cursor:'pointer',fontSize:14}},'Skip'),
-          e('button',{onClick:()=>{
-            window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(askTrack.venue+' '+askTrack.location)}`,'_blank');
-            startTracking(askTrack);
-            setAskTrack(null);
-          },style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:14}},'Yes, track')
+          e('a',{
+            href:`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(askTrack.venue+' '+askTrack.location)}`,
+            target:'_blank',
+            rel:'noopener noreferrer',
+            onClick:()=>{startTracking(askTrack);setAskTrack(null);},
+            style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:14,textDecoration:'none',display:'flex',alignItems:'center',justifyContent:'center'}
+          },'Yes, track')
         )
       )
     ),
