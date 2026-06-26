@@ -9,8 +9,8 @@
 <title>Gig Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/prop-types@15/prop-types.min.js"></script>
-<script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prop-types@15/prop-types.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/recharts@2.12.7/umd/Recharts.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{overflow-x:hidden;width:100%}
@@ -29,17 +29,19 @@ button:hover{background:#f3f4f6}
 .modal{background:#fff;border-radius:16px;padding:1.5rem;width:min(420px,100%);box-shadow:0 20px 60px rgba(0,0,0,0.2)}
 label{font-size:12px;font-weight:500;color:#6b7280;display:block;margin-bottom:4px;margin-top:12px}
 @media(max-width:480px){
-  .cal-cell{min-height:48px!important;padding:3px 2px!important}
-  .cal-cell .cal-day{font-size:10px!important}
-  .cal-cell .cal-gig{font-size:7px!important;padding:1px 2px!important}
+.cal-cell{min-height:48px!important;padding:3px 2px!important}
+.cal-cell .cal-day{font-size:10px!important}
+.cal-cell .cal-gig{font-size:7px!important;padding:1px 2px!important}
 }
+@keyframes pulse-dot{0%,100%{opacity:1}50%{opacity:0.3}}
+.tracking-dot{animation:pulse-dot 1.4s ease-in-out infinite}
 </style>
 </head>
 <body>
 <div id="root"></div>
 <script>
 const e=React.createElement;
-const {useState,useMemo,useEffect}=React;
+const {useState,useMemo,useEffect,useRef}=React;
 const {BarChart,Bar,LineChart,Line,XAxis,YAxis,Tooltip,ResponsiveContainer,Legend}=Recharts;
 
 const GOOGLE_API_KEY='AIzaSyDDfPjbqTtgXOacnkjrr9SbGVcWWVW3hYg';
@@ -49,77 +51,76 @@ const TYPES=["bar","wedding","private event","other"];
 const STATUSES=["confirmed","pending","hold","cancelled"];
 const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const DAYS=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-
 const THEMES={
   green: {primary:"#0F6E56",mid:"#1D9E75",light:"#5DCAA5",pale:"#E1F5EE",accent:"#9FE1CB"},
-  blue:  {primary:"#185FA5",mid:"#378ADD",light:"#85B7EB",pale:"#E6F1FB",accent:"#B5D4F4"},
+  blue: {primary:"#185FA5",mid:"#378ADD",light:"#85B7EB",pale:"#E6F1FB",accent:"#B5D4F4"},
   purple:{primary:"#3C3489",mid:"#7F77DD",light:"#AFA9EC",pale:"#EEEDFE",accent:"#CECBF6"},
-  red:   {primary:"#A32D2D",mid:"#E24B4A",light:"#F09595",pale:"#FCEBEB",accent:"#F7C1C1"},
-  dark:  {primary:"#1a1a2e",mid:"#16213e",light:"#0f3460",pale:"#e94560",accent:"#a8a8b3"},
+  red: {primary:"#A32D2D",mid:"#E24B4A",light:"#F09595",pale:"#FCEBEB",accent:"#F7C1C1"},
+  dark: {primary:"#1a1a2e",mid:"#16213e",light:"#0f3460",pale:"#e94560",accent:"#a8a8b3"},
 };
-
 const STATUS_STYLE={
   confirmed:{bg:"#d1fae5",color:"#065f46",label:"Confirmed"},
-  pending:  {bg:"#fef9c3",color:"#854d0e",label:"Pending"},
-  hold:     {bg:"#f1f5f9",color:"#475569",label:"Hold"},
+  pending: {bg:"#fef9c3",color:"#854d0e",label:"Pending"},
+  hold: {bg:"#f1f5f9",color:"#475569",label:"Hold"},
   cancelled:{bg:"#fee2e2",color:"#b91c1c",label:"Cancelled"},
 };
-
 const today=new Date();
 const todayStr=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
 const yr=today.getFullYear();
-
 const SAMPLE=[
-  {id:1, date:`${yr}-06-13`,venue:"Amsterdam",               location:"Patchogue, NY",       type:"bar",          status:"confirmed",time:"7:30–10:30 PM"},
-  {id:2, date:`${yr}-06-14`,venue:"The Patch",               location:"Patchogue, NY",       type:"bar",          status:"confirmed",time:"4:30–8:30 PM"},
-  {id:3, date:`${yr}-06-19`,venue:"Bayside Clam Bar & Grill",location:"East Islip, NY",      type:"bar",          status:"confirmed",time:"7–10 PM"},
-  {id:4, date:`${yr}-06-20`,venue:"Sand Bar",                location:"Fire Island, NY",     type:"bar",          status:"confirmed",time:"7–10 PM"},
-  {id:5, date:`${yr}-06-27`,venue:"Black Pearl @ Danford's", location:"Port Jefferson, NY",  type:"bar",          status:"confirmed",time:"7–10 PM"},
-  {id:6, date:`${yr}-06-28`,venue:"Sandbar",                 location:"Fire Island, NY",     type:"bar",          status:"confirmed",time:"2–6 PM"},
-  {id:7, date:`${yr}-07-03`,venue:"Stephen Talkhouse",       location:"Amagansett, NY",      type:"bar",          status:"confirmed",time:"10 PM–midnight"},
-  {id:8, date:`${yr}-07-05`,venue:"Sand Bar",                location:"Fire Island, NY",     type:"bar",          status:"confirmed",time:"2–6 PM"},
-  {id:9, date:`${yr}-07-10`,venue:"Maliblue",                location:"",                    type:"bar",          status:"confirmed",time:""},
-  {id:10,date:`${yr}-07-11`,venue:"Tiki Joe's",              location:"Smith Point, NY",     type:"bar",          status:"confirmed",time:"6:30–9:30 PM"},
-  {id:11,date:`${yr}-07-18`,venue:"Bayside Clam & Grill",    location:"East Islip, NY",      type:"bar",          status:"confirmed",time:"7–10 PM"},
+  {id:1, date:`${yr}-06-13`,venue:"Amsterdam", location:"Patchogue, NY", type:"bar", status:"confirmed",time:"7:30–10:30 PM"},
+  {id:2, date:`${yr}-06-14`,venue:"The Patch", location:"Patchogue, NY", type:"bar", status:"confirmed",time:"4:30–8:30 PM"},
+  {id:3, date:`${yr}-06-19`,venue:"Bayside Clam Bar & Grill",location:"East Islip, NY", type:"bar", status:"confirmed",time:"7–10 PM"},
+  {id:4, date:`${yr}-06-20`,venue:"Sand Bar", location:"Fire Island, NY", type:"bar", status:"confirmed",time:"7–10 PM"},
+  {id:5, date:`${yr}-06-27`,venue:"Black Pearl @ Danford's", location:"Port Jefferson, NY", type:"bar", status:"confirmed",time:"7–10 PM"},
+  {id:6, date:`${yr}-06-28`,venue:"Sandbar", location:"Fire Island, NY", type:"bar", status:"confirmed",time:"2–6 PM"},
+  {id:7, date:`${yr}-07-03`,venue:"Stephen Talkhouse", location:"Amagansett, NY", type:"bar", status:"confirmed",time:"10 PM–midnight"},
+  {id:8, date:`${yr}-07-05`,venue:"Sand Bar", location:"Fire Island, NY", type:"bar", status:"confirmed",time:"2–6 PM"},
+  {id:9, date:`${yr}-07-10`,venue:"Maliblue", location:"", type:"bar", status:"confirmed",time:""},
+  {id:10,date:`${yr}-07-11`,venue:"Tiki Joe's", location:"Smith Point, NY", type:"bar", status:"confirmed",time:"6:30–9:30 PM"},
+  {id:11,date:`${yr}-07-18`,venue:"Bayside Clam & Grill", location:"East Islip, NY", type:"bar", status:"confirmed",time:"7–10 PM"},
   {id:12,date:`${yr}-07-25`,venue:"Wedding @ Pavilion at Sunken Meadow",location:"Kings Park, NY",type:"wedding", status:"confirmed",time:"7–11 PM"},
-  {id:13,date:`${yr}-07-26`,venue:"Wedding @ Crescent Beach Club",location:"Bayville, NY",   type:"wedding",      status:"confirmed",time:"8 PM–midnight"},
-  {id:14,date:`${yr}-07-30`,venue:"Echo Park Concert Series",location:"West Hempstead, NY",  type:"other",        status:"confirmed",time:"7:30–9 PM"},
-  {id:15,date:`${yr}-07-31`,venue:"Ristegioe's",             location:"",                    type:"bar",          status:"confirmed",time:""},
-  {id:16,date:`${yr}-08-01`,venue:"Claudio's Waterfront",    location:"Greenport, NY",       type:"bar",          status:"confirmed",time:"1:30–5:30 PM"},
-  {id:17,date:`${yr}-08-02`,venue:"Black Pearl @ Danford's", location:"Port Jefferson, NY",  type:"bar",          status:"confirmed",time:"7–10 PM"},
-  {id:18,date:`${yr}-08-07`,venue:"Plattedeutsche",          location:"Franklin Square, NY", type:"bar",          status:"confirmed",time:"6:30–10:30 PM"},
-  {id:19,date:`${yr}-08-08`,venue:"Wedding @ Webb Institute",location:"Glen Cove, NY",       type:"wedding",      status:"confirmed",time:"7–11 PM"},
-  {id:20,date:`${yr}-08-14`,venue:"Glen Oaks Club",          location:"Old Westbury, NY",    type:"private event",status:"confirmed",time:"7:30–10 PM"},
-  {id:21,date:`${yr}-08-15`,venue:"Mastic Beach Marina",     location:"Mastic Beach, NY",    type:"bar",          status:"confirmed",time:"6–10 PM"},
-  {id:22,date:`${yr}-08-16`,venue:"Sand Bar",                location:"Fire Island, NY",     type:"bar",          status:"confirmed",time:"2–6 PM"},
-  {id:23,date:`${yr}-08-18`,venue:"Andrew J. Parise Park",   location:"Cedarhurst, NY",      type:"other",        status:"confirmed",time:"8–9:30 PM"},
-  {id:24,date:`${yr}-08-22`,venue:"Sand Bar",                location:"Fire Island, NY",     type:"bar",          status:"confirmed",time:"2–6 PM"},
-  {id:25,date:`${yr}-08-28`,venue:"Maliblue",                location:"",                    type:"bar",          status:"confirmed",time:""},
-  {id:26,date:`${yr}-08-29`,venue:"Wedding @ Surf Club on the Sound",location:"New Rochelle, NY",type:"wedding",  status:"confirmed",time:"6:30–10:30 PM"},
-  {id:27,date:`${yr}-09-04`,venue:"Black Pearl @ Danford's", location:"Port Jefferson, NY",  type:"bar",          status:"confirmed",time:"7–10 PM"},
-  {id:28,date:`${yr}-09-06`,venue:"Breezy Point Mardi Gras", location:"Breezy Point, NY",    type:"other",        status:"confirmed",time:"10 PM–2 AM"},
-  {id:29,date:`${yr}-09-07`,venue:"Bayside Clam Bar w/ Tradewinds",location:"East Islip, NY",type:"bar",          status:"confirmed",time:"5–8 PM"},
-  {id:30,date:`${yr}-09-19`,venue:"Wedding @ Delamar Mystic",location:"Mystic, CT",          type:"wedding",      status:"confirmed",time:"6:30–11 PM"},
-  {id:31,date:`${yr}-10-10`,venue:"Wedding @ The Halyard",   location:"Greenport, NY",       type:"wedding",      status:"confirmed",time:"6–10 PM"},
-  {id:32,date:`${yr}-10-24`,venue:"Wedding @ Southward Ho CC",location:"Bay Shore, NY",      type:"wedding",      status:"confirmed",time:"7–11 PM"},
-  {id:33,date:`${yr}-11-06`,venue:"Plattedeutsche",          location:"Franklin Square, NY", type:"bar",          status:"confirmed",time:"7–11 PM"},
+  {id:13,date:`${yr}-07-26`,venue:"Wedding @ Crescent Beach Club",location:"Bayville, NY", type:"wedding", status:"confirmed",time:"8 PM–midnight"},
+  {id:14,date:`${yr}-07-30`,venue:"Echo Park Concert Series",location:"West Hempstead, NY", type:"other", status:"confirmed",time:"7:30–9 PM"},
+  {id:15,date:`${yr}-07-31`,venue:"Ristegioe's", location:"", type:"bar", status:"confirmed",time:""},
+  {id:16,date:`${yr}-08-01`,venue:"Claudio's Waterfront", location:"Greenport, NY", type:"bar", status:"confirmed",time:"1:30–5:30 PM"},
+  {id:17,date:`${yr}-08-02`,venue:"Black Pearl @ Danford's", location:"Port Jefferson, NY", type:"bar", status:"confirmed",time:"7–10 PM"},
+  {id:18,date:`${yr}-08-07`,venue:"Plattedeutsche", location:"Franklin Square, NY", type:"bar", status:"confirmed",time:"6:30–10:30 PM"},
+  {id:19,date:`${yr}-08-08`,venue:"Wedding @ Webb Institute",location:"Glen Cove, NY", type:"wedding", status:"confirmed",time:"7–11 PM"},
+  {id:20,date:`${yr}-08-14`,venue:"Glen Oaks Club", location:"Old Westbury, NY", type:"private event",status:"confirmed",time:"7:30–10 PM"},
+  {id:21,date:`${yr}-08-15`,venue:"Mastic Beach Marina", location:"Mastic Beach, NY", type:"bar", status:"confirmed",time:"6–10 PM"},
+  {id:22,date:`${yr}-08-16`,venue:"Sand Bar", location:"Fire Island, NY", type:"bar", status:"confirmed",time:"2–6 PM"},
+  {id:23,date:`${yr}-08-18`,venue:"Andrew J. Parise Park", location:"Cedarhurst, NY", type:"other", status:"confirmed",time:"8–9:30 PM"},
+  {id:24,date:`${yr}-08-22`,venue:"Sand Bar", location:"Fire Island, NY", type:"bar", status:"confirmed",time:"2–6 PM"},
+  {id:25,date:`${yr}-08-28`,venue:"Maliblue", location:"", type:"bar", status:"confirmed",time:""},
+  {id:26,date:`${yr}-08-29`,venue:"Wedding @ Surf Club on the Sound",location:"New Rochelle, NY",type:"wedding", status:"confirmed",time:"6:30–10:30 PM"},
+  {id:27,date:`${yr}-09-04`,venue:"Black Pearl @ Danford's", location:"Port Jefferson, NY", type:"bar", status:"confirmed",time:"7–10 PM"},
+  {id:28,date:`${yr}-09-06`,venue:"Breezy Point Mardi Gras", location:"Breezy Point, NY", type:"other", status:"confirmed",time:"10 PM–2 AM"},
+  {id:29,date:`${yr}-09-07`,venue:"Bayside Clam Bar w/ Tradewinds",location:"East Islip, NY",type:"bar", status:"confirmed",time:"5–8 PM"},
+  {id:30,date:`${yr}-09-19`,venue:"Wedding @ Delamar Mystic",location:"Mystic, CT", type:"wedding", status:"confirmed",time:"6:30–11 PM"},
+  {id:31,date:`${yr}-10-10`,venue:"Wedding @ The Halyard", location:"Greenport, NY", type:"wedding", status:"confirmed",time:"6–10 PM"},
+  {id:32,date:`${yr}-10-24`,venue:"Wedding @ Southward Ho CC",location:"Bay Shore, NY", type:"wedding", status:"confirmed",time:"7–11 PM"},
+  {id:33,date:`${yr}-11-06`,venue:"Plattedeutsche", location:"Franklin Square, NY", type:"bar", status:"confirmed",time:"7–11 PM"},
   {id:34,date:`${yr}-11-20`,venue:"Wedding @ Giorgio's Baiting Hollow",location:"Baiting Hollow, NY",type:"wedding",status:"confirmed",time:"7–11 PM"},
 ];
 
 function typeStyle(t){
-  if(t==="wedding")      return {bg:"#EEEDFE",color:"#534AB7"};
+  if(t==="wedding") return {bg:"#EEEDFE",color:"#534AB7"};
   if(t==="private event")return {bg:"#FAECE7",color:"#993C1D"};
   return {bg:"#E1F5EE",color:"#085041"};
 }
+
 function Badge({status}){
   const s=STATUS_STYLE[status];
   return e('span',{className:'badge',style:{background:s.bg,color:s.color}},s.label);
 }
+
 function Toggle({on,onToggle}){
   return e('div',{onClick:onToggle,style:{width:44,height:26,borderRadius:99,background:on?'#1D9E75':'#e5e7eb',cursor:'pointer',position:'relative',flexShrink:0,transition:'background 0.2s'}},
     e('div',{style:{width:20,height:20,borderRadius:'50%',background:'#fff',position:'absolute',top:3,left:on?21:3,transition:'left 0.2s'}})
   );
 }
+
 function Modal({gig,onSave,onDelete,onClose}){
   const blank={date:'',venue:'',location:'',type:'bar',status:'confirmed',time:''};
   const [form,setForm]=useState(gig||blank);
@@ -273,7 +274,8 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:20}},'This will delete all gigs and reset the app to its defaults. This cannot be undone.'),
         e('div',{style:{display:'flex',gap:8,justifyContent:'flex-end'}},
           e('button',{onClick:()=>setConfirmReset(false)},'Cancel'),
-          e('button',{onClick:()=>{setGigs(SAMPLE);setSettings({bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false});localStorage.removeItem('pmtf_gigs');localStorage.removeItem('pmtf_settings');localStorage.removeItem('pmtf_members');localStorage.removeItem('pmtf_mileage');setConfirmReset(false);onClose();},style:{background:'#dc2626',color:'#fff',border:'none',borderRadius:8,padding:'6px 16px',cursor:'pointer',fontWeight:500}},'Reset')
+          e('button',{onClick:()=>{setGigs(SAMPLE);setSettings({bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false});localStorage.removeItem('pmtf_gigs');localStorage.removeItem('pmtf_settings');localStorage.removeItem('pmtf_members');localStorage.removeItem('pmtf_mileage');setConfirmReset(false);onClose();},
+            style:{background:'#dc2626',color:'#fff',border:'none',borderRadius:8,padding:'6px 16px',cursor:'pointer',fontWeight:500}},'Reset')
         )
       )
     )
@@ -306,12 +308,19 @@ function App(){
   const [calSyncing,setCalSyncing]=useState(false);
   const [lastSynced,setLastSynced]=useState(null);
 
+  // Use a ref so watchPosition callback always sees current tracking state
+  const trackingRef=useRef(null);
+  const watchIdRef=useRef(null);
+
   const theme=THEMES[settings.theme]||THEMES.green;
 
   useEffect(()=>{try{localStorage.setItem('pmtf_gigs',JSON.stringify(gigs));}catch{}},[gigs]);
   useEffect(()=>{try{localStorage.setItem('pmtf_settings',JSON.stringify(settings));}catch{}},[settings]);
   useEffect(()=>{try{localStorage.setItem('pmtf_members',JSON.stringify(members));}catch{}},[members]);
   useEffect(()=>{try{localStorage.setItem('pmtf_mileage',JSON.stringify(mileageLog));}catch{}},[mileageLog]);
+
+  // Keep ref in sync with state so GPS callback can read it
+  useEffect(()=>{ trackingRef.current=trackingMiles; },[trackingMiles]);
 
   const closeModal=()=>setModal(null);
   const openAdd=()=>setModal({mode:'add'});
@@ -344,30 +353,83 @@ function App(){
     setCalSyncing(false);
   };
 
+  // ── FIXED: Mileage tracking ──────────────────────────────────────────────
+  // Sets state FIRST so banner appears immediately, then starts GPS watch.
+  // Uses a ref for the distance accumulator so the watchPosition callback
+  // never closes over stale state (the root cause of the invisible banner).
   const startTracking=gig=>{
-    if(!navigator.geolocation){alert('GPS not available.');return;}
-    navigator.geolocation.getCurrentPosition(pos=>{
-      const watchId=navigator.geolocation.watchPosition(newPos=>{
-        setTrackingMiles(prev=>{
-          if(!prev)return prev;
-          const R=3958.8;
-          const dLat=(newPos.coords.latitude-prev.lastPos.lat)*Math.PI/180;
-          const dLon=(newPos.coords.longitude-prev.lastPos.lon)*Math.PI/180;
-          const a=Math.sin(dLat/2)**2+Math.cos(prev.lastPos.lat*Math.PI/180)*Math.cos(newPos.coords.latitude*Math.PI/180)*Math.sin(dLon/2)**2;
-          const dist=R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
-          return{...prev,miles:prev.miles+dist,lastPos:{lat:newPos.coords.latitude,lon:newPos.coords.longitude}};
-        });
-      },null,{enableHighAccuracy:true,maximumAge:0});
-      setTrackingMiles({gigId:gig.id,venueName:gig.venue,date:gig.date,miles:0,watchId,lastPos:{lat:pos.coords.latitude,lon:pos.coords.longitude}});
-    },()=>alert('Unable to get location.'));
+    if(!navigator.geolocation){
+      alert('GPS not available on this device.');
+      return;
+    }
+
+    // Set tracking state immediately so the banner renders right away
+    const initialState={
+      gigId:gig.id,
+      venueName:gig.venue,
+      date:gig.date,
+      miles:0,
+      lastPos:null,  // will be set on first GPS fix
+    };
+    setTrackingMiles(initialState);
+    trackingRef.current=initialState;
+
+    // Get initial position, then start watch
+    navigator.geolocation.getCurrentPosition(
+      pos=>{
+        const startPos={lat:pos.coords.latitude,lon:pos.coords.longitude};
+        const withPos={...trackingRef.current,lastPos:startPos};
+        setTrackingMiles(withPos);
+        trackingRef.current=withPos;
+
+        const wid=navigator.geolocation.watchPosition(
+          newPos=>{
+            const prev=trackingRef.current;
+            if(!prev||!prev.lastPos)return;
+            const R=3958.8;
+            const dLat=(newPos.coords.latitude-prev.lastPos.lat)*Math.PI/180;
+            const dLon=(newPos.coords.longitude-prev.lastPos.lon)*Math.PI/180;
+            const a=Math.sin(dLat/2)**2+Math.cos(prev.lastPos.lat*Math.PI/180)*Math.cos(newPos.coords.latitude*Math.PI/180)*Math.sin(dLon/2)**2;
+            const dist=R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+            const updated={...prev,miles:prev.miles+dist,lastPos:{lat:newPos.coords.latitude,lon:newPos.coords.longitude}};
+            trackingRef.current=updated;
+            setTrackingMiles({...updated}); // spread to force re-render
+          },
+          err=>console.warn('GPS watch error:',err),
+          {enableHighAccuracy:true,maximumAge:0,timeout:10000}
+        );
+        watchIdRef.current=wid;
+      },
+      err=>{
+        // If we can't get initial position, still show the banner (0 mi)
+        // but warn the user
+        console.warn('Initial GPS fix failed:',err);
+        alert('GPS could not get your location. Check that Location Services is enabled for Safari in Settings → Privacy & Security → Location Services.');
+        setTrackingMiles(null);
+        trackingRef.current=null;
+      },
+      {enableHighAccuracy:true,timeout:15000,maximumAge:0}
+    );
   };
 
   const stopTracking=()=>{
-    if(!trackingMiles)return;
-    navigator.geolocation.clearWatch(trackingMiles.watchId);
-    setMileageLog(prev=>[...prev,{gigId:trackingMiles.gigId,venue:trackingMiles.venueName,date:trackingMiles.date,miles:parseFloat(trackingMiles.miles.toFixed(1))}]);
+    if(watchIdRef.current!=null){
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current=null;
+    }
+    const t=trackingRef.current;
+    if(t){
+      setMileageLog(prev=>[...prev,{
+        gigId:t.gigId,
+        venue:t.venueName,
+        date:t.date,
+        miles:parseFloat((t.miles||0).toFixed(1))
+      }]);
+    }
     setTrackingMiles(null);
+    trackingRef.current=null;
   };
+  // ────────────────────────────────────────────────────────────────────────
 
   const upcomingGigsAll=gigs.filter(g=>g.date>=todayStr);
   const listGigs=settings.showPast?gigs:upcomingGigsAll;
@@ -375,7 +437,6 @@ function App(){
   const confirmed=upcomingGigsAll.filter(g=>g.status==='confirmed').length;
   const weddings=upcomingGigsAll.filter(g=>g.type==='wedding').length;
   const nextGig=[...upcomingGigsAll].sort((a,b)=>a.date>b.date?1:-1)[0];
-
   const upcoming=useMemo(()=>[...listGigs].sort((a,b)=>{
     const va=a[sort.col]||'',vb=b[sort.col]||'';
     return va<vb?-sort.dir:va>vb?sort.dir:0;
@@ -387,6 +448,7 @@ function App(){
   }),[gigs,chartYear]);
 
   const gigsByDate=useMemo(()=>{const m={};gigs.forEach(g=>{if(!m[g.date])m[g.date]=[];m[g.date].push(g);});return m;},[gigs]);
+
   const firstDay=new Date(calYear,calMonth,1).getDay();
   const daysInMonth=new Date(calYear,calMonth+1,0).getDate();
   const cells=Array(firstDay).fill(null).concat(Array.from({length:daysInMonth},(_,i)=>i+1));
@@ -403,7 +465,6 @@ function App(){
   if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog});
 
   return e('div',{style:{maxWidth:720,margin:'0 auto',paddingBottom:'2rem'}},
-
     e('div',{style:{background:theme.primary,borderRadius:'0 0 20px 20px',padding:'1.25rem 1.25rem 1.5rem',marginBottom:'1.25rem'}},
       e('div',{style:{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:8}},
         e('div',null,
@@ -433,14 +494,12 @@ function App(){
       ),
       lastSynced&&e('div',{style:{marginTop:8,fontSize:11,color:'rgba(255,255,255,0.5)',textAlign:'right'}},'Last synced: '+lastSynced)
     ),
-
     e('div',{style:{padding:'0 1rem'}},
       e('div',{className:'tab-bar'},
         [{id:'calendar',label:'Calendar'},{id:'list',label:'Shows'},{id:'chart',label:'Chart'},{id:'checklist',label:'Checklists'}].map(t=>
           e('button',{key:t.id,className:'tab-btn'+(tab===t.id?' active':''),style:{color:tab===t.id?theme.primary:'#6b7280'},onClick:()=>setTab(t.id)},t.label)
         )
       ),
-
       tab==='calendar'&&e('div',null,
         e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'1rem'}},
           e('button',{onClick:()=>navMonth(-1),style:{padding:'4px 12px'}},'‹'),
@@ -472,7 +531,6 @@ function App(){
           e('span',{style:{display:'flex',alignItems:'center',gap:5}},e('span',{style:{width:10,height:10,borderRadius:3,background:'#f9fafb',border:'1px solid #e5e7eb',display:'inline-block'}}),' open')
         )
       ),
-
       tab==='list'&&e('div',null,
         e('div',{style:{borderRadius:12,border:'1px solid #e5e7eb',overflow:'hidden'}},
           upcoming.length===0&&e('div',{style:{padding:'2rem',textAlign:'center',color:'#6b7280',fontSize:13}},'No upcoming gigs'),
@@ -499,7 +557,6 @@ function App(){
         ),
         e('div',{style:{marginTop:10,fontSize:13,color:'#6b7280'}},upcoming.length+' upcoming gig'+(upcoming.length!==1?'s':''))
       ),
-
       tab==='chart'&&e('div',null,
         e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'1rem',flexWrap:'wrap',gap:8}},
           e('div',{style:{display:'flex',alignItems:'center',gap:10}},
@@ -547,7 +604,6 @@ function App(){
           ))
         )
       ),
-
       tab==='checklist'&&e('div',null,
         !activeMember&&e('div',null,
           e('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill, minmax(110px,1fr))',gap:10,marginBottom:14}},
@@ -613,7 +669,6 @@ function App(){
         })
       )
     ),
-
     modal&&e(Modal,{gig:modal.mode==='edit'?modal.gig:null,onSave:saveGig,onDelete:deleteGig,onClose:closeModal}),
 
     gigPopup&&e('div',{onClick:()=>setGigPopup(null),className:'overlay'},
@@ -645,33 +700,65 @@ function App(){
       )
     ),
 
+    // ── "Track miles?" confirmation modal ───────────────────────────────────
     askTrack&&e('div',{onClick:()=>setAskTrack(null),className:'overlay'},
       e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:360}},
         e('div',{style:{fontSize:16,fontWeight:500,marginBottom:6}},'Track miles for this trip?'),
-        e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:20}},"We'll track your miles using GPS. Tap Stop in the app when you arrive."),
+        e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:20}},
+          "We'll use GPS to track your mileage. A banner will appear so you can stop tracking when you arrive."
+        ),
         e('div',{style:{display:'flex',gap:8}},
-          e('button',{onClick:()=>{setAskTrack(null);window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(askTrack.venue+' '+askTrack.location)}`,'_blank');},
-            style:{flex:1,padding:'9px 0',borderRadius:10,border:'1px solid #d1d5db',cursor:'pointer',fontSize:14}},'Skip'),
-          e('a',{
-            href:`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(askTrack.venue+' '+askTrack.location)}`,
-            target:'_blank',
-            rel:'noopener noreferrer',
-            onClick:()=>{startTracking(askTrack);setAskTrack(null);},
-            style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:14,textDecoration:'none',display:'flex',alignItems:'center',justifyContent:'center'}
+          // Skip: just open Maps, no tracking
+          e('button',{
+            onClick:()=>{
+              window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(askTrack.venue+' '+askTrack.location)}`,'_blank');
+              setAskTrack(null);
+            },
+            style:{flex:1,padding:'9px 0',borderRadius:10,border:'1px solid #d1d5db',cursor:'pointer',fontSize:14}
+          },'Skip'),
+          // Track: start tracking FIRST, then open Maps
+          e('button',{
+            onClick:()=>{
+              const gig=askTrack;
+              setAskTrack(null);             // close modal
+              startTracking(gig);            // start GPS + show banner
+              // Open Maps after a short delay so the banner renders first
+              setTimeout(()=>{
+                window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(gig.venue+' '+gig.location)}`,'_blank');
+              },300);
+            },
+            style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:14}
           },'Yes, track')
         )
       )
     ),
 
-    trackingMiles&&e('div',{style:{position:'fixed',bottom:20,left:'50%',transform:'translateX(-50%)',width:'min(380px,92vw)',background:'#fff',borderRadius:14,padding:'12px 16px',boxShadow:'0 4px 20px rgba(0,0,0,0.15)',border:`1px solid ${theme.light}`,display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,zIndex:150}},
+    // ── Persistent tracking banner ─────────────────────────────────────────
+    trackingMiles&&e('div',{style:{
+      position:'fixed',bottom:20,left:'50%',transform:'translateX(-50%)',
+      width:'min(380px,92vw)',background:'#fff',borderRadius:14,
+      padding:'12px 16px',
+      boxShadow:'0 4px 24px rgba(0,0,0,0.18)',
+      border:`2px solid ${theme.mid}`,
+      display:'flex',alignItems:'center',justifyContent:'space-between',
+      gap:12,zIndex:9999  // raised z-index so it's always on top
+    }},
       e('div',{style:{display:'flex',alignItems:'center',gap:10}},
-        e('div',{style:{width:8,height:8,borderRadius:'50%',background:theme.mid}}),
+        e('div',{
+          className:'tracking-dot',
+          style:{width:10,height:10,borderRadius:'50%',background:'#22c55e',flexShrink:0}
+        }),
         e('div',null,
-          e('div',{style:{fontSize:13,fontWeight:500,color:'#111827'}},'Tracking miles'),
-          e('div',{style:{fontSize:11,color:'#6b7280'}},trackingMiles.venueName+' · '+trackingMiles.miles.toFixed(1)+' mi')
+          e('div',{style:{fontSize:13,fontWeight:600,color:'#111827'}},'Tracking miles'),
+          e('div',{style:{fontSize:12,color:'#6b7280',marginTop:1}},
+            trackingMiles.venueName+' · '+(trackingMiles.miles||0).toFixed(1)+' mi'
+          )
         )
       ),
-      e('button',{onClick:stopTracking,style:{background:'#dc2626',color:'#fff',border:'none',borderRadius:8,padding:'6px 14px',cursor:'pointer',fontWeight:500,fontSize:13}},'Stop')
+      e('button',{
+        onClick:stopTracking,
+        style:{background:'#dc2626',color:'#fff',border:'none',borderRadius:8,padding:'8px 18px',cursor:'pointer',fontWeight:600,fontSize:14,flexShrink:0}
+      },'⏹ Stop')
     ),
 
     confirmDelete&&members.filter(m=>m.id===confirmDelete).map(m=>
