@@ -104,6 +104,16 @@ const SAMPLE=[
   {id:34,date:`${yr}-11-20`,venue:"Wedding @ Giorgio's Baiting Hollow",location:"Baiting Hollow, NY",type:"wedding",status:"confirmed",time:"7–11 PM"},
 ];
 
+// Opens Google Maps app on iOS if installed, falls back to browser
+function openMaps(venue,location){
+  const query=encodeURIComponent((venue||'')+(location?' '+location:''));
+  const appUrl='comgooglemaps://?q='+query;
+  const webUrl='https://www.google.com/maps/search/?api=1&query='+query;
+  const start=Date.now();
+  window.location=appUrl;
+  setTimeout(()=>{ if(Date.now()-start<800) window.open(webUrl,'_blank'); },500);
+}
+
 function typeStyle(t){
   if(t==="wedding") return {bg:"#EEEDFE",color:"#534AB7"};
   if(t==="private event")return {bg:"#FAECE7",color:"#993C1D"};
@@ -547,8 +557,8 @@ function App(){
                 e('div',{style:{display:'flex',gap:6,marginTop:5,flexWrap:'wrap',alignItems:'center'}},
                   e('span',{className:'badge',style:{background:tc.bg,color:tc.color}},g.type),
                   e(Badge,{status:g.status}),
-                  g.location&&e('a',{href:`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(g.venue+' '+g.location)}`,target:'_blank',rel:'noopener noreferrer',
-                    style:{fontSize:11,padding:'2px 8px',borderRadius:99,background:'#E0EFFE',color:'#1D4ED8',fontWeight:500,textDecoration:'none',display:'inline-flex',alignItems:'center',gap:3}},'📍 Map')
+                  g.location&&e('button',{onClick:ev=>{ev.stopPropagation();openMaps(g.venue,g.location);},
+                    style:{fontSize:11,padding:'2px 8px',borderRadius:99,background:'#E0EFFE',color:'#1D4ED8',fontWeight:500,border:'none',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:3}},'📍 Map')
                 )
               ),
               e('button',{onClick:()=>openEdit(g),style:{fontSize:12,padding:'5px 12px',flexShrink:0}},'Edit')
@@ -711,7 +721,7 @@ function App(){
           // Skip: just open Maps, no tracking
           e('button',{
             onClick:()=>{
-              window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(askTrack.venue+' '+askTrack.location)}`,'_blank');
+              openMaps(askTrack.venue,askTrack.location);
               setAskTrack(null);
             },
             style:{flex:1,padding:'9px 0',borderRadius:10,border:'1px solid #d1d5db',cursor:'pointer',fontSize:14}
@@ -724,7 +734,7 @@ function App(){
               startTracking(gig);            // start GPS + show banner
               // Open Maps after a short delay so the banner renders first
               setTimeout(()=>{
-                window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(gig.venue+' '+gig.location)}`,'_blank');
+                openMaps(gig.venue,gig.location);
               },300);
             },
             style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:14}
