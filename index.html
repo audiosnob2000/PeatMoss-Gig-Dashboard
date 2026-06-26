@@ -104,15 +104,21 @@ const SAMPLE=[
   {id:34,date:`${yr}-11-20`,venue:"Wedding @ Giorgio's Baiting Hollow",location:"Baiting Hollow, NY",type:"wedding",status:"confirmed",time:"7–11 PM"},
 ];
 
-// Opens Google Maps app to directions on iOS, falls back to browser
+// Opens Google Maps app directly without navigating Safari first
 function openMaps(venue,location){
   const dest=encodeURIComponent((venue||'')+(location?' '+location:''));
-  // comgooglemaps:// opens the app directly to directions
   const appUrl='comgooglemaps://?daddr='+dest+'&directionsmode=driving';
   const webUrl='https://www.google.com/maps/dir/?api=1&destination='+dest;
-  const start=Date.now();
-  window.location=appUrl;
-  setTimeout(()=>{ if(Date.now()-start<800) window.open(webUrl,'_blank'); },500);
+  // Use iframe to trigger app scheme — avoids Safari navigating away
+  const iframe=document.createElement('iframe');
+  iframe.style.cssText='display:none;width:0;height:0;border:0';
+  document.body.appendChild(iframe);
+  iframe.src=appUrl;
+  // If app doesn't open in 1s, fall back to web
+  setTimeout(()=>{
+    document.body.removeChild(iframe);
+    window.open(webUrl,'_blank');
+  },1000);
 }
 
 function typeStyle(t){
