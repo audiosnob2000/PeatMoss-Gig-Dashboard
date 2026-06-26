@@ -652,8 +652,11 @@ function App(){
         e('div',{style:{display:'flex',gap:8}},
           e('button',{onClick:()=>{setAskTrack(null);window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(askTrack.venue+' '+askTrack.location)}`,'_blank');},
             style:{flex:1,padding:'9px 0',borderRadius:10,border:'1px solid #d1d5db',cursor:'pointer',fontSize:14}},'Skip'),
-          e('button',{onClick:()=>{startTracking(askTrack);setAskTrack(null);window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(askTrack.venue+' '+askTrack.location)}`,'_blank');},
-            style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:14}},'Yes, track')
+          e('button',{onClick:()=>{
+            window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(askTrack.venue+' '+askTrack.location)}`,'_blank');
+            startTracking(askTrack);
+            setAskTrack(null);
+          },style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:14}},'Yes, track')
         )
       )
     ),
