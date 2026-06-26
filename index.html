@@ -336,8 +336,8 @@ function App(){
           const time=ts&&te?`${ts}–${te}`:ts;
           const venue=ev.summary||'Untitled';
           return{id:ev.id,date,venue,location:ev.location||'',type:venue.toLowerCase().includes('wedding')?'wedding':'bar',status:'confirmed',time,fromCalendar:true};
-        }).filter(g=>g.date);
-        setGigs(prev=>[...prev.filter(g=>!g.fromCalendar),...calGigs]);
+        }).filter(g=>g.date&&g.location);
+        setGigs(calGigs);
         setLastSynced(new Date().toLocaleTimeString());
       }
     }catch(err){console.log('Sync failed:',err);}
