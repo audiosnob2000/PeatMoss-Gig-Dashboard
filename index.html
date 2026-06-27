@@ -226,6 +226,13 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
           )
         })
       ),
+      e(Section,{icon:'🏠',title:'Home'},
+        e(Row,{label:'Home address',sub:'Used for navigate home after gigs',border:false,
+          right:e('input',{value:settings.homeAddress||'',onChange:ev=>setSettings(s=>({...s,homeAddress:ev.target.value})),
+            placeholder:'123 Main St, Rocky Point, NY',
+            style:{padding:'5px 8px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:200}})
+        })
+      ),
       e(Section,{icon:'📅',title:'Calendar'},
         e(Row,{label:'Default view',border:true,
           right:e('select',{value:settings.defaultTab,onChange:ev=>setSettings(s=>({...s,defaultTab:ev.target.value})),
@@ -285,7 +292,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:20}},'This will delete all gigs and reset the app to its defaults. This cannot be undone.'),
         e('div',{style:{display:'flex',gap:8,justifyContent:'flex-end'}},
           e('button',{onClick:()=>setConfirmReset(false)},'Cancel'),
-          e('button',{onClick:()=>{setGigs(SAMPLE);setSettings({bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false});localStorage.removeItem('pmtf_gigs');localStorage.removeItem('pmtf_settings');localStorage.removeItem('pmtf_members');localStorage.removeItem('pmtf_mileage');setConfirmReset(false);onClose();},
+          e('button',{onClick:()=>{setGigs(SAMPLE);setSettings({bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:''});localStorage.removeItem('pmtf_gigs');localStorage.removeItem('pmtf_settings');localStorage.removeItem('pmtf_members');localStorage.removeItem('pmtf_mileage');setConfirmReset(false);onClose();},
             style:{background:'#dc2626',color:'#fff',border:'none',borderRadius:8,padding:'6px 16px',cursor:'pointer',fontWeight:500}},'Reset')
         )
       )
@@ -294,7 +301,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
 }
 
 function App(){
-  const [settings,setSettings]=useState(()=>{try{const s=localStorage.getItem('pmtf_settings');return s?JSON.parse(s):{bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false};}catch{return {bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false};}});
+  const [settings,setSettings]=useState(()=>{try{const s=localStorage.getItem('pmtf_settings');return s?JSON.parse(s):{bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:''};}catch{return {bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:''};}});
   const [gigs,setGigs]=useState(()=>{try{const s=localStorage.getItem('pmtf_gigs');return s?JSON.parse(s):SAMPLE;}catch{return SAMPLE;}});
   const [members,setMembers]=useState(()=>{try{const s=localStorage.getItem('pmtf_members');return s?JSON.parse(s):[];}catch{return [];}});
   const [mileageLog,setMileageLog]=useState(()=>{try{const s=localStorage.getItem('pmtf_mileage');return s?JSON.parse(s):[];}catch{return [];}});
@@ -367,6 +374,16 @@ function App(){
     return ()=>{ if(watchIdRef.current!=null) navigator.geolocation.clearWatch(watchIdRef.current); };
   },[]); // run once on mount
 
+  const goHome=gig=>{
+    if(!settings.homeAddress) return;
+    setGigPopup(null);
+    const dest=encodeURIComponent(settings.homeAddress);
+    const appUrl='comgooglemaps://?daddr='+dest+'&directionsmode=driving';
+    const webUrl='https://www.google.com/maps/dir/?api=1&destination='+dest;
+    window.location=appUrl;
+    setTimeout(()=>window.open(webUrl,'_blank'),1000);
+    setTimeout(()=>startTracking({...gig,venue:gig.venue+' to Home'}),800);
+  };
   const closeModal=()=>setModal(null);
   const openAdd=()=>setModal({mode:'add'});
   const openEdit=g=>setModal({mode:'edit',gig:g});
@@ -736,11 +753,16 @@ function App(){
             e(Badge,{status:gigPopup.status})
           )
         ),
-        e('div',{style:{display:'flex',gap:8}},
-          gigPopup.location&&e('button',{onClick:()=>{setAskTrack(gigPopup);setGigPopup(null);},
-            style:{flex:1,padding:'9px 0',borderRadius:10,background:'#E0EFFE',color:'#1D4ED8',fontWeight:500,border:'none',cursor:'pointer',fontSize:14}},'📍 Map'),
-          e('button',{onClick:()=>{setGigPopup(null);openEdit(gigPopup);},
-            style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:14}},'✏️ Edit')
+        e('div',{style:{display:'flex',gap:8,flexDirection:'column'}},
+          e('div',{style:{display:'flex',gap:8}},
+            gigPopup.location&&e('button',{onClick:()=>{setAskTrack(gigPopup);setGigPopup(null);},
+              style:{flex:1,padding:'9px 0',borderRadius:10,background:'#E0EFFE',color:'#1D4ED8',fontWeight:500,border:'none',cursor:'pointer',fontSize:14}},'📍 Map'),
+            settings.homeAddress&&e('button',{onClick:()=>goHome(gigPopup),
+              style:{flex:1,padding:'9px 0',borderRadius:10,background:'#E1F5EE',color:'#0F6E56',fontWeight:500,border:'none',cursor:'pointer',fontSize:14}},'🏠 Home'),
+            e('button',{onClick:()=>{setGigPopup(null);openEdit(gigPopup);},
+              style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:14}},'✏️ Edit')
+          ),
+          !settings.homeAddress&&e('div',{style:{fontSize:11,color:'#9ca3af',textAlign:'center',paddingTop:2}},'Set a home address in Settings to enable the Home button')
         )
       )
     ),
