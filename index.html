@@ -165,16 +165,15 @@ function Modal({gig,onSave,onDelete,onClose}){
   );
 }
 
-function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog}){
-  const [copied,setCopied]=useState(false);
-  const [confirmReset,setConfirmReset]=useState(false);
-  const [editingBandName,setEditingBandName]=useState(false);
-  const [bandNameValue,setBandNameValue]=useState('');
-  const [mileageOpen,setMileageOpen]=useState(false);
-  // Local state for home address so keyboard doesn't dismiss on every keystroke
-  const [homeAddressValue,setHomeAddressValue]=useState(settings.homeAddress||'');
+function Section({icon,title,children}){return e('div',{style:{marginBottom:20}},e('div',{style:{fontSize:11,fontWeight:500,color:'#6b7280',textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:8}},[icon,' ',title]),e('div',{style:{background:'#fff',borderRadius:12,border:'1px solid #e5e7eb',overflow:'hidden'}},children));}
+function Row({label,sub,right,danger,border=true}){return e('div',{style:{padding:'12px 14px',borderBottom:border?'1px solid #e5e7eb':'none',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}},e('div',null,e('div',{style:{fontSize:14,color:danger?'#b91c1c':'#111827'}},label),sub&&e('div',{style:{fontSize:12,color:'#9ca3af',marginTop:2}},sub)),right&&e('div',{style:{flexShrink:0}},right));}
+
+function HomeAddressInput({settings,setSettings,theme}){
+  const inputRef=useRef(null);
   const [locating,setLocating]=useState(false);
-  const saveHomeAddress=()=>setSettings(s=>({...s,homeAddress:homeAddressValue.trim()}));
+  // Sync input value only on mount (not on every render)
+  useEffect(()=>{if(inputRef.current)inputRef.current.value=settings.homeAddress||'';},[]);
+  const save=()=>{if(inputRef.current)setSettings(s=>({...s,homeAddress:inputRef.current.value.trim()}));};
   const useMyLocation=()=>{
     if(!navigator.geolocation){alert('GPS not available.');return;}
     setLocating(true);
@@ -184,13 +183,30 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         const data=await res.json();
         if(data.results&&data.results[0]){
           const addr=data.results[0].formatted_address;
-          setHomeAddressValue(addr);
+          if(inputRef.current) inputRef.current.value=addr;
           setSettings(s=>({...s,homeAddress:addr}));
         }
       }catch{alert('Could not get address. Try typing it manually.');}
       setLocating(false);
     },()=>{alert('GPS unavailable. Try typing your address.');setLocating(false);},{enableHighAccuracy:true,timeout:10000});
   };
+  return e('div',{style:{padding:'12px 14px'}},
+    e('div',{style:{fontSize:14,color:'#111827',marginBottom:4}},'Home address'),
+    e('div',{style:{fontSize:12,color:'#9ca3af',marginBottom:10}},'Used for navigate home after gigs'),
+    e('input',{ref:inputRef,defaultValue:settings.homeAddress||'',onBlur:save,placeholder:'123 Main St, Rocky Point, NY',style:{padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,fontSize:14,width:'100%',marginBottom:8}}),
+    e('div',{style:{display:'flex',gap:8}},
+      e('button',{onClick:useMyLocation,disabled:locating,style:{flex:1,padding:'8px 0',borderRadius:8,border:`1px solid ${theme.mid}`,color:theme.mid,background:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},locating?'Locating...':'📍 Use my location'),
+      e('button',{onClick:save,style:{padding:'8px 16px',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},'Save')
+    )
+  );
+}
+
+function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog}){
+  const [copied,setCopied]=useState(false);
+  const [confirmReset,setConfirmReset]=useState(false);
+  const [editingBandName,setEditingBandName]=useState(false);
+  const [bandNameValue,setBandNameValue]=useState('');
+  const [mileageOpen,setMileageOpen]=useState(false);
   const totalMiles=mileageLog.reduce((s,t)=>s+t.miles,0);
   const totalDeduction=(totalMiles*IRS_RATE).toFixed(2);
   const saveBandName=()=>{if(bandNameValue.trim())setSettings(s=>({...s,bandName:bandNameValue.trim()}));setEditingBandName(false);};
@@ -199,17 +215,6 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
     const text=upcoming.map(g=>`${g.date} — ${g.venue}${g.location?', '+g.location:''}${g.time?' ('+g.time+')':''}`).join('\n');
     navigator.clipboard.writeText(text).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000);});
   };
-  const Section=({icon,title,children})=>e('div',{style:{marginBottom:20}},
-    e('div',{style:{fontSize:11,fontWeight:500,color:'#6b7280',textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:8}},[icon,' ',title]),
-    e('div',{style:{background:'#fff',borderRadius:12,border:'1px solid #e5e7eb',overflow:'hidden'}},children)
-  );
-  const Row=({label,sub,right,danger,border=true})=>e('div',{style:{padding:'12px 14px',borderBottom:border?'1px solid #e5e7eb':'none',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}},
-    e('div',null,
-      e('div',{style:{fontSize:14,color:danger?'#b91c1c':'#111827'}},label),
-      sub&&e('div',{style:{fontSize:12,color:'#9ca3af',marginTop:2}},sub)
-    ),
-    right&&e('div',{style:{flexShrink:0}},right)
-  );
   return e('div',{style:{position:'fixed',inset:0,background:'#f4f6f8',zIndex:200,overflowY:'auto'}},
     e('div',{style:{background:theme.primary,padding:'1.25rem 1rem 1rem'}},
       e('div',{style:{display:'flex',alignItems:'center',gap:12}},
@@ -247,27 +252,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         })
       ),
       e(Section,{icon:'🏠',title:'Home'},
-        e('div',{style:{padding:'12px 14px'}},
-          e('div',{style:{fontSize:14,color:'#111827',marginBottom:4}},'Home address'),
-          e('div',{style:{fontSize:12,color:'#9ca3af',marginBottom:10}},'Used for navigate home after gigs'),
-          e('div',{style:{display:'flex',gap:8,flexDirection:'column'}},
-            e('input',{
-              value:homeAddressValue,
-              onChange:ev=>setHomeAddressValue(ev.target.value),
-              onBlur:saveHomeAddress,
-              placeholder:'123 Main St, Rocky Point, NY',
-              style:{padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,fontSize:14,width:'100%'}
-            }),
-            e('div',{style:{display:'flex',gap:8}},
-              e('button',{onClick:useMyLocation,disabled:locating,
-                style:{flex:1,padding:'8px 0',borderRadius:8,border:`1px solid ${theme.mid}`,color:theme.mid,background:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},
-                locating?'Locating...':'📍 Use my location'),
-              e('button',{onClick:saveHomeAddress,
-                style:{padding:'8px 16px',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},
-                'Save')
-            )
-          )
-        )
+        e(HomeAddressInput,{settings,setSettings,theme})
       ),
       e(Section,{icon:'📅',title:'Calendar'},
         e(Row,{label:'Default view',border:true,
