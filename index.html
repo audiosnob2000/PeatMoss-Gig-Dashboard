@@ -314,7 +314,7 @@ function App(){
   const [editNameValue,setEditNameValue]=useState('');
   const [gigPopup,setGigPopup]=useState(null);
   const [showSettings,setShowSettings]=useState(false);
-  const [trackingMiles,setTrackingMiles]=useState(null);
+  const [trackingMiles,setTrackingMiles]=useState(()=>{try{const s=localStorage.getItem('pmtf_tracking');return s?JSON.parse(s):null;}catch{return null;}});
   const [askTrack,setAskTrack]=useState(null);
   const [calSyncing,setCalSyncing]=useState(false);
   const [lastSynced,setLastSynced]=useState(null);
@@ -332,6 +332,40 @@ function App(){
 
   // Keep ref in sync with state so GPS callback can read it
   useEffect(()=>{ trackingRef.current=trackingMiles; },[trackingMiles]);
+
+  // Persist tracking state so banner survives page reload (e.g. returning from Maps app)
+  useEffect(()=>{
+    try{
+      if(trackingMiles) localStorage.setItem('pmtf_tracking',JSON.stringify(trackingMiles));
+      else localStorage.removeItem('pmtf_tracking');
+    }catch{}
+  },[trackingMiles]);
+
+  // On mount: if there was an active tracking session, restart the GPS watch
+  useEffect(()=>{
+    const saved=trackingRef.current;
+    if(!saved||!navigator.geolocation) return;
+    // Resume GPS watch — distance will accumulate from where we left off
+    const wid=navigator.geolocation.watchPosition(
+      newPos=>{
+        const prev=trackingRef.current;
+        if(!prev||!prev.lastPos) return;
+        const R=3958.8;
+        const dLat=(newPos.coords.latitude-prev.lastPos.lat)*Math.PI/180;
+        const dLon=(newPos.coords.longitude-prev.lastPos.lon)*Math.PI/180;
+        const a=Math.sin(dLat/2)**2+Math.cos(prev.lastPos.lat*Math.PI/180)*Math.cos(newPos.coords.latitude*Math.PI/180)*Math.sin(dLon/2)**2;
+        const dist=R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+        const updated={...prev,miles:prev.miles+dist,lastPos:{lat:newPos.coords.latitude,lon:newPos.coords.longitude}};
+        trackingRef.current=updated;
+        setTrackingMiles({...updated});
+      },
+      err=>console.warn('GPS resume error:',err),
+      {enableHighAccuracy:true,maximumAge:0,timeout:10000}
+    );
+    watchIdRef.current=wid;
+    // Cleanup on unmount
+    return ()=>{ if(watchIdRef.current!=null) navigator.geolocation.clearWatch(watchIdRef.current); };
+  },[]); // run once on mount
 
   const closeModal=()=>setModal(null);
   const openAdd=()=>setModal({mode:'add'});
