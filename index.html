@@ -104,20 +104,14 @@ const SAMPLE=[
   {id:34,date:`${yr}-11-20`,venue:"Wedding @ Giorgio's Baiting Hollow",location:"Baiting Hollow, NY",type:"wedding",status:"confirmed",time:"7–11 PM"},
 ];
 
-// Opens Google Maps app directly without navigating Safari first
+// Opens Google Maps app on iOS directly
 function openMaps(venue,location){
   const dest=encodeURIComponent((venue||'')+(location?' '+location:''));
-  const appUrl='comgooglemaps://?daddr='+dest+'&directionsmode=driving';
-  const webUrl='https://www.google.com/maps/dir/?api=1&destination='+dest;
-  // Use iframe to trigger app scheme — avoids Safari navigating away
-  const iframe=document.createElement('iframe');
-  iframe.style.cssText='display:none;width:0;height:0;border:0';
-  document.body.appendChild(iframe);
-  iframe.src=appUrl;
-  // If app doesn't open in 1s, fall back to web
+  // comgooglemaps:// launches the app; if not installed falls back to web URL
+  window.location='comgooglemaps://?daddr='+dest+'&directionsmode=driving';
+  // Fallback: if still here after 1s, open web version
   setTimeout(()=>{
-    document.body.removeChild(iframe);
-    window.open(webUrl,'_blank');
+    window.open('https://www.google.com/maps/dir/?api=1&destination='+dest,'_blank');
   },1000);
 }
 
@@ -738,11 +732,8 @@ function App(){
             onClick:()=>{
               const gig=askTrack;
               setAskTrack(null);             // close modal
-              startTracking(gig);            // start GPS + show banner
-              // Open Maps after a short delay so the banner renders first
-              setTimeout(()=>{
-                openMaps(gig.venue,gig.location);
-              },300);
+              openMaps(gig.venue,gig.location); // open Maps immediately
+              setTimeout(()=>startTracking(gig),800); // start GPS after Maps launches
             },
             style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:14}
           },'Yes, track')
