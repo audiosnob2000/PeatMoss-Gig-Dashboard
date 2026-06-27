@@ -171,6 +171,26 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
   const [editingBandName,setEditingBandName]=useState(false);
   const [bandNameValue,setBandNameValue]=useState('');
   const [mileageOpen,setMileageOpen]=useState(false);
+  // Local state for home address so keyboard doesn't dismiss on every keystroke
+  const [homeAddressValue,setHomeAddressValue]=useState(settings.homeAddress||'');
+  const [locating,setLocating]=useState(false);
+  const saveHomeAddress=()=>setSettings(s=>({...s,homeAddress:homeAddressValue.trim()}));
+  const useMyLocation=()=>{
+    if(!navigator.geolocation){alert('GPS not available.');return;}
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(async pos=>{
+      try{
+        const res=await fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${pos.coords.latitude},${pos.coords.longitude}&key=AIzaSyDDfPjbqTtgXOacnkjrr9SbGVcWWVW3hYg`);
+        const data=await res.json();
+        if(data.results&&data.results[0]){
+          const addr=data.results[0].formatted_address;
+          setHomeAddressValue(addr);
+          setSettings(s=>({...s,homeAddress:addr}));
+        }
+      }catch{alert('Could not get address. Try typing it manually.');}
+      setLocating(false);
+    },()=>{alert('GPS unavailable. Try typing your address.');setLocating(false);},{enableHighAccuracy:true,timeout:10000});
+  };
   const totalMiles=mileageLog.reduce((s,t)=>s+t.miles,0);
   const totalDeduction=(totalMiles*IRS_RATE).toFixed(2);
   const saveBandName=()=>{if(bandNameValue.trim())setSettings(s=>({...s,bandName:bandNameValue.trim()}));setEditingBandName(false);};
@@ -227,11 +247,27 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         })
       ),
       e(Section,{icon:'🏠',title:'Home'},
-        e(Row,{label:'Home address',sub:'Used for navigate home after gigs',border:false,
-          right:e('input',{value:settings.homeAddress||'',onChange:ev=>setSettings(s=>({...s,homeAddress:ev.target.value})),
-            placeholder:'123 Main St, Rocky Point, NY',
-            style:{padding:'5px 8px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:200}})
-        })
+        e('div',{style:{padding:'12px 14px'}},
+          e('div',{style:{fontSize:14,color:'#111827',marginBottom:4}},'Home address'),
+          e('div',{style:{fontSize:12,color:'#9ca3af',marginBottom:10}},'Used for navigate home after gigs'),
+          e('div',{style:{display:'flex',gap:8,flexDirection:'column'}},
+            e('input',{
+              value:homeAddressValue,
+              onChange:ev=>setHomeAddressValue(ev.target.value),
+              onBlur:saveHomeAddress,
+              placeholder:'123 Main St, Rocky Point, NY',
+              style:{padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,fontSize:14,width:'100%'}
+            }),
+            e('div',{style:{display:'flex',gap:8}},
+              e('button',{onClick:useMyLocation,disabled:locating,
+                style:{flex:1,padding:'8px 0',borderRadius:8,border:`1px solid ${theme.mid}`,color:theme.mid,background:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},
+                locating?'Locating...':'📍 Use my location'),
+              e('button',{onClick:saveHomeAddress,
+                style:{padding:'8px 16px',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},
+                'Save')
+            )
+          )
+        )
       ),
       e(Section,{icon:'📅',title:'Calendar'},
         e(Row,{label:'Default view',border:true,
