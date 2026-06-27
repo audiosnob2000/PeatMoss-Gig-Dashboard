@@ -171,22 +171,31 @@ function Row({label,sub,right,danger,border=true}){return e('div',{style:{paddin
 function HomeAddressInput({settings,setSettings,theme}){
   const inputRef=useRef(null);
   const [locating,setLocating]=useState(false);
-  // Sync input value only on mount (not on every render)
   useEffect(()=>{if(inputRef.current)inputRef.current.value=settings.homeAddress||'';},[]);
-  const save=()=>{if(inputRef.current)setSettings(s=>({...s,homeAddress:inputRef.current.value.trim()}));};
+  const save=()=>{
+    if(inputRef.current){
+      const val=inputRef.current.value.trim();
+      setSettings(s=>({...s,homeAddress:val}));
+    }
+  };
   const useMyLocation=()=>{
     if(!navigator.geolocation){alert('GPS not available.');return;}
     setLocating(true);
     navigator.geolocation.getCurrentPosition(async pos=>{
       try{
-        const res=await fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${pos.coords.latitude},${pos.coords.longitude}&key=AIzaSyDDfPjbqTtgXOacnkjrr9SbGVcWWVW3hYg`);
+        // Free reverse geocode — no API key needed
+        const res=await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&format=json`);
         const data=await res.json();
-        if(data.results&&data.results[0]){
-          const addr=data.results[0].formatted_address;
+        if(data&&data.display_name){
+          const addr=data.display_name;
           if(inputRef.current) inputRef.current.value=addr;
           setSettings(s=>({...s,homeAddress:addr}));
+        } else {
+          alert('Could not get address. Try typing it manually.');
         }
-      }catch{alert('Could not get address. Try typing it manually.');}
+      }catch(err){
+        alert('Could not get address. Try typing it manually.');
+      }
       setLocating(false);
     },()=>{alert('GPS unavailable. Try typing your address.');setLocating(false);},{enableHighAccuracy:true,timeout:10000});
   };
@@ -195,7 +204,7 @@ function HomeAddressInput({settings,setSettings,theme}){
     e('div',{style:{fontSize:12,color:'#9ca3af',marginBottom:10}},'Used for navigate home after gigs'),
     e('input',{ref:inputRef,defaultValue:settings.homeAddress||'',onBlur:save,placeholder:'123 Main St, Rocky Point, NY',style:{padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,fontSize:14,width:'100%',marginBottom:8}}),
     e('div',{style:{display:'flex',gap:8}},
-      e('button',{onClick:useMyLocation,disabled:locating,style:{flex:1,padding:'8px 0',borderRadius:8,border:`1px solid ${theme.mid}`,color:theme.mid,background:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},locating?'Locating...':'📍 Use my location'),
+      e('button',{onClick:useMyLocation,disabled:locating,style:{flex:1,padding:'8px 0',borderRadius:8,border:`1px solid ${theme.mid}`,color:theme.mid,background:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},locating?'📍 Locating...':'📍 Use my location'),
       e('button',{onClick:save,style:{padding:'8px 16px',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},'Save')
     )
   );
