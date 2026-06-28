@@ -296,7 +296,11 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
           mileageLog.length===0&&e('div',{style:{padding:'1.5rem',textAlign:'center',color:'#9ca3af',fontSize:13}},'No trips logged yet — tap Map on a gig to start tracking'),
           mileageLog.map((t,i)=>e('div',{key:i,style:{padding:'10px 14px',borderBottom:i<mileageLog.length-1?'1px solid #e5e7eb':'none',display:'flex',justifyContent:'space-between',alignItems:'center'}},
             e('div',null,e('div',{style:{fontSize:13,fontWeight:500,color:'#111827'}},t.venue),e('div',{style:{fontSize:11,color:'#9ca3af'}},t.date)),
-            e('div',{style:{fontSize:13,fontWeight:500,color:theme.primary}},t.miles.toFixed(1)+' mi')
+            e('div',{style:{display:'flex',alignItems:'center',gap:10}},
+              e('div',{style:{fontSize:13,fontWeight:500,color:theme.primary}},t.miles.toFixed(1)+' mi'),
+              e('button',{onClick:()=>setMileageLog(prev=>prev.filter((_,idx)=>idx!==i)),
+                style:{border:'none',background:'none',color:'#d1d5db',fontSize:18,cursor:'pointer',padding:'0 4px',lineHeight:1}},'×')
+            )
           )),
           mileageLog.length>0&&e('div',{style:{padding:'10px 14px',borderTop:'1px solid #e5e7eb'}},
             e('button',{onClick:()=>{if(window.confirm('Clear all mileage logs?'))setMileageLog([]);},style:{fontSize:12,color:'#b91c1c',borderColor:'#fca5a5',width:'100%',padding:'7px 0'}},'Clear mileage log')
