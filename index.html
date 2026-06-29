@@ -242,6 +242,8 @@ function StagePlotSection({settings,setSettings,theme}){
       e('button',{onClick:saveLink,style:{flex:1,padding:'8px 0',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},'Save link')
     ),
     hasLink&&e('div',{style:{display:'flex',gap:8}},
+      e('button',{onClick:()=>window.open(settings.stagePlotUrl,'_blank'),
+        style:{flex:1,padding:'9px 0',borderRadius:8,border:'0.5px solid #d1d5db',background:'#fff',color:'#374151',cursor:'pointer',fontSize:13,fontWeight:500}},'👁 Preview'),
       e('button',{onClick:copyLink,style:{flex:1,padding:'9px 0',borderRadius:8,border:`1px solid ${theme.mid}`,color:theme.mid,background:copied?theme.pale:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},copied?'✓ Copied!':'🔗 Copy link'),
       e('button',{onClick:shareLink,style:{flex:1,padding:'9px 0',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},'📤 Share')
     )
