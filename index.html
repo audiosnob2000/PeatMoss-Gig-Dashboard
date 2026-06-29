@@ -210,6 +210,44 @@ function HomeAddressInput({settings,setSettings,theme}){
   );
 }
 
+function StagePlotSection({settings,setSettings,theme}){
+  const linkRef=useRef(null);
+  const [copied,setCopied]=useState(false);
+  useEffect(()=>{if(linkRef.current)linkRef.current.value=settings.stagePlotUrl||'';},[]);
+  const saveLink=()=>{
+    if(linkRef.current) setSettings(s=>({...s,stagePlotUrl:linkRef.current.value.trim()}));
+  };
+  const copyLink=()=>{
+    const url=settings.stagePlotUrl;
+    if(!url) return;
+    navigator.clipboard.writeText(url).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000);});
+  };
+  const shareLink=()=>{
+    const url=settings.stagePlotUrl;
+    if(!url) return;
+    if(navigator.share){
+      navigator.share({title:'Stage Plot — Peat Moss & The Fertilizers',text:'Stage plot for our show:',url});
+    } else {
+      navigator.clipboard.writeText(url).then(()=>alert('Link copied to clipboard!'));
+    }
+  };
+  const hasLink=!!(settings.stagePlotUrl&&settings.stagePlotUrl.trim());
+  return e('div',{style:{padding:'12px 14px'}},
+    e('div',{style:{fontSize:14,color:'#111827',marginBottom:4}},'Stage plot link'),
+    e('div',{style:{fontSize:12,color:'#9ca3af',marginBottom:10}},'Paste a Google Drive share link. Set file to "Anyone with the link can view" in Drive.'),
+    e('input',{ref:linkRef,defaultValue:settings.stagePlotUrl||'',onBlur:saveLink,
+      placeholder:'https://drive.google.com/file/d/...',
+      style:{padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'100%',marginBottom:8}}),
+    e('div',{style:{display:'flex',gap:8,marginBottom:hasLink?10:0}},
+      e('button',{onClick:saveLink,style:{flex:1,padding:'8px 0',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},'Save link')
+    ),
+    hasLink&&e('div',{style:{display:'flex',gap:8}},
+      e('button',{onClick:copyLink,style:{flex:1,padding:'9px 0',borderRadius:8,border:`1px solid ${theme.mid}`,color:theme.mid,background:copied?theme.pale:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},copied?'✓ Copied!':'🔗 Copy link'),
+      e('button',{onClick:shareLink,style:{flex:1,padding:'9px 0',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},'📤 Share')
+    )
+  );
+}
+
 function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog}){
   const [copied,setCopied]=useState(false);
   const [confirmReset,setConfirmReset]=useState(false);
@@ -271,6 +309,9 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
           )
         }),
         e(Row,{label:'Show past gigs in Shows tab',border:false,right:e(Toggle,{on:settings.showPast,onToggle:()=>setSettings(s=>({...s,showPast:!s.showPast}))})})
+      ),
+      e(Section,{icon:'🎸',title:'Stage Plot'},
+        e(StagePlotSection,{settings,setSettings,theme})
       ),
       e(Section,{icon:'🚗',title:'Mileage report'},
         e('div',{onClick:()=>setMileageOpen(o=>!o),style:{padding:'12px 14px',display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'pointer',borderBottom:mileageOpen?'1px solid #e5e7eb':'none'}},
@@ -335,7 +376,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
 }
 
 function App(){
-  const [settings,setSettings]=useState(()=>{try{const s=localStorage.getItem('pmtf_settings');return s?JSON.parse(s):{bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:''};}catch{return {bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:''};}});
+  const [settings,setSettings]=useState(()=>{try{const s=localStorage.getItem('pmtf_settings');return s?JSON.parse(s):{bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:''};}catch{return {bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:''};}});
   const [gigs,setGigs]=useState(()=>{try{const s=localStorage.getItem('pmtf_gigs');return s?JSON.parse(s):SAMPLE;}catch{return SAMPLE;}});
   const [members,setMembers]=useState(()=>{try{const s=localStorage.getItem('pmtf_members');return s?JSON.parse(s):[];}catch{return [];}});
   const [mileageLog,setMileageLog]=useState(()=>{try{const s=localStorage.getItem('pmtf_mileage');return s?JSON.parse(s):[];}catch{return [];}});
