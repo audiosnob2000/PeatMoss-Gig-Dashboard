@@ -49,6 +49,7 @@ const IRS_RATE=0.67;
 const TYPES=["bar","wedding","private event","other"];
 const STATUSES=["confirmed","pending","hold","cancelled"];
 const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const FULL_MONTHS=["January","February","March","April","May","June","July","August","September","October","November","December"];
 const DAYS=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 // Converts any hex color into a full theme (primary/mid/light/pale/accent)
 // by keeping its hue but walking a fixed lightness ramp, so custom colors
@@ -474,6 +475,7 @@ function App(){
   const [chartYear,setChartYear]=useState(today.getFullYear());
   const [chartType,setChartType]=useState('bar');
   const [chartShowPast,setChartShowPast]=useState(true);
+  const [showsSearch,setShowsSearch]=useState('');
   const [modal,setModal]=useState(null);
   const [sort,setSort]=useState({col:'date',dir:1});
   const [activeMember,setActiveMember]=useState(null);
@@ -679,6 +681,16 @@ function App(){
     const va=a[sort.col]||'',vb=b[sort.col]||'';
     return va<vb?-sort.dir:va>vb?sort.dir:0;
   }),[gigs,sort,settings.showPast]);
+  const filteredUpcoming=useMemo(()=>{
+    const q=showsSearch.trim().toLowerCase();
+    if(!q)return upcoming;
+    return upcoming.filter(g=>{
+      const mi=parseInt(g.date.slice(5,7),10)-1;
+      const month=(FULL_MONTHS[mi]||'').toLowerCase();
+      return g.venue.toLowerCase().includes(q)||g.type.toLowerCase().includes(q)||
+        (g.location||'').toLowerCase().includes(q)||month.includes(q);
+    });
+  },[upcoming,showsSearch]);
 
   const chartData=useMemo(()=>MONTHS.map((m,i)=>{
     const mg=(chartShowPast?gigs:upcomingGigsAll).filter(g=>{const d=new Date(g.date+'T12:00:00');return d.getFullYear()===chartYear&&d.getMonth()===i;});
@@ -770,11 +782,14 @@ function App(){
         )
       ),
       tab==='list'&&e('div',null,
+        e('input',{value:showsSearch,onChange:ev=>setShowsSearch(ev.target.value),
+          placeholder:'Search by venue, type, month...',
+          style:{marginBottom:12,padding:'9px 12px',border:'1px solid #d1d5db',borderRadius:10,fontSize:14,width:'100%',background:'#fff'}}),
         e('div',{style:{borderRadius:12,border:'1px solid #e5e7eb',overflow:'hidden'}},
-          upcoming.length===0&&e('div',{style:{padding:'2rem',textAlign:'center',color:'#6b7280',fontSize:13}},'No upcoming gigs'),
-          upcoming.map((g,idx)=>{
+          filteredUpcoming.length===0&&e('div',{style:{padding:'2rem',textAlign:'center',color:'#6b7280',fontSize:13}},showsSearch?'No gigs match your search':'No upcoming gigs'),
+          filteredUpcoming.map((g,idx)=>{
             const tc=typeStyle(g.type);
-            return e('div',{key:g.id,style:{padding:'12px 14px',borderBottom:idx<upcoming.length-1?'1px solid #e5e7eb':'none',background:idx%2===0?'#fff':'#f9fafb',display:'flex',alignItems:'center',gap:12}},
+            return e('div',{key:g.id,style:{padding:'12px 14px',borderBottom:idx<filteredUpcoming.length-1?'1px solid #e5e7eb':'none',background:idx%2===0?'#fff':'#f9fafb',display:'flex',alignItems:'center',gap:12}},
               e('div',{style:{background:tc.bg,borderRadius:8,padding:'8px 0',width:44,flexShrink:0,textAlign:'center'}},
                 e('div',{style:{fontSize:16,fontWeight:500,color:tc.color,lineHeight:1}},g.date.slice(8)),
                 e('div',{style:{fontSize:10,color:tc.color,marginTop:2}},MONTHS[parseInt(g.date.slice(5,7))-1])
@@ -794,7 +809,7 @@ function App(){
             );
           })
         ),
-        e('div',{style:{marginTop:10,fontSize:13,color:'#6b7280'}},upcoming.length+' upcoming gig'+(upcoming.length!==1?'s':''))
+        e('div',{style:{marginTop:10,fontSize:13,color:'#6b7280'}},filteredUpcoming.length+' upcoming gig'+(filteredUpcoming.length!==1?'s':''))
       ),
       tab==='chart'&&e('div',null,
         e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'1rem',flexWrap:'wrap',gap:8}},
