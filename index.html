@@ -188,8 +188,8 @@ function Toggle({on,onToggle}){
   );
 }
 
-function Modal({gig,onSave,onDelete,onClose}){
-  const blank={date:'',venue:'',location:'',type:'bar',status:'confirmed',time:''};
+function Modal({gig,prefillDate,onSave,onDelete,onClose}){
+  const blank={date:prefillDate||'',venue:'',location:'',type:'bar',status:'confirmed',time:''};
   const [form,setForm]=useState(gig||blank);
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
   const isNew=!gig?.id;
@@ -558,7 +558,7 @@ function App(){
     setTimeout(()=>startTracking({...gig,venue:gig.venue+' to Home'}),800);
   };
   const closeModal=()=>setModal(null);
-  const openAdd=()=>setModal({mode:'add'});
+  const openAdd=(prefillDate)=>setModal({mode:'add',prefillDate});
   const openEdit=g=>setModal({mode:'edit',gig:g});
   const saveGig=g=>{setGigs(p=>p.find(x=>x.id===g.id)?p.map(x=>x.id===g.id?g:x):[...p,g]);closeModal();};
   const deleteGig=id=>{setGigs(p=>p.filter(x=>x.id!==id));closeModal();};
@@ -925,7 +925,7 @@ function App(){
         })
       )
     ),
-    modal&&e(Modal,{gig:modal.mode==='edit'?modal.gig:null,onSave:saveGig,onDelete:deleteGig,onClose:closeModal}),
+    modal&&e(Modal,{gig:modal.mode==='edit'?modal.gig:null,prefillDate:modal.prefillDate,onSave:saveGig,onDelete:deleteGig,onClose:closeModal}),
 
     dayPopup&&e('div',{onClick:()=>setDayPopup(null),className:'overlay'},
       e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:360}},
@@ -944,7 +944,9 @@ function App(){
               e(Badge,{status:g.status})
             )
           )
-        )
+        ),
+        e('button',{onClick:()=>{const d=dayPopup.date;setDayPopup(null);openAdd(d);},
+          style:{width:'100%',marginTop:12,padding:'9px 0',borderRadius:10,border:'none',background:theme.mid,color:'#fff',fontWeight:500,cursor:'pointer',fontSize:14}},'+ Add gig on this day')
       )
     ),
 
@@ -980,7 +982,9 @@ function App(){
             e('button',{onClick:()=>{setGigPopup(null);openEdit(gigPopup);},
               style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:14}},'✏️ Edit')
           ),
-          !settings.homeAddress&&e('div',{style:{fontSize:11,color:'#9ca3af',textAlign:'center',paddingTop:2}},'Set a home address in Settings to enable the Home button')
+          !settings.homeAddress&&e('div',{style:{fontSize:11,color:'#9ca3af',textAlign:'center',paddingTop:2}},'Set a home address in Settings to enable the Home button'),
+          e('button',{onClick:()=>{const d=gigPopup.date;setGigPopup(null);openAdd(d);},
+            style:{padding:'9px 0',borderRadius:10,border:'1px solid #d1d5db',background:'#fff',color:'#374151',fontWeight:500,cursor:'pointer',fontSize:14}},'+ Add another gig this day')
         )
       )
     ),
