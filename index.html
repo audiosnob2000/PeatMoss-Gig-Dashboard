@@ -407,7 +407,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
             e('option',{value:'calendar'},'Calendar'),e('option',{value:'list'},'Shows'),e('option',{value:'chart'},'Chart'),e('option',{value:'checklist'},'Checklists')
           )
         }),
-        e(Row,{label:'Show past gigs in Shows tab',border:false,right:e(Toggle,{on:settings.showPast,onToggle:()=>setSettings(s=>({...s,showPast:!s.showPast}))})})
+        e(Row,{label:'Show past gigs',sub:'Applies to both Calendar and Shows tabs',border:false,right:e(Toggle,{on:settings.showPast,onToggle:()=>setSettings(s=>({...s,showPast:!s.showPast}))})})
       ),
       e(Section,{icon:'🎸',title:'Stage Plot'},
         e(StagePlotSection,{settings,setSettings,theme})
@@ -694,7 +694,7 @@ function App(){
     return{month:m,count:mg.length,weddings:mg.filter(g=>g.type==='wedding').length,private:mg.filter(g=>g.type==='private event').length,regular:mg.filter(g=>g.type==='bar'||g.type==='other').length};
   }),[gigs,chartYear]);
 
-  const gigsByDate=useMemo(()=>{const m={};gigs.forEach(g=>{if(!m[g.date])m[g.date]=[];m[g.date].push(g);});return m;},[gigs]);
+  const gigsByDate=useMemo(()=>{const m={};(settings.showPast?gigs:upcomingGigsAll).forEach(g=>{if(!m[g.date])m[g.date]=[];m[g.date].push(g);});return m;},[gigs,settings.showPast]);
 
   const firstDay=new Date(calYear,calMonth,1).getDay();
   const daysInMonth=new Date(calYear,calMonth+1,0).getDate();
