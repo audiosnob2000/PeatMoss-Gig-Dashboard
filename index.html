@@ -7,10 +7,10 @@
 <meta http-equiv="Pragma" content="no-cache"/>
 <meta http-equiv="Expires" content="0"/>
 <title>Gig Dashboard</title>
-<script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/prop-types@15.8.1/prop-types.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/recharts@2.12.7/umd/Recharts.js"></script>
+<script src="vendor/react.production.min.js"></script>
+<script src="vendor/react-dom.production.min.js"></script>
+<script src="vendor/prop-types.min.js"></script>
+<script src="vendor/Recharts.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{overflow-x:hidden;width:100%}
@@ -45,18 +45,66 @@ const {useState,useMemo,useEffect,useRef}=React;
 const {BarChart,Bar,LineChart,Line,XAxis,YAxis,Tooltip,ResponsiveContainer,Legend}=Recharts;
 
 const GOOGLE_API_KEY='AIzaSyDDfPjbqTtgXOacnkjrr9SbGVcWWVW3hYg';
-const CALENDAR_ID='d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com';
 const IRS_RATE=0.67;
 const TYPES=["bar","wedding","private event","other"];
 const STATUSES=["confirmed","pending","hold","cancelled"];
 const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const DAYS=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+// Converts any hex color into a full theme (primary/mid/light/pale/accent)
+// by keeping its hue but walking a fixed lightness ramp, so custom colors
+// and presets both come out looking like the same family of palette.
+function hexToHsl(hex){
+  hex=hex.replace('#','');
+  const r=parseInt(hex.substring(0,2),16)/255;
+  const g=parseInt(hex.substring(2,4),16)/255;
+  const b=parseInt(hex.substring(4,6),16)/255;
+  const max=Math.max(r,g,b),min=Math.min(r,g,b);
+  let h=0,s=0;const l=(max+min)/2;
+  const d=max-min;
+  if(d!==0){
+    s=d/(1-Math.abs(2*l-1));
+    if(max===r)h=((g-b)/d)%6;
+    else if(max===g)h=(b-r)/d+2;
+    else h=(r-g)/d+4;
+    h*=60;if(h<0)h+=360;
+  }
+  return {h,s:s*100,l:l*100};
+}
+function hslToHex(h,s,l){
+  s/=100;l/=100;
+  const c=(1-Math.abs(2*l-1))*s;
+  const x=c*(1-Math.abs((h/60)%2-1));
+  const m=l-c/2;
+  let r=0,g=0,b=0;
+  if(h<60){r=c;g=x;b=0;}
+  else if(h<120){r=x;g=c;b=0;}
+  else if(h<180){r=0;g=c;b=x;}
+  else if(h<240){r=0;g=x;b=c;}
+  else if(h<300){r=x;g=0;b=c;}
+  else {r=c;g=0;b=x;}
+  const toHex=v=>Math.round((v+m)*255).toString(16).padStart(2,'0');
+  return '#'+toHex(r)+toHex(g)+toHex(b);
+}
+function buildTheme(hex){
+  const {h,s}=hexToHsl(hex);
+  const sat=Math.min(Math.max(s,45),75);
+  return {
+    primary:hslToHex(h,sat,24),
+    mid:hslToHex(h,sat*0.9,37),
+    light:hslToHex(h,sat*0.65,58),
+    pale:hslToHex(h,sat*0.65,93),
+    accent:hslToHex(h,sat*0.65,75)
+  };
+}
 const THEMES={
   green: {primary:"#0F6E56",mid:"#1D9E75",light:"#5DCAA5",pale:"#E1F5EE",accent:"#9FE1CB"},
   blue: {primary:"#185FA5",mid:"#378ADD",light:"#85B7EB",pale:"#E6F1FB",accent:"#B5D4F4"},
   purple:{primary:"#3C3489",mid:"#7F77DD",light:"#AFA9EC",pale:"#EEEDFE",accent:"#CECBF6"},
   red: {primary:"#A32D2D",mid:"#E24B4A",light:"#F09595",pale:"#FCEBEB",accent:"#F7C1C1"},
   dark: {primary:"#1a1a2e",mid:"#16213e",light:"#0f3460",pale:"#e94560",accent:"#a8a8b3"},
+  orange:buildTheme('#E2691E'),
+  teal: buildTheme('#0E8A93'),
+  pink: buildTheme('#D6488E'),
 };
 const STATUS_STYLE={
   confirmed:{bg:"#d1fae5",color:"#065f46",label:"Confirmed"},
@@ -104,15 +152,23 @@ const SAMPLE=[
   {id:34,date:`${yr}-11-20`,venue:"Wedding @ Giorgio's Baiting Hollow",location:"Baiting Hollow, NY",type:"wedding",status:"confirmed",time:"7–11 PM"},
 ];
 
+// Tries a native app deep link, only falling back to the web URL if the tab
+// never got backgrounded (i.e. the app link didn't actually open anything).
+function openWithFallback(appUrl,webUrl){
+  let didHide=false;
+  const onHide=()=>{ if(document.hidden) didHide=true; };
+  document.addEventListener('visibilitychange',onHide);
+  window.location=appUrl;
+  setTimeout(()=>{
+    document.removeEventListener('visibilitychange',onHide);
+    if(!didHide) window.open(webUrl,'_blank');
+  },1000);
+}
+
 // Opens Google Maps app on iOS directly
 function openMaps(venue,location){
   const dest=encodeURIComponent((venue||'')+(location?' '+location:''));
-  // comgooglemaps:// launches the app; if not installed falls back to web URL
-  window.location='comgooglemaps://?daddr='+dest+'&directionsmode=driving';
-  // Fallback: if still here after 1s, open web version
-  setTimeout(()=>{
-    window.open('https://www.google.com/maps/dir/?api=1&destination='+dest,'_blank');
-  },1000);
+  openWithFallback('comgooglemaps://?daddr='+dest+'&directionsmode=driving','https://www.google.com/maps/dir/?api=1&destination='+dest);
 }
 
 function typeStyle(t){
@@ -210,6 +266,20 @@ function HomeAddressInput({settings,setSettings,theme}){
   );
 }
 
+function CalendarIdInput({settings,setSettings,theme}){
+  const inputRef=useRef(null);
+  useEffect(()=>{if(inputRef.current)inputRef.current.value=settings.calendarId||'';},[]);
+  const save=()=>{
+    if(inputRef.current) setSettings(s=>({...s,calendarId:inputRef.current.value.trim()}));
+  };
+  return e('div',{style:{padding:'12px 14px',borderBottom:'1px solid #e5e7eb'}},
+    e('div',{style:{fontSize:14,color:'#111827',marginBottom:4}},'Google Calendar ID'),
+    e('div',{style:{fontSize:12,color:'#9ca3af',marginBottom:10}},"Paste your band's Calendar ID (Google Calendar → ⋮ next to your calendar → Settings and sharing → Integrate calendar). The calendar must be set to public to sync."),
+    e('input',{ref:inputRef,defaultValue:settings.calendarId||'',onBlur:save,placeholder:'xxxxxxxx@group.calendar.google.com',style:{padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'100%',marginBottom:8}}),
+    e('button',{onClick:save,style:{padding:'8px 16px',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},'Save')
+  );
+}
+
 function StagePlotSection({settings,setSettings,theme}){
   const linkRef=useRef(null);
   const [copied,setCopied]=useState(false);
@@ -247,6 +317,27 @@ function StagePlotSection({settings,setSettings,theme}){
       e('button',{onClick:copyLink,style:{flex:1,padding:'9px 0',borderRadius:8,border:`1px solid ${theme.mid}`,color:theme.mid,background:copied?theme.pale:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},copied?'✓ Copied!':'🔗 Copy link'),
       e('button',{onClick:shareLink,style:{flex:1,padding:'9px 0',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},'📤 Share')
     )
+  );
+}
+
+function CustomColorSwatch({selected,customColor,onPick}){
+  const inputRef=useRef(null);
+  return e('div',{style:{position:'relative',width:24,height:24}},
+    e('div',{
+      onClick:()=>inputRef.current&&inputRef.current.click(),
+      title:'Pick any color',
+      style:{
+        width:24,height:24,borderRadius:'50%',cursor:'pointer',
+        background:customColor||'conic-gradient(red,yellow,lime,cyan,blue,magenta,red)',
+        border:selected?'3px solid #fff':'3px solid transparent',
+        boxShadow:selected?`0 0 0 2px ${customColor||'#9ca3af'}`:'none'
+      }
+    }),
+    e('input',{
+      ref:inputRef,type:'color',value:customColor||'#888888',
+      onChange:ev=>onPick(ev.target.value),
+      style:{position:'absolute',inset:0,opacity:0,cursor:'pointer',width:'100%',height:'100%',border:'none',padding:0}
+    })
   );
 }
 
@@ -290,13 +381,18 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
               )
         }),
         e(Row,{label:'Color scheme',border:false,
-          right:e('div',{style:{display:'flex',gap:8}},
+          right:e('div',{style:{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-end'}},
             Object.entries(THEMES).map(([k,v])=>
               e('div',{key:k,onClick:()=>setSettings(s=>({...s,theme:k})),
                 style:{width:24,height:24,borderRadius:'50%',background:v.primary,cursor:'pointer',
                   border:settings.theme===k?'3px solid #fff':'3px solid transparent',
                   boxShadow:settings.theme===k?`0 0 0 2px ${v.primary}`:'none'}})
-            )
+            ),
+            e(CustomColorSwatch,{
+              selected:settings.theme==='custom',
+              customColor:settings.customColor,
+              onPick:hex=>setSettings(s=>({...s,theme:'custom',customColor:hex}))
+            })
           )
         })
       ),
@@ -304,6 +400,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         e(HomeAddressInput,{settings,setSettings,theme})
       ),
       e(Section,{icon:'📅',title:'Calendar'},
+        e(CalendarIdInput,{settings,setSettings,theme}),
         e(Row,{label:'Default view',border:true,
           right:e('select',{value:settings.defaultTab,onChange:ev=>setSettings(s=>({...s,defaultTab:ev.target.value})),
             style:{padding:'5px 8px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'auto'}},
@@ -378,7 +475,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
 }
 
 function App(){
-  const [settings,setSettings]=useState(()=>{try{const s=localStorage.getItem('pmtf_settings');return s?JSON.parse(s):{bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:''};}catch{return {bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:''};}});
+  const [settings,setSettings]=useState(()=>{try{const s=localStorage.getItem('pmtf_settings');return s?JSON.parse(s):{bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',calendarId:''};}catch{return {bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',calendarId:''};}});
   const [gigs,setGigs]=useState(()=>{try{const s=localStorage.getItem('pmtf_gigs');return s?JSON.parse(s):SAMPLE;}catch{return SAMPLE;}});
   const [members,setMembers]=useState(()=>{try{const s=localStorage.getItem('pmtf_members');return s?JSON.parse(s):[];}catch{return [];}});
   const [mileageLog,setMileageLog]=useState(()=>{try{const s=localStorage.getItem('pmtf_mileage');return s?JSON.parse(s):[];}catch{return [];}});
@@ -407,7 +504,7 @@ function App(){
   const trackingRef=useRef(null);
   const watchIdRef=useRef(null);
 
-  const theme=THEMES[settings.theme]||THEMES.green;
+  const theme=settings.theme==='custom'&&settings.customColor?buildTheme(settings.customColor):(THEMES[settings.theme]||THEMES.green);
 
   useEffect(()=>{try{localStorage.setItem('pmtf_gigs',JSON.stringify(gigs));}catch{}},[gigs]);
   useEffect(()=>{try{localStorage.setItem('pmtf_settings',JSON.stringify(settings));}catch{}},[settings]);
@@ -455,10 +552,7 @@ function App(){
     if(!settings.homeAddress) return;
     setGigPopup(null);
     const dest=encodeURIComponent(settings.homeAddress);
-    const appUrl='comgooglemaps://?daddr='+dest+'&directionsmode=driving';
-    const webUrl='https://www.google.com/maps/dir/?api=1&destination='+dest;
-    window.location=appUrl;
-    setTimeout(()=>window.open(webUrl,'_blank'),1000);
+    openWithFallback('comgooglemaps://?daddr='+dest+'&directionsmode=driving','https://www.google.com/maps/dir/?api=1&destination='+dest);
     setTimeout(()=>startTracking({...gig,venue:gig.venue+' to Home'}),800);
   };
   const closeModal=()=>setModal(null);
@@ -468,14 +562,23 @@ function App(){
   const deleteGig=id=>{setGigs(p=>p.filter(x=>x.id!==id));closeModal();};
 
   const syncFromGoogleCalendar=async()=>{
+    if(!settings.calendarId){
+      alert('Add your Google Calendar ID in Settings → Calendar first.');
+      return;
+    }
     setCalSyncing(true);
     try{
       const now=new Date();
       const start=new Date(now.getFullYear(),0,1).toISOString();
       const end=new Date(now.getFullYear(),11,31).toISOString();
-      const url=`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDAR_ID)}/events?key=${GOOGLE_API_KEY}&timeMin=${start}&timeMax=${end}&singleEvents=true&orderBy=startTime&maxResults=100`;
+      const url=`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(settings.calendarId)}/events?key=${GOOGLE_API_KEY}&timeMin=${start}&timeMax=${end}&singleEvents=true&orderBy=startTime&maxResults=100`;
       const res=await fetch(url);
       const data=await res.json();
+      if(!res.ok){
+        alert('Could not sync calendar: '+(data.error?.message||'check that the Calendar ID is correct and the calendar is public.'));
+        setCalSyncing(false);
+        return;
+      }
       if(data.items&&data.items.length>0){
         const calGigs=data.items.map(ev=>{
           const date=ev.start?.date||ev.start?.dateTime?.slice(0,10)||'';
@@ -484,11 +587,16 @@ function App(){
           const time=ts&&te?`${ts}–${te}`:ts;
           const venue=ev.summary||'Untitled';
           return{id:ev.id,date,venue,location:ev.location||'',type:venue.toLowerCase().includes('wedding')?'wedding':'bar',status:'confirmed',time,fromCalendar:true};
-        }).filter(g=>g.date&&g.location);
-        setGigs(calGigs);
+        }).filter(g=>g.date);
+        // Only replace calendar-sourced gigs; keep manually-added local gigs untouched
+        setGigs(prev=>[...prev.filter(g=>!g.fromCalendar),...calGigs]);
         setLastSynced(new Date().toLocaleTimeString());
+      } else {
+        alert('No events found on that calendar for this year.');
       }
-    }catch(err){console.log('Sync failed:',err);}
+    }catch(err){
+      alert('Could not sync calendar. Check your connection and try again.');
+    }
     setCalSyncing(false);
   };
 
@@ -686,6 +794,7 @@ function App(){
                 e('div',{style:{display:'flex',gap:6,marginTop:5,flexWrap:'wrap',alignItems:'center'}},
                   e('span',{className:'badge',style:{background:tc.bg,color:tc.color}},g.type),
                   e(Badge,{status:g.status}),
+                  !g.fromCalendar&&e('span',{className:'badge',style:{background:'#F3F4F6',color:'#6b7280'}},'Only on this device'),
                   g.location&&e('button',{onClick:ev=>{ev.stopPropagation();openMaps(g.venue,g.location);},
                     style:{fontSize:11,padding:'2px 8px',borderRadius:99,background:'#E0EFFE',color:'#1D4ED8',fontWeight:500,border:'none',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:3}},'📍 Map')
                 )
@@ -813,7 +922,10 @@ function App(){
     gigPopup&&e('div',{onClick:()=>setGigPopup(null),className:'overlay'},
       e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:360}},
         e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}},
-          e('span',{className:'badge',style:{background:typeStyle(gigPopup.type).bg,color:typeStyle(gigPopup.type).color}},gigPopup.type),
+          e('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
+            e('span',{className:'badge',style:{background:typeStyle(gigPopup.type).bg,color:typeStyle(gigPopup.type).color}},gigPopup.type),
+            !gigPopup.fromCalendar&&e('span',{className:'badge',style:{background:'#F3F4F6',color:'#6b7280'}},'Only on this device')
+          ),
           e('button',{onClick:()=>setGigPopup(null),style:{border:'none',background:'none',fontSize:20,color:'#9ca3af',cursor:'pointer',padding:'0 4px'}},'×')
         ),
         e('div',{style:{fontSize:18,fontWeight:600,marginBottom:4}},gigPopup.venue),
