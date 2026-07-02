@@ -587,7 +587,7 @@ function App(){
           const time=ts&&te?`${ts}–${te}`:ts;
           const venue=ev.summary||'Untitled';
           return{id:ev.id,date,venue,location:ev.location||'',type:venue.toLowerCase().includes('wedding')?'wedding':'bar',status:'confirmed',time,fromCalendar:true};
-        }).filter(g=>g.date);
+        }).filter(g=>g.date&&g.location);
         // Only replace calendar-sourced gigs; keep manually-added local gigs untouched
         setGigs(prev=>[...prev.filter(g=>!g.fromCalendar),...calGigs]);
         setLastSynced(new Date().toLocaleTimeString());
