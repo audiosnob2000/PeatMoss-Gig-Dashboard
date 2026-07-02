@@ -150,7 +150,7 @@ const SAMPLE=[
   {id:32,date:`${yr}-10-24`,venue:"Wedding @ Southward Ho CC",location:"Bay Shore, NY", type:"wedding", status:"confirmed",time:"7–11 PM"},
   {id:33,date:`${yr}-11-06`,venue:"Plattedeutsche", location:"Franklin Square, NY", type:"bar", status:"confirmed",time:"7–11 PM"},
   {id:34,date:`${yr}-11-20`,venue:"Wedding @ Giorgio's Baiting Hollow",location:"Baiting Hollow, NY",type:"wedding",status:"confirmed",time:"7–11 PM"},
-];
+].map(g=>({...g,fromCalendar:true}));
 
 // Tries a native app deep link, only falling back to the web URL if the tab
 // never got backgrounded (i.e. the app link didn't actually open anything).
