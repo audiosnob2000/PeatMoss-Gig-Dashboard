@@ -103,15 +103,23 @@ const SAMPLE=[
   {id:34,date:`${yr}-11-20`,venue:"Wedding @ Giorgio's Baiting Hollow",location:"Baiting Hollow, NY",type:"wedding",status:"confirmed",time:"7–11 PM"},
 ];
 
+// Tries a native app deep link, only falling back to the web URL if the tab
+// never got backgrounded (i.e. the app link didn't actually open anything).
+function openWithFallback(appUrl,webUrl){
+  let didHide=false;
+  const onHide=()=>{ if(document.hidden) didHide=true; };
+  document.addEventListener('visibilitychange',onHide);
+  window.location=appUrl;
+  setTimeout(()=>{
+    document.removeEventListener('visibilitychange',onHide);
+    if(!didHide) window.open(webUrl,'_blank');
+  },1000);
+}
+
 // Opens Google Maps app on iOS directly
 function openMaps(venue,location){
   const dest=encodeURIComponent((venue||'')+(location?' '+location:''));
-  // comgooglemaps:// launches the app; if not installed falls back to web URL
-  window.location='comgooglemaps://?daddr='+dest+'&directionsmode=driving';
-  // Fallback: if still here after 1s, open web version
-  setTimeout(()=>{
-    window.open('https://www.google.com/maps/dir/?api=1&destination='+dest,'_blank');
-  },1000);
+  openWithFallback('comgooglemaps://?daddr='+dest+'&directionsmode=driving','https://www.google.com/maps/dir/?api=1&destination='+dest);
 }
 
 function typeStyle(t){
@@ -469,10 +477,7 @@ function App(){
     if(!settings.homeAddress) return;
     setGigPopup(null);
     const dest=encodeURIComponent(settings.homeAddress);
-    const appUrl='comgooglemaps://?daddr='+dest+'&directionsmode=driving';
-    const webUrl='https://www.google.com/maps/dir/?api=1&destination='+dest;
-    window.location=appUrl;
-    setTimeout(()=>window.open(webUrl,'_blank'),1000);
+    openWithFallback('comgooglemaps://?daddr='+dest+'&directionsmode=driving','https://www.google.com/maps/dir/?api=1&destination='+dest);
     setTimeout(()=>startTracking({...gig,venue:gig.venue+' to Home'}),800);
   };
   const closeModal=()=>setModal(null);
