@@ -484,6 +484,7 @@ function App(){
   const [calYear,setCalYear]=useState(today.getFullYear());
   const [chartYear,setChartYear]=useState(today.getFullYear());
   const [chartType,setChartType]=useState('bar');
+  const [chartShowPast,setChartShowPast]=useState(true);
   const [modal,setModal]=useState(null);
   const [sort,setSort]=useState({col:'date',dir:1});
   const [activeMember,setActiveMember]=useState(null);
@@ -690,9 +691,9 @@ function App(){
   }),[gigs,sort,settings.showPast]);
 
   const chartData=useMemo(()=>MONTHS.map((m,i)=>{
-    const mg=gigs.filter(g=>{const d=new Date(g.date+'T12:00:00');return d.getFullYear()===chartYear&&d.getMonth()===i;});
+    const mg=(chartShowPast?gigs:upcomingGigsAll).filter(g=>{const d=new Date(g.date+'T12:00:00');return d.getFullYear()===chartYear&&d.getMonth()===i;});
     return{month:m,count:mg.length,weddings:mg.filter(g=>g.type==='wedding').length,private:mg.filter(g=>g.type==='private event').length,regular:mg.filter(g=>g.type==='bar'||g.type==='other').length};
-  }),[gigs,chartYear]);
+  }),[gigs,chartYear,chartShowPast,upcomingGigsAll]);
 
   const gigsByDate=useMemo(()=>{const m={};(settings.showPast?gigs:upcomingGigsAll).forEach(g=>{if(!m[g.date])m[g.date]=[];m[g.date].push(g);});return m;},[gigs,settings.showPast]);
 
@@ -812,11 +813,17 @@ function App(){
             e('span',{style:{fontWeight:500,minWidth:40,textAlign:'center'}},chartYear),
             e('button',{onClick:()=>setChartYear(y=>y+1),style:{padding:'4px 12px'}},'›')
           ),
-          e('div',{style:{display:'flex',gap:4,background:'#e9ecef',borderRadius:8,padding:3}},
-            ['bar','line'].map(t=>e('button',{key:t,onClick:()=>setChartType(t),
-              style:{fontSize:12,padding:'5px 14px',borderRadius:6,border:'none',cursor:'pointer',
-                background:chartType===t?'#fff':'transparent',fontWeight:chartType===t?500:400,
-                color:chartType===t?theme.primary:'#6b7280'}},t==='bar'?'Bar':'Line'))
+          e('div',{style:{display:'flex',alignItems:'center',gap:10}},
+            e('button',{onClick:()=>setChartShowPast(p=>!p),
+              style:{fontSize:12,padding:'5px 12px',borderRadius:99,border:`1px solid ${chartShowPast?theme.mid:'#d1d5db'}`,cursor:'pointer',
+                background:chartShowPast?theme.pale:'#fff',color:chartShowPast?theme.primary:'#6b7280',fontWeight:500}},
+              (chartShowPast?'✓ ':'')+'Show past gigs'),
+            e('div',{style:{display:'flex',gap:4,background:'#e9ecef',borderRadius:8,padding:3}},
+              ['bar','line'].map(t=>e('button',{key:t,onClick:()=>setChartType(t),
+                style:{fontSize:12,padding:'5px 14px',borderRadius:6,border:'none',cursor:'pointer',
+                  background:chartType===t?'#fff':'transparent',fontWeight:chartType===t?500:400,
+                  color:chartType===t?theme.primary:'#6b7280'}},t==='bar'?'Bar':'Line'))
+            )
           )
         ),
         e('div',{style:{height:260}},
