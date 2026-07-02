@@ -11,6 +11,7 @@
 <script src="vendor/react-dom.production.min.js"></script>
 <script src="vendor/prop-types.min.js"></script>
 <script src="vendor/Recharts.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{overflow-x:hidden;width:100%}
@@ -45,6 +46,8 @@ const {useState,useMemo,useEffect,useRef}=React;
 const {BarChart,Bar,LineChart,Line,XAxis,YAxis,Tooltip,ResponsiveContainer,Legend}=Recharts;
 
 const GOOGLE_API_KEY='AIzaSyDDfPjbqTtgXOacnkjrr9SbGVcWWVW3hYg';
+const GOOGLE_CLIENT_ID='PASTE_YOUR_OAUTH_CLIENT_ID_HERE.apps.googleusercontent.com';
+const CALENDAR_WRITE_SCOPE='https://www.googleapis.com/auth/calendar.events';
 const IRS_RATE=0.67;
 const TYPES=["bar","wedding","private event","other"];
 const STATUSES=["confirmed","pending","hold","cancelled"];
@@ -332,7 +335,7 @@ function CustomColorSwatch({selected,customColor,onPick}){
   );
 }
 
-function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog}){
+function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError}){
   const [copied,setCopied]=useState(false);
   const [confirmReset,setConfirmReset]=useState(false);
   const [editingBandName,setEditingBandName]=useState(false);
@@ -397,7 +400,16 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
             e('option',{value:'calendar'},'Calendar'),e('option',{value:'list'},'Shows'),e('option',{value:'chart'},'Chart'),e('option',{value:'checklist'},'Checklists')
           )
         }),
-        e(Row,{label:'Show past gigs',sub:'Applies to both Calendar and Shows tabs',border:false,right:e(Toggle,{on:settings.showPast,onToggle:()=>setSettings(s=>({...s,showPast:!s.showPast}))})})
+        e(Row,{label:'Show past gigs',sub:'Applies to both Calendar and Shows tabs',border:true,right:e(Toggle,{on:settings.showPast,onToggle:()=>setSettings(s=>({...s,showPast:!s.showPast}))})}),
+        e(Row,{label:googleAccessToken?'Connected to Google Calendar':'Connect Google Calendar',
+          sub:googleAccessToken?'Gigs you add/edit/delete now write directly to the shared calendar':'Sign in to make "+ Add gig" write to the real shared calendar instead of just this device',
+          border:false,
+          right:e('button',{onClick:googleAccessToken?signOutGoogle:signInWithGoogle,
+            style:{fontSize:12,padding:'6px 14px',borderRadius:8,border:'1px solid '+(googleAccessToken?'#fca5a5':theme.mid),
+              color:googleAccessToken?'#b91c1c':theme.mid,background:'#fff',cursor:'pointer',fontWeight:500}},
+            googleAccessToken?'Disconnect':'Sign in')
+        }),
+        googleAuthError&&e('div',{style:{padding:'0 14px 12px',fontSize:12,color:'#b91c1c'}},googleAuthError)
       ),
       e(Section,{icon:'🎸',title:'Stage Plot'},
         e(StagePlotSection,{settings,setSettings,theme})
@@ -488,6 +500,9 @@ function App(){
   const [editNameValue,setEditNameValue]=useState('');
   const [gigPopup,setGigPopup]=useState(null);
   const [dayPopup,setDayPopup]=useState(null);
+  const [googleAccessToken,setGoogleAccessToken]=useState(null);
+  const [googleAuthError,setGoogleAuthError]=useState('');
+  const tokenClientRef=useRef(null);
   const [showSettings,setShowSettings]=useState(false);
   const [trackingMiles,setTrackingMiles]=useState(()=>{try{const s=localStorage.getItem('pmtf_tracking');return s?JSON.parse(s):null;}catch{return null;}});
   const [askTrack,setAskTrack]=useState(null);
@@ -552,8 +567,79 @@ function App(){
   const closeModal=()=>setModal(null);
   const openAdd=(prefillDate)=>setModal({mode:'add',prefillDate});
   const openEdit=g=>setModal({mode:'edit',gig:g});
-  const saveGig=g=>{setGigs(p=>p.find(x=>x.id===g.id)?p.map(x=>x.id===g.id?g:x):[...p,g]);closeModal();};
-  const deleteGig=id=>{setGigs(p=>p.filter(x=>x.id!==id));closeModal();};
+  // ── Google Sign-In (OAuth) for writing gigs to the shared calendar ──────
+  const ensureTokenClient=()=>{
+    if(tokenClientRef.current) return tokenClientRef.current;
+    if(!window.google?.accounts?.oauth2){setGoogleAuthError('Google sign-in is still loading — try again in a second.');return null;}
+    tokenClientRef.current=window.google.accounts.oauth2.initTokenClient({
+      client_id:GOOGLE_CLIENT_ID,
+      scope:CALENDAR_WRITE_SCOPE,
+      callback:resp=>{
+        if(resp.error){setGoogleAuthError('Google sign-in failed: '+resp.error);return;}
+        setGoogleAuthError('');
+        setGoogleAccessToken(resp.access_token);
+      }
+    });
+    return tokenClientRef.current;
+  };
+  const signInWithGoogle=()=>{
+    const client=ensureTokenClient();
+    if(client) client.requestAccessToken({prompt:googleAccessToken?'':'consent'});
+  };
+  const signOutGoogle=()=>{
+    if(googleAccessToken&&window.google?.accounts?.oauth2) window.google.accounts.oauth2.revoke(googleAccessToken);
+    setGoogleAccessToken(null);
+  };
+  // Calls the Calendar API with the OAuth token to actually write an event.
+  // Returns the created/updated event's Google id, or null on failure.
+  const writeGigToCalendar=async(method,g,googleEventId)=>{
+    if(!googleAccessToken||!settings.calendarId) return null;
+    const body={
+      summary:g.venue,
+      location:g.location||'',
+      description:'Type: '+g.type+' · Status: '+g.status,
+      start:{date:g.date},
+      end:{date:g.date}
+    };
+    const base=`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(settings.calendarId)}/events`;
+    const url=method==='POST'?base:`${base}/${encodeURIComponent(googleEventId)}`;
+    try{
+      const res=await fetch(url,{
+        method,
+        headers:{'Authorization':'Bearer '+googleAccessToken,'Content-Type':'application/json'},
+        body:method==='DELETE'?undefined:JSON.stringify(body)
+      });
+      if(!res.ok){
+        const err=await res.json().catch(()=>({}));
+        setGoogleAuthError('Could not save to Google Calendar: '+(err.error?.message||res.status));
+        return null;
+      }
+      if(method==='DELETE') return true;
+      const data=await res.json();
+      return data.id;
+    }catch(err){
+      setGoogleAuthError('Could not reach Google Calendar. Check your connection.');
+      return null;
+    }
+  };
+
+  const saveGig=async g=>{
+    if(googleAccessToken){
+      const isNewFromCalendar=!g.fromCalendar;
+      const googleId=await writeGigToCalendar(g.fromCalendar?'PATCH':'POST',g,g.fromCalendar?g.id:null);
+      if(googleId){
+        g={...g,fromCalendar:true,id:isNewFromCalendar?googleId:g.id};
+      }
+    }
+    setGigs(p=>p.find(x=>x.id===g.id)?p.map(x=>x.id===g.id?g:x):[...p,g]);
+    closeModal();
+  };
+  const deleteGig=async id=>{
+    const target=gigs.find(x=>x.id===id);
+    if(googleAccessToken&&target?.fromCalendar) await writeGigToCalendar('DELETE',target,id);
+    setGigs(p=>p.filter(x=>x.id!==id));
+    closeModal();
+  };
 
   const syncFromGoogleCalendar=async(silent=false)=>{
     if(!settings.calendarId){
@@ -719,7 +805,7 @@ function App(){
   const deleteMember=mid=>{setMembers(prev=>prev.filter(x=>x.id!==mid));setActiveMember(null);setConfirmDelete(null);};
   const renameMember=(mid,n)=>{if(!n.trim())return;setMembers(prev=>prev.map(m=>m.id!==mid?m:{...m,name:n.trim()}));setEditingName(false);};
 
-  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog});
+  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError});
 
   return e('div',{style:{maxWidth:720,margin:'0 auto',paddingBottom:'2rem'}},
     e('div',{style:{background:theme.primary,borderRadius:'0 0 20px 20px',padding:'1.25rem 1.25rem 1.5rem',marginBottom:'1.25rem'}},
