@@ -50,12 +50,61 @@ const TYPES=["bar","wedding","private event","other"];
 const STATUSES=["confirmed","pending","hold","cancelled"];
 const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const DAYS=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+// Converts any hex color into a full theme (primary/mid/light/pale/accent)
+// by keeping its hue but walking a fixed lightness ramp, so custom colors
+// and presets both come out looking like the same family of palette.
+function hexToHsl(hex){
+  hex=hex.replace('#','');
+  const r=parseInt(hex.substring(0,2),16)/255;
+  const g=parseInt(hex.substring(2,4),16)/255;
+  const b=parseInt(hex.substring(4,6),16)/255;
+  const max=Math.max(r,g,b),min=Math.min(r,g,b);
+  let h=0,s=0;const l=(max+min)/2;
+  const d=max-min;
+  if(d!==0){
+    s=d/(1-Math.abs(2*l-1));
+    if(max===r)h=((g-b)/d)%6;
+    else if(max===g)h=(b-r)/d+2;
+    else h=(r-g)/d+4;
+    h*=60;if(h<0)h+=360;
+  }
+  return {h,s:s*100,l:l*100};
+}
+function hslToHex(h,s,l){
+  s/=100;l/=100;
+  const c=(1-Math.abs(2*l-1))*s;
+  const x=c*(1-Math.abs((h/60)%2-1));
+  const m=l-c/2;
+  let r=0,g=0,b=0;
+  if(h<60){r=c;g=x;b=0;}
+  else if(h<120){r=x;g=c;b=0;}
+  else if(h<180){r=0;g=c;b=x;}
+  else if(h<240){r=0;g=x;b=c;}
+  else if(h<300){r=x;g=0;b=c;}
+  else {r=c;g=0;b=x;}
+  const toHex=v=>Math.round((v+m)*255).toString(16).padStart(2,'0');
+  return '#'+toHex(r)+toHex(g)+toHex(b);
+}
+function buildTheme(hex){
+  const {h,s}=hexToHsl(hex);
+  const sat=Math.min(Math.max(s,45),75);
+  return {
+    primary:hslToHex(h,sat,24),
+    mid:hslToHex(h,sat*0.9,37),
+    light:hslToHex(h,sat*0.65,58),
+    pale:hslToHex(h,sat*0.65,93),
+    accent:hslToHex(h,sat*0.65,75)
+  };
+}
 const THEMES={
   green: {primary:"#0F6E56",mid:"#1D9E75",light:"#5DCAA5",pale:"#E1F5EE",accent:"#9FE1CB"},
   blue: {primary:"#185FA5",mid:"#378ADD",light:"#85B7EB",pale:"#E6F1FB",accent:"#B5D4F4"},
   purple:{primary:"#3C3489",mid:"#7F77DD",light:"#AFA9EC",pale:"#EEEDFE",accent:"#CECBF6"},
   red: {primary:"#A32D2D",mid:"#E24B4A",light:"#F09595",pale:"#FCEBEB",accent:"#F7C1C1"},
   dark: {primary:"#1a1a2e",mid:"#16213e",light:"#0f3460",pale:"#e94560",accent:"#a8a8b3"},
+  orange:buildTheme('#E2691E'),
+  teal: buildTheme('#0E8A93'),
+  pink: buildTheme('#D6488E'),
 };
 const STATUS_STYLE={
   confirmed:{bg:"#d1fae5",color:"#065f46",label:"Confirmed"},
@@ -271,6 +320,27 @@ function StagePlotSection({settings,setSettings,theme}){
   );
 }
 
+function CustomColorSwatch({selected,customColor,onPick}){
+  const inputRef=useRef(null);
+  return e('div',{style:{position:'relative',width:24,height:24}},
+    e('div',{
+      onClick:()=>inputRef.current&&inputRef.current.click(),
+      title:'Pick any color',
+      style:{
+        width:24,height:24,borderRadius:'50%',cursor:'pointer',
+        background:customColor||'conic-gradient(red,yellow,lime,cyan,blue,magenta,red)',
+        border:selected?'3px solid #fff':'3px solid transparent',
+        boxShadow:selected?`0 0 0 2px ${customColor||'#9ca3af'}`:'none'
+      }
+    }),
+    e('input',{
+      ref:inputRef,type:'color',value:customColor||'#888888',
+      onChange:ev=>onPick(ev.target.value),
+      style:{position:'absolute',inset:0,opacity:0,cursor:'pointer',width:'100%',height:'100%',border:'none',padding:0}
+    })
+  );
+}
+
 function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog}){
   const [copied,setCopied]=useState(false);
   const [confirmReset,setConfirmReset]=useState(false);
@@ -311,13 +381,18 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
               )
         }),
         e(Row,{label:'Color scheme',border:false,
-          right:e('div',{style:{display:'flex',gap:8}},
+          right:e('div',{style:{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-end'}},
             Object.entries(THEMES).map(([k,v])=>
               e('div',{key:k,onClick:()=>setSettings(s=>({...s,theme:k})),
                 style:{width:24,height:24,borderRadius:'50%',background:v.primary,cursor:'pointer',
                   border:settings.theme===k?'3px solid #fff':'3px solid transparent',
                   boxShadow:settings.theme===k?`0 0 0 2px ${v.primary}`:'none'}})
-            )
+            ),
+            e(CustomColorSwatch,{
+              selected:settings.theme==='custom',
+              customColor:settings.customColor,
+              onPick:hex=>setSettings(s=>({...s,theme:'custom',customColor:hex}))
+            })
           )
         })
       ),
@@ -429,7 +504,7 @@ function App(){
   const trackingRef=useRef(null);
   const watchIdRef=useRef(null);
 
-  const theme=THEMES[settings.theme]||THEMES.green;
+  const theme=settings.theme==='custom'&&settings.customColor?buildTheme(settings.customColor):(THEMES[settings.theme]||THEMES.green);
 
   useEffect(()=>{try{localStorage.setItem('pmtf_gigs',JSON.stringify(gigs));}catch{}},[gigs]);
   useEffect(()=>{try{localStorage.setItem('pmtf_settings',JSON.stringify(settings));}catch{}},[settings]);
