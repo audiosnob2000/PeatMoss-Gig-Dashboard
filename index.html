@@ -45,7 +45,6 @@ const {useState,useMemo,useEffect,useRef}=React;
 const {BarChart,Bar,LineChart,Line,XAxis,YAxis,Tooltip,ResponsiveContainer,Legend}=Recharts;
 
 const GOOGLE_API_KEY='AIzaSyDDfPjbqTtgXOacnkjrr9SbGVcWWVW3hYg';
-const CALENDAR_ID='d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com';
 const IRS_RATE=0.67;
 const TYPES=["bar","wedding","private event","other"];
 const STATUSES=["confirmed","pending","hold","cancelled"];
@@ -210,6 +209,20 @@ function HomeAddressInput({settings,setSettings,theme}){
   );
 }
 
+function CalendarIdInput({settings,setSettings,theme}){
+  const inputRef=useRef(null);
+  useEffect(()=>{if(inputRef.current)inputRef.current.value=settings.calendarId||'';},[]);
+  const save=()=>{
+    if(inputRef.current) setSettings(s=>({...s,calendarId:inputRef.current.value.trim()}));
+  };
+  return e('div',{style:{padding:'12px 14px',borderBottom:'1px solid #e5e7eb'}},
+    e('div',{style:{fontSize:14,color:'#111827',marginBottom:4}},'Google Calendar ID'),
+    e('div',{style:{fontSize:12,color:'#9ca3af',marginBottom:10}},"Paste your band's Calendar ID (Google Calendar → ⋮ next to your calendar → Settings and sharing → Integrate calendar). The calendar must be set to public to sync."),
+    e('input',{ref:inputRef,defaultValue:settings.calendarId||'',onBlur:save,placeholder:'xxxxxxxx@group.calendar.google.com',style:{padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'100%',marginBottom:8}}),
+    e('button',{onClick:save,style:{padding:'8px 16px',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},'Save')
+  );
+}
+
 function StagePlotSection({settings,setSettings,theme}){
   const linkRef=useRef(null);
   const [copied,setCopied]=useState(false);
@@ -304,6 +317,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         e(HomeAddressInput,{settings,setSettings,theme})
       ),
       e(Section,{icon:'📅',title:'Calendar'},
+        e(CalendarIdInput,{settings,setSettings,theme}),
         e(Row,{label:'Default view',border:true,
           right:e('select',{value:settings.defaultTab,onChange:ev=>setSettings(s=>({...s,defaultTab:ev.target.value})),
             style:{padding:'5px 8px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'auto'}},
@@ -378,7 +392,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
 }
 
 function App(){
-  const [settings,setSettings]=useState(()=>{try{const s=localStorage.getItem('pmtf_settings');return s?JSON.parse(s):{bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:''};}catch{return {bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:''};}});
+  const [settings,setSettings]=useState(()=>{try{const s=localStorage.getItem('pmtf_settings');return s?JSON.parse(s):{bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',calendarId:''};}catch{return {bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',calendarId:''};}});
   const [gigs,setGigs]=useState(()=>{try{const s=localStorage.getItem('pmtf_gigs');return s?JSON.parse(s):SAMPLE;}catch{return SAMPLE;}});
   const [members,setMembers]=useState(()=>{try{const s=localStorage.getItem('pmtf_members');return s?JSON.parse(s):[];}catch{return [];}});
   const [mileageLog,setMileageLog]=useState(()=>{try{const s=localStorage.getItem('pmtf_mileage');return s?JSON.parse(s):[];}catch{return [];}});
@@ -468,14 +482,23 @@ function App(){
   const deleteGig=id=>{setGigs(p=>p.filter(x=>x.id!==id));closeModal();};
 
   const syncFromGoogleCalendar=async()=>{
+    if(!settings.calendarId){
+      alert('Add your Google Calendar ID in Settings → Calendar first.');
+      return;
+    }
     setCalSyncing(true);
     try{
       const now=new Date();
       const start=new Date(now.getFullYear(),0,1).toISOString();
       const end=new Date(now.getFullYear(),11,31).toISOString();
-      const url=`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDAR_ID)}/events?key=${GOOGLE_API_KEY}&timeMin=${start}&timeMax=${end}&singleEvents=true&orderBy=startTime&maxResults=100`;
+      const url=`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(settings.calendarId)}/events?key=${GOOGLE_API_KEY}&timeMin=${start}&timeMax=${end}&singleEvents=true&orderBy=startTime&maxResults=100`;
       const res=await fetch(url);
       const data=await res.json();
+      if(!res.ok){
+        alert('Could not sync calendar: '+(data.error?.message||'check that the Calendar ID is correct and the calendar is public.'));
+        setCalSyncing(false);
+        return;
+      }
       if(data.items&&data.items.length>0){
         const calGigs=data.items.map(ev=>{
           const date=ev.start?.date||ev.start?.dateTime?.slice(0,10)||'';
@@ -487,8 +510,12 @@ function App(){
         }).filter(g=>g.date&&g.location);
         setGigs(calGigs);
         setLastSynced(new Date().toLocaleTimeString());
+      } else {
+        alert('No events found on that calendar for this year.');
       }
-    }catch(err){console.log('Sync failed:',err);}
+    }catch(err){
+      alert('Could not sync calendar. Check your connection and try again.');
+    }
     setCalSyncing(false);
   };
 
