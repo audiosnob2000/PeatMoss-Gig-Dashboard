@@ -266,20 +266,6 @@ function HomeAddressInput({settings,setSettings,theme}){
   );
 }
 
-function CalendarIdInput({settings,setSettings,theme}){
-  const inputRef=useRef(null);
-  useEffect(()=>{if(inputRef.current)inputRef.current.value=settings.calendarId||'';},[]);
-  const save=()=>{
-    if(inputRef.current) setSettings(s=>({...s,calendarId:inputRef.current.value.trim()}));
-  };
-  return e('div',{style:{padding:'12px 14px',borderBottom:'1px solid #e5e7eb'}},
-    e('div',{style:{fontSize:14,color:'#111827',marginBottom:4}},'Google Calendar ID'),
-    e('div',{style:{fontSize:12,color:'#9ca3af',marginBottom:10}},"Paste your band's Calendar ID (Google Calendar → ⋮ next to your calendar → Settings and sharing → Integrate calendar). The calendar must be set to public to sync."),
-    e('input',{ref:inputRef,defaultValue:settings.calendarId||'',onBlur:save,placeholder:'xxxxxxxx@group.calendar.google.com',style:{padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'100%',marginBottom:8}}),
-    e('button',{onClick:save,style:{padding:'8px 16px',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},'Save')
-  );
-}
-
 function StagePlotSection({settings,setSettings,theme}){
   const linkRef=useRef(null);
   const [copied,setCopied]=useState(false);
@@ -400,7 +386,6 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         e(HomeAddressInput,{settings,setSettings,theme})
       ),
       e(Section,{icon:'📅',title:'Calendar'},
-        e(CalendarIdInput,{settings,setSettings,theme}),
         e(Row,{label:'Default view',border:true,
           right:e('select',{value:settings.defaultTab,onChange:ev=>setSettings(s=>({...s,defaultTab:ev.target.value})),
             style:{padding:'5px 8px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'auto'}},
