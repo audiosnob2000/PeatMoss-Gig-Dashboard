@@ -778,7 +778,7 @@ function App(){
                 border:isToday?`2px solid ${theme.mid}`:allCancelled?'1px solid #F87171':hasgig?`1px solid ${theme.light}`:'1px solid #e5e7eb',
                 overflow:'hidden'}},
               e('div',{className:'cal-day',style:{fontSize:12,fontWeight:isToday?500:400,color:isToday?theme.primary:allCancelled?'#B91C1C':hasgig?'#085041':'#9ca3af'}},day),
-              dg.map(g=>e('div',{key:g.id,className:'cal-gig',style:{fontSize:9,marginTop:2,color:STATUS_STYLE[g.status].color,background:STATUS_STYLE[g.status].bg,borderRadius:3,padding:'1px 4px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',border:!g.fromCalendar?`1px dashed ${STATUS_STYLE[g.status].color}`:'none'}},g.venue))
+              dg.map(g=>e('div',{key:g.id,className:'cal-gig',style:{fontSize:9,marginTop:2,color:STATUS_STYLE[g.status].color,background:STATUS_STYLE[g.status].bg,borderRadius:3,padding:'1px 4px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',border:!g.fromCalendar?'1.5px dashed #4b5563':'none'}},g.venue))
             );
           })
         ),
