@@ -467,6 +467,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
 function App(){
   const [settings,setSettings]=useState(()=>{try{const s=localStorage.getItem('pmtf_settings');return s?JSON.parse(s):{bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com'};}catch{return {bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com'};}});
   const [gigs,setGigs]=useState(()=>{try{const s=localStorage.getItem('pmtf_gigs');return s?JSON.parse(s):SAMPLE;}catch{return SAMPLE;}});
+  const [isFirstLoad]=useState(()=>{try{return !localStorage.getItem('pmtf_gigs');}catch{return false;}});
   const [members,setMembers]=useState(()=>{try{const s=localStorage.getItem('pmtf_members');return s?JSON.parse(s):[];}catch{return [];}});
   const [mileageLog,setMileageLog]=useState(()=>{try{const s=localStorage.getItem('pmtf_mileage');return s?JSON.parse(s):[];}catch{return [];}});
   const [tab,setTab]=useState(()=>{try{const s=localStorage.getItem('pmtf_settings');return s?JSON.parse(s).defaultTab||'calendar':'calendar';}catch{return 'calendar';}});
@@ -554,9 +555,9 @@ function App(){
   const saveGig=g=>{setGigs(p=>p.find(x=>x.id===g.id)?p.map(x=>x.id===g.id?g:x):[...p,g]);closeModal();};
   const deleteGig=id=>{setGigs(p=>p.filter(x=>x.id!==id));closeModal();};
 
-  const syncFromGoogleCalendar=async()=>{
+  const syncFromGoogleCalendar=async(silent=false)=>{
     if(!settings.calendarId){
-      alert('Add your Google Calendar ID in Settings → Calendar first.');
+      if(!silent)alert('Add your Google Calendar ID in Settings → Calendar first.');
       return;
     }
     setCalSyncing(true);
@@ -568,7 +569,7 @@ function App(){
       const res=await fetch(url);
       const data=await res.json();
       if(!res.ok){
-        alert('Could not sync calendar: '+(data.error?.message||'check that the Calendar ID is correct and the calendar is public.'));
+        if(!silent)alert('Could not sync calendar: '+(data.error?.message||'check that the Calendar ID is correct and the calendar is public.'));
         setCalSyncing(false);
         return;
       }
@@ -584,14 +585,20 @@ function App(){
         // Only replace calendar-sourced gigs; keep manually-added local gigs untouched
         setGigs(prev=>[...prev.filter(g=>!g.fromCalendar),...calGigs]);
         setLastSynced(new Date().toLocaleTimeString());
-      } else {
+      } else if(!silent){
         alert('No events found on that calendar for this year.');
       }
     }catch(err){
-      alert('Could not sync calendar. Check your connection and try again.');
+      if(!silent)alert('Could not sync calendar. Check your connection and try again.');
     }
     setCalSyncing(false);
   };
+
+  // On first-ever load (no saved gigs yet), automatically sync from the
+  // band's calendar so new devices see real gigs instead of the demo data.
+  useEffect(()=>{
+    if(isFirstLoad) syncFromGoogleCalendar(true);
+  },[]);
 
   // ── FIXED: Mileage tracking ──────────────────────────────────────────────
   // Sets state FIRST so banner appears immediately, then starts GPS watch.
