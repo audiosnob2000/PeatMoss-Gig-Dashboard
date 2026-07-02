@@ -807,7 +807,7 @@ function App(){
                 e('div',{style:{display:'flex',gap:6,marginTop:5,flexWrap:'wrap',alignItems:'center'}},
                   e('span',{className:'badge',style:{background:tc.bg,color:tc.color}},g.type),
                   e(Badge,{status:g.status}),
-                  !g.fromCalendar&&e('span',{className:'badge',style:{background:'#F3F4F6',color:'#6b7280'}},'Only on this device'),
+                  !g.fromCalendar&&e('span',{className:'badge',style:{background:'#374151',color:'#fff',fontWeight:700}},'Only on this device'),
                   g.location&&e('button',{onClick:ev=>{ev.stopPropagation();openMaps(g.venue,g.location);},
                     style:{fontSize:11,padding:'2px 8px',borderRadius:99,background:'#E0EFFE',color:'#1D4ED8',fontWeight:500,border:'none',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:3}},'📍 Map')
                 )
@@ -966,7 +966,7 @@ function App(){
         e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}},
           e('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
             e('span',{className:'badge',style:{background:typeStyle(gigPopup.type).bg,color:typeStyle(gigPopup.type).color}},gigPopup.type),
-            !gigPopup.fromCalendar&&e('span',{className:'badge',style:{background:'#F3F4F6',color:'#6b7280'}},'Only on this device')
+            !gigPopup.fromCalendar&&e('span',{className:'badge',style:{background:'#374151',color:'#fff',fontWeight:700}},'Only on this device')
           ),
           e('button',{onClick:()=>setGigPopup(null),style:{border:'none',background:'none',fontSize:20,color:'#9ca3af',cursor:'pointer',padding:'0 4px'}},'×')
         ),
