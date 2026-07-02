@@ -86,14 +86,18 @@ function hslToHex(h,s,l){
   return '#'+toHex(r)+toHex(g)+toHex(b);
 }
 function buildTheme(hex){
-  const {h,s}=hexToHsl(hex);
-  const sat=Math.min(Math.max(s,45),75);
+  const {h,s,l}=hexToHsl(hex);
+  const sat=Math.min(Math.max(s,40),80);
+  const primaryL=Math.min(Math.max(l*0.42,16),30);
+  const midL=Math.min(Math.max(l*0.62,32),46);
+  const lightL=Math.min(Math.max(l*0.85,52),66);
+  const accentL=Math.min(Math.max(l*0.95,68),80);
   return {
-    primary:hslToHex(h,sat,24),
-    mid:hslToHex(h,sat*0.9,37),
-    light:hslToHex(h,sat*0.65,58),
-    pale:hslToHex(h,sat*0.65,93),
-    accent:hslToHex(h,sat*0.65,75)
+    primary:hslToHex(h,sat,primaryL),
+    mid:hslToHex(h,sat*0.9,midL),
+    light:hslToHex(h,sat*0.65,lightL),
+    pale:hslToHex(h,sat*0.5,93),
+    accent:hslToHex(h,sat*0.65,accentL)
   };
 }
 const THEMES={
