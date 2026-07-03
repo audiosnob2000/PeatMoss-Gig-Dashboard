@@ -295,23 +295,27 @@ function StagePlotSection({settings,setSettings,theme}){
     const url=settings.stagePlotUrl;
     if(!url) return;
     if(navigator.share){
-      navigator.share({title:'Stage Plot — Peat Moss & The Fertilizers',text:'Stage plot for our show:',url});
+      navigator.share({title:'Stage Plot — '+settings.bandName,text:'Stage plot for our show:',url});
     } else {
       navigator.clipboard.writeText(url).then(()=>alert('Link copied to clipboard!'));
     }
   };
   const hasLink=!!(settings.stagePlotUrl&&settings.stagePlotUrl.trim());
+  const isImage=hasLink&&/\.(jpe?g|png|gif|webp|heic)(\?|#|$)/i.test(settings.stagePlotUrl);
   return e('div',{style:{padding:'12px 14px'}},
     e('div',{style:{fontSize:14,color:'#111827',marginBottom:4}},'Stage plot link'),
-    e('div',{style:{fontSize:12,color:'#9ca3af',marginBottom:10}},'Paste a Google Drive share link. Set file to "Anyone with the link can view" in Drive.'),
+    e('div',{style:{fontSize:12,color:'#9ca3af',marginBottom:10}},'Paste a link to your stage plot — a photo, PDF, or any file. Works with Google Drive, Dropbox, iCloud, or anywhere else, as long as the link is shared so anyone can view it.'),
     e('input',{ref:linkRef,defaultValue:settings.stagePlotUrl||'',onBlur:saveLink,
-      placeholder:'https://drive.google.com/file/d/...',
+      placeholder:'https://...',
       style:{padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'100%',marginBottom:8}}),
     e('div',{style:{display:'flex',gap:8,marginBottom:hasLink?10:0}},
       e('button',{onClick:saveLink,style:{flex:1,padding:'8px 0',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},'Save link')
     ),
+    isImage&&e('img',{src:settings.stagePlotUrl,onClick:()=>window.open(settings.stagePlotUrl,'_blank'),
+      onError:ev=>{ev.target.style.display='none';},
+      style:{width:'100%',maxHeight:220,objectFit:'contain',borderRadius:8,border:'1px solid #e5e7eb',marginBottom:10,cursor:'pointer',background:'#f9fafb',display:'block'}}),
     hasLink&&e('div',{style:{display:'flex',gap:8}},
-      e('button',{onClick:()=>window.open(settings.stagePlotUrl,'_blank'),
+      !isImage&&e('button',{onClick:()=>window.open(settings.stagePlotUrl,'_blank'),
         style:{flex:1,padding:'9px 0',borderRadius:8,border:'0.5px solid #d1d5db',background:'#fff',color:'#374151',cursor:'pointer',fontSize:13,fontWeight:500}},'👁 Preview'),
       e('button',{onClick:copyLink,style:{flex:1,padding:'9px 0',borderRadius:8,border:`1px solid ${theme.mid}`,color:theme.mid,background:copied?theme.pale:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},copied?'✓ Copied!':'🔗 Copy link'),
       e('button',{onClick:shareLink,style:{flex:1,padding:'9px 0',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},'📤 Share')
