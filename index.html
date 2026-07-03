@@ -11,7 +11,6 @@
 <script src="vendor/react-dom.production.min.js"></script>
 <script src="vendor/prop-types.min.js"></script>
 <script src="vendor/Recharts.js"></script>
-<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{overflow-x:hidden;width:100%}
@@ -502,7 +501,6 @@ function App(){
   const [dayPopup,setDayPopup]=useState(null);
   const [googleAccessToken,setGoogleAccessToken]=useState(null);
   const [googleAuthError,setGoogleAuthError]=useState('');
-  const tokenClientRef=useRef(null);
   const [showSettings,setShowSettings]=useState(false);
   const [trackingMiles,setTrackingMiles]=useState(()=>{try{const s=localStorage.getItem('pmtf_tracking');return s?JSON.parse(s):null;}catch{return null;}});
   const [askTrack,setAskTrack]=useState(null);
@@ -522,6 +520,28 @@ function App(){
 
   // Keep ref in sync with state so GPS callback can read it
   useEffect(()=>{ trackingRef.current=trackingMiles; },[trackingMiles]);
+
+  // Pick up the access token Google hands back in the URL fragment after a
+  // sign-in redirect (used instead of a popup — popups can't return to a
+  // standalone/home-screen web app on iOS, they just get stranded on
+  // Google's page with no opener to report back to).
+  useEffect(()=>{
+    if(!window.location.hash.includes('access_token')) return;
+    const params=new URLSearchParams(window.location.hash.slice(1));
+    const token=params.get('access_token');
+    const err=params.get('error');
+    if(token){
+      setGoogleAccessToken(token);
+      setGoogleAuthError('');
+    } else if(err){
+      setGoogleAuthError('Google sign-in failed: '+err);
+    }
+    if(sessionStorage.getItem('pmtf_reopen_settings')==='1'){
+      setShowSettings(true);
+      sessionStorage.removeItem('pmtf_reopen_settings');
+    }
+    window.history.replaceState(null,'',window.location.pathname+window.location.search);
+  },[]);
 
   // Persist tracking state so banner survives page reload (e.g. returning from Maps app)
   useEffect(()=>{
@@ -568,26 +588,28 @@ function App(){
   const openAdd=(prefillDate)=>setModal({mode:'add',prefillDate});
   const openEdit=g=>setModal({mode:'edit',gig:g});
   // ── Google Sign-In (OAuth) for writing gigs to the shared calendar ──────
-  const ensureTokenClient=()=>{
-    if(tokenClientRef.current) return tokenClientRef.current;
-    if(!window.google?.accounts?.oauth2){setGoogleAuthError('Google sign-in is still loading — try again in a second.');return null;}
-    tokenClientRef.current=window.google.accounts.oauth2.initTokenClient({
-      client_id:GOOGLE_CLIENT_ID,
-      scope:CALENDAR_WRITE_SCOPE,
-      callback:resp=>{
-        if(resp.error){setGoogleAuthError('Google sign-in failed: '+resp.error);return;}
-        setGoogleAuthError('');
-        setGoogleAccessToken(resp.access_token);
-      }
-    });
-    return tokenClientRef.current;
-  };
+  // Uses a full-page redirect rather than a popup: popups can't hand control
+  // back to a standalone/home-screen web app on iOS (there's no opener to
+  // report to), which left users stranded on Google's page. A redirect just
+  // navigates away and back, which works the same in standalone mode.
   const signInWithGoogle=()=>{
-    const client=ensureTokenClient();
-    if(client) client.requestAccessToken({prompt:googleAccessToken?'':'consent'});
+    if(showSettings) sessionStorage.setItem('pmtf_reopen_settings','1');
+    const redirectUri=window.location.origin+window.location.pathname;
+    const params=new URLSearchParams({
+      client_id:GOOGLE_CLIENT_ID,
+      redirect_uri:redirectUri,
+      response_type:'token',
+      scope:CALENDAR_WRITE_SCOPE,
+      include_granted_scopes:'true',
+      prompt:'consent'
+    });
+    window.location.href='https://accounts.google.com/o/oauth2/v2/auth?'+params.toString();
   };
   const signOutGoogle=()=>{
-    if(googleAccessToken&&window.google?.accounts?.oauth2) window.google.accounts.oauth2.revoke(googleAccessToken);
+    if(googleAccessToken){
+      fetch('https://oauth2.googleapis.com/revoke?token='+encodeURIComponent(googleAccessToken),
+        {method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'}}).catch(()=>{});
+    }
     setGoogleAccessToken(null);
   };
   // Calls the Calendar API with the OAuth token to actually write an event.
