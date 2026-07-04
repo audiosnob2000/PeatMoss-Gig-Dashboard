@@ -738,8 +738,14 @@ function App(){
           const venue=ev.summary||'Untitled';
           return{id:ev.id,date,venue,location:ev.location||'',type:venue.toLowerCase().includes('wedding')?'wedding':'bar',status:'confirmed',time,fromCalendar:true};
         }).filter(g=>g.date&&g.location);
-        // Only replace calendar-sourced gigs; keep manually-added local gigs untouched
-        setGigs(prev=>[...prev.filter(g=>!g.fromCalendar),...calGigs]);
+        // Only replace calendar-sourced gigs; keep manually-added local gigs untouched.
+        // Also drop any local gig that matches one just synced (same date+venue) —
+        // phones with gigs saved from before fromCalendar tagging existed would
+        // otherwise never get filtered out above, and every matching date would
+        // show the same gig twice forever.
+        const dedupeKey=g=>g.date+'|'+(g.venue||'').trim().toLowerCase();
+        const calKeys=new Set(calGigs.map(dedupeKey));
+        setGigs(prev=>[...prev.filter(g=>!g.fromCalendar&&!calKeys.has(dedupeKey(g))),...calGigs]);
         setLastSynced(new Date().toLocaleTimeString());
       } else if(!silent){
         alert('No events found on that calendar for this year.');
