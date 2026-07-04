@@ -358,7 +358,7 @@ function CustomColorSwatch({selected,customColor,onPick}){
   );
 }
 
-function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError}){
+function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,applyFlyerTimes}){
   const [confirmReset,setConfirmReset]=useState(false);
   const [showSchedulePreview,setShowSchedulePreview]=useState(false);
   const [editingBandName,setEditingBandName]=useState(false);
@@ -555,6 +555,9 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
       e(Section,{icon:'📤',title:'Data'},
         e(Row,{label:'Share schedule',sub:'A clean, printable view of upcoming shows to send to friends, family, or fans',border:true,
           right:e('button',{onClick:()=>setShowSchedulePreview(true),style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'View')
+        }),
+        e(Row,{label:'Fix show times from flyer',sub:'One-time repair: fills in any Summer 2026 show still missing a time, using the printed flyer as the source',border:true,
+          right:e('button',{onClick:applyFlyerTimes,style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'Run')
         }),
         e(Row,{label:'Reset all data',sub:'Clears all gigs and returns to defaults',danger:true,border:false,
           right:e('button',{onClick:()=>setConfirmReset(true),style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #fca5a5',color:'#b91c1c',cursor:'pointer'}},'Reset')
@@ -889,6 +892,55 @@ function App(){
     closeModal();
   };
 
+  // One-time repair: the all-day-event bug (fixed above) had already wiped
+  // the real start times off Summer 2026 shows written before the fix. The
+  // band's printed flyer is the only surviving record of those times, so
+  // this backfills any gig still missing a time from that flyer's schedule —
+  // it only fills blanks, never overwrites a time already present, so it's
+  // safe to run more than once.
+  const FLYER_TIMES_SUMMER_2026={
+    '2026-07-03':'10:00 PM','2026-07-05':'2:00 PM','2026-07-10':'6:00 PM','2026-07-11':'6:30 PM',
+    '2026-07-18':'7:00 PM','2026-07-30':'7:30 PM','2026-07-31':'8:00 PM',
+    '2026-08-01':'1:30 PM','2026-08-02':'7:00 PM','2026-08-07':'6:30 PM','2026-08-15':'6:00 PM',
+    '2026-08-16':'2:00 PM','2026-08-18':'8:00 PM','2026-08-22':'2:00 PM','2026-08-28':'6:00 PM',
+    '2026-09-04':'7:00 PM','2026-09-06':'10:00 PM','2026-09-07':'5:00 PM'
+  };
+  const applyFlyerTimes=async()=>{
+    const targets=gigs.filter(g=>!g.time&&FLYER_TIMES_SUMMER_2026[g.date]);
+    if(targets.length===0){
+      alert('No shows needed a time — everything already has one, or none match the flyer\'s dates.');
+      return;
+    }
+    if(googleAccessToken&&isGoogleTokenExpired()){
+      clearExpiredGoogleAuth();
+      alert('Your Google sign-in expired, so nothing was changed. Sign in again under Settings → Calendar, then try again.');
+      return;
+    }
+    let updated=[];
+    let failed=[];
+    for(const g of targets){
+      const withTime={...g,time:FLYER_TIMES_SUMMER_2026[g.date]};
+      if(googleAccessToken){
+        const result=await writeGigToCalendar(withTime.fromCalendar?'PATCH':'POST',withTime,withTime.fromCalendar?withTime.id:null);
+        if(result.ok){
+          updated.push(withTime.fromCalendar?withTime:{...withTime,fromCalendar:true,id:result.id});
+        } else {
+          failed.push(g.venue+' ('+g.date+'): '+result.error);
+        }
+      } else {
+        updated.push(withTime);
+      }
+    }
+    if(updated.length){
+      setGigs(prev=>prev.map(g=>updated.find(u=>u.id===g.id)||g));
+    }
+    alert(
+      `Updated ${updated.length} show${updated.length===1?'':'s'} with times from the flyer.`+
+      (failed.length?`\n\nFailed to save ${failed.length} to the shared calendar:\n`+failed.join('\n'):'')+
+      (!googleAccessToken?'\n\n(Sign in under Settings → Calendar so these also save to the shared calendar.)':'')
+    );
+  };
+
   const syncFromGoogleCalendar=async(silent=false)=>{
     if(!settings.calendarId){
       if(!silent)alert('Add your Google Calendar ID in Settings → Calendar first.');
@@ -1085,7 +1137,7 @@ function App(){
   const deleteMember=mid=>{setMembers(prev=>prev.filter(x=>x.id!==mid));setActiveMember(null);setConfirmDelete(null);};
   const renameMember=(mid,n)=>{if(!n.trim())return;setMembers(prev=>prev.map(m=>m.id!==mid?m:{...m,name:n.trim()}));setEditingName(false);};
 
-  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError});
+  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,applyFlyerTimes});
 
   return e('div',{style:{maxWidth:720,margin:'0 auto',paddingBottom:'2rem'}},
     e('div',{style:{background:theme.primary,borderRadius:'0 0 20px 20px',padding:'1.25rem 1.25rem 1.5rem',marginBottom:'1.25rem'}},
