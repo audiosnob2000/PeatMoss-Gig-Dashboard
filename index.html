@@ -500,7 +500,18 @@ function loadStoredGoogleAuth(){
 }
 
 function App(){
-  const [settings,setSettings]=useState(()=>{try{const s=localStorage.getItem('pmtf_settings');return s?JSON.parse(s):{bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com'};}catch{return {bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com'};}});
+  const [settings,setSettings]=useState(()=>{
+    const defaults={bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com'};
+    try{
+      const s=localStorage.getItem('pmtf_settings');
+      if(!s) return defaults;
+      // Backfill calendarId for phones that saved settings before it existed —
+      // otherwise it's stuck permanently blank with no way to fix it in the UI,
+      // and gig writes to the shared calendar fail silently.
+      const parsed=JSON.parse(s);
+      return {...defaults,...parsed,calendarId:parsed.calendarId||defaults.calendarId};
+    }catch{return defaults;}
+  });
   const [gigs,setGigs]=useState(()=>{try{const s=localStorage.getItem('pmtf_gigs');return s?JSON.parse(s):SAMPLE;}catch{return SAMPLE;}});
   const [isFirstLoad]=useState(()=>{try{return !localStorage.getItem('pmtf_gigs');}catch{return false;}});
   const [members,setMembers]=useState(()=>{try{const s=localStorage.getItem('pmtf_members');return s?JSON.parse(s):[];}catch{return [];}});
@@ -648,7 +659,11 @@ function App(){
   // Calls the Calendar API with the OAuth token to actually write an event.
   // Returns the created/updated event's Google id, or null on failure.
   const writeGigToCalendar=async(method,g,googleEventId)=>{
-    if(!googleAccessToken||!settings.calendarId) return null;
+    if(!googleAccessToken) return null;
+    if(!settings.calendarId){
+      setGoogleAuthError('Could not save to Google Calendar: no Calendar ID configured. Reopen Settings or reset the app to pick up the band\'s calendar.');
+      return null;
+    }
     const body={
       summary:g.venue,
       location:g.location||'',
