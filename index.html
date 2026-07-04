@@ -667,7 +667,11 @@ function App(){
     const body={
       summary:g.venue,
       location:g.location||'',
-      description:'Type: '+g.type+' · Status: '+g.status,
+      // The [PMTF_GIG] tag marks this event as written by the app itself, so
+      // sync can trust it even without a location — the location requirement
+      // below exists only to filter out unrelated personal notes on the
+      // band's shared calendar (e.g. "Jim is off"), not app-created gigs.
+      description:'[PMTF_GIG] Type: '+g.type+' · Status: '+g.status,
       start:{date:g.date},
       end:{date:g.date}
     };
@@ -732,12 +736,20 @@ function App(){
       if(data.items&&data.items.length>0){
         const calGigs=data.items.map(ev=>{
           const date=ev.start?.date||ev.start?.dateTime?.slice(0,10)||'';
+          if(!date) return null;
+          // Require a location for events we didn't create ourselves — that's
+          // what keeps unrelated personal notes on the shared calendar (e.g.
+          // "Jim is off") from showing up as fake gigs. Gigs the app wrote
+          // itself are tagged and trusted regardless, since a real gig added
+          // in the app might not have a location filled in yet.
+          const isAppManaged=(ev.description||'').includes('[PMTF_GIG]');
+          if(!ev.location&&!isAppManaged) return null;
           const ts=ev.start?.dateTime?new Date(ev.start.dateTime).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):'';
           const te=ev.end?.dateTime?new Date(ev.end.dateTime).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):'';
           const time=ts&&te?`${ts}–${te}`:ts;
           const venue=ev.summary||'Untitled';
           return{id:ev.id,date,venue,location:ev.location||'',type:venue.toLowerCase().includes('wedding')?'wedding':'bar',status:'confirmed',time,fromCalendar:true};
-        }).filter(g=>g.date&&g.location);
+        }).filter(Boolean);
         // Only replace calendar-sourced gigs; keep manually-added local gigs untouched.
         // Also drop any local gig that matches one just synced (same date+venue) —
         // phones with gigs saved from before fromCalendar tagging existed would
