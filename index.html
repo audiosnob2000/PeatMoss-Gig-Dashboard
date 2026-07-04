@@ -805,18 +805,26 @@ function App(){
       // below exists only to filter out unrelated personal notes on the
       // band's shared calendar (e.g. "Jim is off"), not app-created gigs.
       // Set time is stored here too, not just derived from the calendar's
-      // real start/end clock time — every gig is written as an all-day
-      // event (see dateTime:null below), so a synced-back all-day event has
-      // no clock time to derive from and would otherwise lose it entirely.
-      description:'[PMTF_GIG] Type: '+g.type+' · Status: '+g.status+(g.selfPA?' · PA: Self':'')+(g.time?' · Time: '+g.time:''),
+      // real start/end clock time — a gig with a time is written as an
+      // all-day event (see dateTime:null below), so a synced-back all-day
+      // event has no clock time to derive from and would otherwise lose it.
+      description:'[PMTF_GIG] Type: '+g.type+' · Status: '+g.status+(g.selfPA?' · PA: Self':'')+(g.time?' · Time: '+g.time:'')
+    };
+    if(g.time||method==='POST'){
       // Explicitly null out dateTime alongside date — PATCHing an event that
       // was originally created with a specific time (dateTime) over to an
       // all-day event (date) without clearing the old dateTime leaves both
       // set at once, which Google's API rejects as an invalid/ambiguous
       // start or end time.
-      start:{date:g.date,dateTime:null},
-      end:{date:g.date,dateTime:null}
-    };
+      body.start={date:g.date,dateTime:null};
+      body.end={date:g.date,dateTime:null};
+    }
+    // else: this gig has no time and we're editing an event that already
+    // exists on the calendar — omit start/end entirely rather than forcing
+    // it all-day. PATCH only touches fields present in the request body, so
+    // leaving these out preserves whatever start/end (including a specific
+    // clock time someone set directly on Google Calendar) is already there,
+    // instead of silently erasing it just because this edit didn't touch time.
     const base=`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(settings.calendarId)}/events`;
     const url=method==='POST'?base:`${base}/${encodeURIComponent(googleEventId)}`;
     try{
