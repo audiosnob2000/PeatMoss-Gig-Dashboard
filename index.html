@@ -54,6 +54,7 @@ const GOOGLE_CLIENT_ID='675499838790-l0lgct7rbkbc7u4lttqkpjta3vm9qrvi.apps.googl
 const GOOGLE_REDIRECT_URI='https://audiosnob2000.github.io/PeatMoss-Gig-Dashboard/';
 const CALENDAR_WRITE_SCOPE='https://www.googleapis.com/auth/calendar.events';
 const IRS_RATE=0.67;
+const KM_PER_MILE=1.60934;
 const TYPES=["bar","wedding","private event","other"];
 const STATUSES=["confirmed","pending","hold","cancelled"];
 const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -352,6 +353,11 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
   const [mileageOpen,setMileageOpen]=useState(false);
   const totalMiles=mileageLog.reduce((s,t)=>s+t.miles,0);
   const totalDeduction=(totalMiles*IRS_RATE).toFixed(2);
+  // Trips are always stored in miles; mileageUnit only controls how they're
+  // displayed. Defaults to miles for everyone who hasn't chosen km.
+  const mileageUnit=settings.mileageUnit==='km'?'km':'mi';
+  const toDisplayDistance=miles=>mileageUnit==='km'?miles*KM_PER_MILE:miles;
+  const setMileageUnit=unit=>setSettings(s=>({...s,mileageUnit:unit}));
   const saveBandName=()=>{if(bandNameValue.trim())setSettings(s=>({...s,bandName:bandNameValue.trim()}));setEditingBandName(false);};
   const copySchedule=()=>{
     const upcoming=gigs.filter(g=>g.date>=todayStr).sort((a,b)=>a.date>b.date?1:-1);
@@ -427,15 +433,27 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         e('div',{onClick:()=>setMileageOpen(o=>!o),style:{padding:'12px 14px',display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'pointer',borderBottom:mileageOpen?'1px solid #e5e7eb':'none'}},
           e('div',null,
             e('div',{style:{fontSize:14,color:'#111827',fontWeight:500}},'Mileage report'),
-            e('div',{style:{fontSize:12,color:'#9ca3af',marginTop:2}},`${totalMiles.toFixed(1)} mi · $${totalDeduction} deduction`)
+            e('div',{style:{fontSize:12,color:'#9ca3af',marginTop:2}},`${toDisplayDistance(totalMiles).toFixed(1)} ${mileageUnit} · $${totalDeduction} deduction`)
           ),
-          e('span',{style:{fontSize:18,color:'#9ca3af'}},mileageOpen?'∨':'›')
+          e('div',{style:{display:'flex',alignItems:'center',gap:10}},
+            e('div',{style:{display:'flex',background:theme.pale,borderRadius:9,padding:3,gap:2,flexShrink:0}},
+              e('button',{onClick:ev=>{ev.stopPropagation();setMileageUnit('mi');},
+                style:{border:'none',fontFamily:'inherit',fontSize:12,fontWeight:600,padding:'6px 11px',borderRadius:7,cursor:'pointer',whiteSpace:'nowrap',
+                  background:mileageUnit==='mi'?'#fff':'transparent',color:mileageUnit==='mi'?theme.primary:'#6b7280',
+                  boxShadow:mileageUnit==='mi'?'0 1px 2px rgba(0,0,0,.08)':'none'}},'Miles'),
+              e('button',{onClick:ev=>{ev.stopPropagation();setMileageUnit('km');},
+                style:{border:'none',fontFamily:'inherit',fontSize:12,fontWeight:600,padding:'6px 11px',borderRadius:7,cursor:'pointer',whiteSpace:'nowrap',
+                  background:mileageUnit==='km'?'#fff':'transparent',color:mileageUnit==='km'?theme.primary:'#6b7280',
+                  boxShadow:mileageUnit==='km'?'0 1px 2px rgba(0,0,0,.08)':'none'}},'Km')
+            ),
+            e('span',{style:{fontSize:18,color:'#9ca3af'}},mileageOpen?'∨':'›')
+          )
         ),
         mileageOpen&&e('div',null,
           e('div',{style:{display:'flex',borderBottom:'1px solid #e5e7eb'}},
             e('div',{style:{flex:1,padding:'14px',textAlign:'center',borderRight:'1px solid #e5e7eb'}},
-              e('div',{style:{fontSize:10,color:'#6b7280',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4}},'Total miles'),
-              e('div',{style:{fontSize:26,fontWeight:500,color:theme.primary}},totalMiles.toFixed(1)),
+              e('div',{style:{fontSize:10,color:'#6b7280',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4}},mileageUnit==='km'?'Total km':'Total miles'),
+              e('div',{style:{fontSize:26,fontWeight:500,color:theme.primary}},toDisplayDistance(totalMiles).toFixed(1)),
               e('div',{style:{fontSize:11,color:'#9ca3af',marginTop:2}},today.getFullYear()+' season')
             ),
             e('div',{style:{flex:1,padding:'14px',textAlign:'center'}},
@@ -448,7 +466,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
           mileageLog.map((t,i)=>e('div',{key:i,style:{padding:'10px 14px',borderBottom:i<mileageLog.length-1?'1px solid #e5e7eb':'none',display:'flex',justifyContent:'space-between',alignItems:'center'}},
             e('div',null,e('div',{style:{fontSize:13,fontWeight:500,color:'#111827'}},t.venue),e('div',{style:{fontSize:11,color:'#9ca3af'}},t.date)),
             e('div',{style:{display:'flex',alignItems:'center',gap:10}},
-              e('div',{style:{fontSize:13,fontWeight:500,color:theme.primary}},t.miles.toFixed(1)+' mi'),
+              e('div',{style:{fontSize:13,fontWeight:500,color:theme.primary}},toDisplayDistance(t.miles).toFixed(1)+' '+mileageUnit),
               e('button',{onClick:()=>setMileageLog(prev=>prev.filter((_,idx)=>idx!==i)),
                 style:{border:'none',background:'none',color:'#d1d5db',fontSize:18,cursor:'pointer',padding:'0 4px',lineHeight:1}},'×')
             )
