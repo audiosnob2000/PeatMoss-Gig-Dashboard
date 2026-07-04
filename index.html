@@ -954,8 +954,8 @@ function App(){
             const isToday=ds===todayStr;
             const hasgig=dg.length>0;
             const allCancelled=hasgig&&dg.every(g=>g.status==='cancelled');
-            return e('div',{key:day,className:'cal-cell',onClick:()=>{if(dg.length===1)setGigPopup(dg[0]);else if(dg.length>1)setDayPopup({date:ds,gigs:dg});},
-              style:{minHeight:56,padding:'4px 5px',borderRadius:8,cursor:dg.length?'pointer':'default',
+            return e('div',{key:day,className:'cal-cell',onClick:()=>{if(dg.length===1)setGigPopup(dg[0]);else if(dg.length>1)setDayPopup({date:ds,gigs:dg});else openAdd(ds);},
+              style:{minHeight:56,padding:'4px 5px',borderRadius:8,cursor:'pointer',
                 background:allCancelled?'#FEE2E2':hasgig?theme.pale:'#f9fafb',
                 border:isToday?`2px solid ${theme.mid}`:allCancelled?'1px solid #F87171':hasgig?`1px solid ${theme.light}`:'1px solid #e5e7eb',
                 overflow:'hidden'}},
