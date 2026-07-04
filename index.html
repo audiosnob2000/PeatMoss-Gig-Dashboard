@@ -721,12 +721,32 @@ function App(){
     }
   };
 
+  // A stale token looks identical to a valid one until an API call actually
+  // fails — check the expiry we already track before ever attempting a
+  // write, so we can tell the user right away instead of pretending success
+  // and letting the next auto-sync silently erase the change later.
+  const isGoogleTokenExpired=()=>googleTokenExpiresAt&&Date.now()>=googleTokenExpiresAt;
+  const clearExpiredGoogleAuth=()=>{setGoogleAccessToken(null);setGoogleTokenExpiresAt(null);};
+
   const saveGig=async g=>{
     if(googleAccessToken){
-      const isNewFromCalendar=!g.fromCalendar;
-      const googleId=await writeGigToCalendar(g.fromCalendar?'PATCH':'POST',g,g.fromCalendar?g.id:null);
-      if(googleId){
-        g={...g,fromCalendar:true,id:isNewFromCalendar?googleId:g.id};
+      if(isGoogleTokenExpired()){
+        clearExpiredGoogleAuth();
+        alert('Your Google sign-in expired, so this didn\'t save to the shared calendar. Sign in again under Settings → Calendar, then make this change again.');
+        if(g.fromCalendar){closeModal();return;} // don't apply an edit that wasn't actually saved
+      } else {
+        const isNewFromCalendar=!g.fromCalendar;
+        const googleId=await writeGigToCalendar(g.fromCalendar?'PATCH':'POST',g,g.fromCalendar?g.id:null);
+        if(googleId){
+          g={...g,fromCalendar:true,id:isNewFromCalendar?googleId:g.id};
+        } else if(g.fromCalendar){
+          // Write failed for an edit to an already-shared gig — don't apply it
+          // locally either, since the next sync would just revert it anyway
+          // with no explanation. Better to be upfront that it didn't save.
+          alert('Could not save this change to the shared calendar. Your edit was not applied — check your Google sign-in and try again.');
+          closeModal();
+          return;
+        }
       }
     }
     setGigs(p=>p.find(x=>x.id===g.id)?p.map(x=>x.id===g.id?g:x):[...p,g]);
@@ -734,7 +754,20 @@ function App(){
   };
   const deleteGig=async id=>{
     const target=gigs.find(x=>x.id===id);
-    if(googleAccessToken&&target?.fromCalendar) await writeGigToCalendar('DELETE',target,id);
+    if(googleAccessToken&&target?.fromCalendar){
+      if(isGoogleTokenExpired()){
+        clearExpiredGoogleAuth();
+        alert('Your Google sign-in expired, so this wasn\'t deleted from the shared calendar. Sign in again under Settings → Calendar, then delete it again.');
+        closeModal();
+        return;
+      }
+      const ok=await writeGigToCalendar('DELETE',target,id);
+      if(!ok){
+        alert('Could not delete this from the shared calendar. It was not removed — check your Google sign-in and try again.');
+        closeModal();
+        return;
+      }
+    }
     setGigs(p=>p.filter(x=>x.id!==id));
     closeModal();
   };
