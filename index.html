@@ -400,7 +400,16 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
   const scheduleShortLocation=loc=>{
     if(!loc) return loc;
     const parts=loc.split(',').map(s=>s.trim()).filter(Boolean);
-    return parts.length>=2?parts.slice(-2).join(', '):loc;
+    if(parts.length<=1) return loc;
+    // Find the "STATE" or "STATE ZIP" segment (a 2-letter code, optionally
+    // followed by a zip) rather than blindly taking the last two parts —
+    // real addresses often have zip/country after it, which would otherwise
+    // push the actual town out of view.
+    const stateIdx=parts.findIndex((p,i)=>i>0&&/^[A-Za-z]{2}(\s|$)/.test(p));
+    if(stateIdx<1) return parts.slice(0,2).join(', ');
+    const town=parts[stateIdx-1];
+    const state=parts[stateIdx].replace(/\d+/g,'').trim();
+    return state?`${town}, ${state}`:town;
   };
   const scheduleShortTime=t=>{
     if(!t) return '';
@@ -792,7 +801,11 @@ function App(){
       // sync can trust it even without a location — the location requirement
       // below exists only to filter out unrelated personal notes on the
       // band's shared calendar (e.g. "Jim is off"), not app-created gigs.
-      description:'[PMTF_GIG] Type: '+g.type+' · Status: '+g.status+(g.selfPA?' · PA: Self':''),
+      // Set time is stored here too, not just derived from the calendar's
+      // real start/end clock time — every gig is written as an all-day
+      // event (see dateTime:null below), so a synced-back all-day event has
+      // no clock time to derive from and would otherwise lose it entirely.
+      description:'[PMTF_GIG] Type: '+g.type+' · Status: '+g.status+(g.selfPA?' · PA: Self':'')+(g.time?' · Time: '+g.time:''),
       // Explicitly null out dateTime alongside date — PATCHing an event that
       // was originally created with a specific time (dateTime) over to an
       // all-day event (date) without clearing the old dateTime leaves both
@@ -905,9 +918,17 @@ function App(){
           // in the app might not have a location filled in yet.
           const isAppManaged=(ev.description||'').includes('[PMTF_GIG]');
           if(!ev.location&&!isAppManaged) return null;
-          const ts=ev.start?.dateTime?new Date(ev.start.dateTime).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):'';
-          const te=ev.end?.dateTime?new Date(ev.end.dateTime).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):'';
-          const time=ts&&te?`${ts}–${te}`:ts;
+          // Prefer the time stored in the description tag — every gig is
+          // written as an all-day event, so it has no real clock time to
+          // derive here; only fall back to deriving from dateTime for
+          // genuinely external events we didn't tag ourselves.
+          const timeTag=(ev.description||'').match(/Time:\s*([^·]+)/);
+          let time=timeTag?timeTag[1].trim():'';
+          if(!time){
+            const ts=ev.start?.dateTime?new Date(ev.start.dateTime).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):'';
+            const te=ev.end?.dateTime?new Date(ev.end.dateTime).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):'';
+            time=ts&&te?`${ts}–${te}`:ts;
+          }
           const venue=ev.summary||'Untitled';
           const selfPA=(ev.description||'').includes('PA: Self');
           return{id:ev.id,date,venue,location:ev.location||'',type:venue.toLowerCase().includes('wedding')?'wedding':'bar',status:'confirmed',time,fromCalendar:true,selfPA};
