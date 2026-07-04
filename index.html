@@ -682,11 +682,15 @@ function App(){
   };
   // Calls the Calendar API with the OAuth token to actually write an event.
   // Returns the created/updated event's Google id, or null on failure.
+  // Returns {ok:true, id} (or {ok:true} for DELETE) on success, or
+  // {ok:false, error} with a specific, human-readable reason on failure —
+  // callers surface that exact reason instead of guessing why it failed.
   const writeGigToCalendar=async(method,g,googleEventId)=>{
-    if(!googleAccessToken) return null;
+    if(!googleAccessToken) return {ok:false,error:'Not signed in.'};
     if(!settings.calendarId){
-      setGoogleAuthError('Could not save to Google Calendar: no Calendar ID configured. Reopen Settings or reset the app to pick up the band\'s calendar.');
-      return null;
+      const error='No Calendar ID configured. Reopen Settings or reset the app to pick up the band\'s calendar.';
+      setGoogleAuthError('Could not save to Google Calendar: '+error);
+      return {ok:false,error};
     }
     const body={
       summary:g.venue,
@@ -709,15 +713,17 @@ function App(){
       });
       if(!res.ok){
         const err=await res.json().catch(()=>({}));
-        setGoogleAuthError('Could not save to Google Calendar: '+(err.error?.message||res.status));
-        return null;
+        const error=err.error?.message||('HTTP '+res.status);
+        setGoogleAuthError('Could not save to Google Calendar: '+error);
+        return {ok:false,error};
       }
-      if(method==='DELETE') return true;
+      if(method==='DELETE') return {ok:true};
       const data=await res.json();
-      return data.id;
+      return {ok:true,id:data.id};
     }catch(err){
-      setGoogleAuthError('Could not reach Google Calendar. Check your connection.');
-      return null;
+      const error='Could not reach Google Calendar. Check your connection.';
+      setGoogleAuthError(error);
+      return {ok:false,error};
     }
   };
 
@@ -736,14 +742,14 @@ function App(){
         if(g.fromCalendar){closeModal();return;} // don't apply an edit that wasn't actually saved
       } else {
         const isNewFromCalendar=!g.fromCalendar;
-        const googleId=await writeGigToCalendar(g.fromCalendar?'PATCH':'POST',g,g.fromCalendar?g.id:null);
-        if(googleId){
-          g={...g,fromCalendar:true,id:isNewFromCalendar?googleId:g.id};
+        const result=await writeGigToCalendar(g.fromCalendar?'PATCH':'POST',g,g.fromCalendar?g.id:null);
+        if(result.ok){
+          g={...g,fromCalendar:true,id:isNewFromCalendar?result.id:g.id};
         } else if(g.fromCalendar){
           // Write failed for an edit to an already-shared gig — don't apply it
           // locally either, since the next sync would just revert it anyway
           // with no explanation. Better to be upfront that it didn't save.
-          alert('Could not save this change to the shared calendar. Your edit was not applied — check your Google sign-in and try again.');
+          alert('Could not save this change to the shared calendar. Your edit was not applied.\n\nReason: '+result.error);
           closeModal();
           return;
         }
@@ -761,9 +767,9 @@ function App(){
         closeModal();
         return;
       }
-      const ok=await writeGigToCalendar('DELETE',target,id);
-      if(!ok){
-        alert('Could not delete this from the shared calendar. It was not removed — check your Google sign-in and try again.');
+      const result=await writeGigToCalendar('DELETE',target,id);
+      if(!result.ok){
+        alert('Could not delete this from the shared calendar. It was not removed.\n\nReason: '+result.error);
         closeModal();
         return;
       }
