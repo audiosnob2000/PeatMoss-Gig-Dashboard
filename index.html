@@ -384,12 +384,40 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
     group.gigs.push(g);
   });
   const scheduleDateLabel=g=>{const d=new Date(g.date+'T12:00:00');return MONTHS[d.getMonth()]+' '+d.getDate();};
+  // Keep this display clean for sharing: just the venue itself (not "@ Venue"
+  // add-ons or descriptive suffixes), just town/state (not a full address or
+  // business name), and just the start time (no end time, no on-the-hour
+  // ":00"). Weddings/private events keep their full text since "Wedding @
+  // Venue" is the meaningful part there, not filler.
+  const scheduleShortVenue=g=>{
+    if(g.type==='wedding'||g.type==='private event') return g.venue;
+    const v=g.venue||'';
+    const m=v.match(/^(.*?)(?:,| @ | – | -)/);
+    let short=(m?m[1]:v).trim();
+    short=short.replace(/\s+concert series$/i,'').trim();
+    return short||v.trim();
+  };
+  const scheduleShortLocation=loc=>{
+    if(!loc) return loc;
+    const parts=loc.split(',').map(s=>s.trim()).filter(Boolean);
+    return parts.length>=2?parts.slice(-2).join(', '):loc;
+  };
+  const scheduleShortTime=t=>{
+    if(!t) return '';
+    const parts=t.split(/[–-]/).map(s=>s.trim());
+    let start=parts[0];
+    const ampm=(parts[parts.length-1]||'').match(/AM|PM/i);
+    if(ampm&&!/AM|PM/i.test(start)) start+=' '+ampm[0].toUpperCase();
+    return start.replace(/:00(?=\s?(AM|PM))/i,'').trim();
+  };
   const scheduleAsText=()=>{
     const lines=[settings.bandName,'Upcoming Shows',''];
     scheduleByMonth.forEach(group=>{
       lines.push(group.label.toUpperCase());
       group.gigs.forEach(g=>{
-        lines.push(scheduleDateLabel(g)+(g.time?' · '+g.time:'')+' · '+g.venue+(g.location?' — '+g.location:''));
+        const time=scheduleShortTime(g.time);
+        const loc=scheduleShortLocation(g.location);
+        lines.push(scheduleDateLabel(g)+(time?' · '+time:'')+' · '+scheduleShortVenue(g)+(loc?' — '+loc:''));
       });
       lines.push('');
     });
@@ -545,9 +573,9 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
                 const special=g.type==='wedding'||g.type==='private event';
                 return e('div',{key:g.id,style:{display:'grid',gridTemplateColumns:'56px 70px 1fr auto',gap:8,padding:'6px 0',fontSize:13,borderBottom:'1px solid #f3f4f6',alignItems:'baseline'}},
                   e('div',{style:{fontWeight:700,color:'#111827'}},scheduleDateLabel(g)),
-                  e('div',{style:{color:'#6b7280',fontSize:12}},g.time||''),
-                  e('div',{style:{fontWeight:600,color:special?theme.primary:'#111827',fontStyle:special?'italic':'normal'}},g.venue),
-                  e('div',{style:{color:'#374151',fontSize:12,textAlign:'right'}},g.location||'')
+                  e('div',{style:{color:'#6b7280',fontSize:12}},scheduleShortTime(g.time)),
+                  e('div',{style:{fontWeight:600,color:special?theme.primary:'#111827',fontStyle:special?'italic':'normal'}},scheduleShortVenue(g)),
+                  e('div',{style:{color:'#374151',fontSize:12,textAlign:'right'}},scheduleShortLocation(g.location)||'')
                 );
               })
             )
