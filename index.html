@@ -21,6 +21,12 @@ input:focus,select:focus{border-color:#1D9E75;box-shadow:0 0 0 3px rgba(29,158,1
 button{font-family:inherit;cursor:pointer;border-radius:8px;font-size:13px;padding:7px 14px;border:1px solid #d1d5db;background:#fff;color:#374151}
 button:hover{background:#f3f4f6}
 .badge{font-size:11px;font-weight:500;padding:2px 10px;border-radius:99px;white-space:nowrap;display:inline-block}
+@media print{
+  body *{visibility:hidden}
+  .schedule-print-area,.schedule-print-area *{visibility:visible}
+  .schedule-print-area{position:fixed;top:0;left:0;width:100%;margin:0}
+  .no-print{display:none!important}
+}
 .tab-bar{display:flex;gap:6px;background:#e9ecef;border-radius:12px;padding:4px;margin-bottom:1.25rem}
 .tab-btn{flex:1;padding:8px 0;font-size:13px;border-radius:9px;border:none;cursor:pointer;transition:all 0.15s}
 .tab-btn.active{background:#fff;font-weight:500;box-shadow:0 1px 3px rgba(0,0,0,0.08)}
@@ -353,8 +359,8 @@ function CustomColorSwatch({selected,customColor,onPick}){
 }
 
 function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError}){
-  const [copied,setCopied]=useState(false);
   const [confirmReset,setConfirmReset]=useState(false);
+  const [showSchedulePreview,setShowSchedulePreview]=useState(false);
   const [editingBandName,setEditingBandName]=useState(false);
   const [bandNameValue,setBandNameValue]=useState('');
   const [mileageOpen,setMileageOpen]=useState(false);
@@ -366,10 +372,36 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
   const toDisplayDistance=miles=>mileageUnit==='km'?miles*KM_PER_MILE:miles;
   const setMileageUnit=unit=>setSettings(s=>({...s,mileageUnit:unit}));
   const saveBandName=()=>{if(bandNameValue.trim())setSettings(s=>({...s,bandName:bandNameValue.trim()}));setEditingBandName(false);};
-  const copySchedule=()=>{
-    const upcoming=gigs.filter(g=>g.date>=todayStr).sort((a,b)=>a.date>b.date?1:-1);
-    const text=upcoming.map(g=>`${g.date} — ${g.venue}${g.location?', '+g.location:''}${g.time?' ('+g.time+')':''}`).join('\n');
-    navigator.clipboard.writeText(text).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000);});
+
+  // Groups upcoming gigs by month, preserving date order, for the schedule
+  // preview/print/share feature.
+  const scheduleGigs=gigs.filter(g=>g.date>=todayStr).sort((a,b)=>a.date>b.date?1:-1);
+  const scheduleByMonth=[];
+  scheduleGigs.forEach(g=>{
+    const label=new Date(g.date+'T12:00:00').toLocaleDateString('en-US',{month:'long'});
+    let group=scheduleByMonth.find(x=>x.label===label);
+    if(!group){group={label,gigs:[]};scheduleByMonth.push(group);}
+    group.gigs.push(g);
+  });
+  const scheduleDateLabel=g=>{const d=new Date(g.date+'T12:00:00');return MONTHS[d.getMonth()]+' '+d.getDate();};
+  const scheduleAsText=()=>{
+    const lines=[settings.bandName,'Upcoming Shows',''];
+    scheduleByMonth.forEach(group=>{
+      lines.push(group.label.toUpperCase());
+      group.gigs.forEach(g=>{
+        lines.push(scheduleDateLabel(g)+(g.time?' · '+g.time:'')+' · '+g.venue+(g.location?' — '+g.location:''));
+      });
+      lines.push('');
+    });
+    return lines.join('\n').trim();
+  };
+  const shareSchedule=()=>{
+    const text=scheduleAsText();
+    if(navigator.share){
+      navigator.share({title:settings.bandName+' — Upcoming Shows',text});
+    } else {
+      navigator.clipboard.writeText(text).then(()=>alert('Schedule copied to clipboard!'));
+    }
   };
   return e('div',{style:{position:'fixed',inset:0,background:'#f4f6f8',zIndex:200,overflowY:'auto'}},
     e('div',{style:{background:theme.primary,padding:'1.25rem 1rem 1rem'}},
@@ -484,8 +516,8 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         )
       ),
       e(Section,{icon:'📤',title:'Data'},
-        e(Row,{label:'Copy schedule to clipboard',sub:'Copies all upcoming gigs as plain text',border:true,
-          right:e('button',{onClick:copySchedule,style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer',background:copied?'#d1fae5':'#fff',color:copied?'#065f46':'#374151'}},copied?'✓ Copied!':'Copy')
+        e(Row,{label:'Share schedule',sub:'A clean, printable view of upcoming shows to send to friends, family, or fans',border:true,
+          right:e('button',{onClick:()=>setShowSchedulePreview(true),style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'View')
         }),
         e(Row,{label:'Reset all data',sub:'Clears all gigs and returns to defaults',danger:true,border:false,
           right:e('button',{onClick:()=>setConfirmReset(true),style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #fca5a5',color:'#b91c1c',cursor:'pointer'}},'Reset')
@@ -494,6 +526,39 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
       e(Section,{icon:'ℹ️',title:'About'},
         e(Row,{label:'Version',sub:'1.0.0',border:true,right:null}),
         e(Row,{label:'Share app',sub:'Coming soon',border:false,right:e('button',{disabled:true,style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #e5e7eb',color:'#9ca3af',cursor:'not-allowed',background:'#f9fafb'}},'Coming soon')})
+      )
+    ),
+    showSchedulePreview&&e('div',{onClick:()=>setShowSchedulePreview(false),className:'overlay'},
+      e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:460,maxHeight:'90vh',overflowY:'auto',padding:0}},
+        e('div',{className:'schedule-print-area',style:{padding:'32px 28px 24px',background:'#fff'}},
+          e('div',{style:{fontSize:22,fontWeight:700,textAlign:'center',color:'#111827'}},settings.bandName),
+          e('div',{style:{fontSize:12,fontWeight:600,color:'#6b7280',textAlign:'center',marginTop:2,letterSpacing:'0.08em',textTransform:'uppercase'}},'Upcoming Shows'),
+          e('hr',{style:{border:'none',borderTop:'2px solid #111827',margin:'14px 0 18px'}}),
+          scheduleByMonth.length===0&&e('div',{style:{textAlign:'center',color:'#9ca3af',fontSize:13,padding:'1.5rem 0'}},'No upcoming gigs'),
+          scheduleByMonth.map(group=>
+            e('div',{key:group.label},
+              e('div',{style:{display:'flex',alignItems:'baseline',gap:10,margin:'18px 0 8px'}},
+                e('span',{style:{fontSize:13,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',color:'#111827'}},group.label),
+                e('span',{style:{flex:1,borderTop:'1px solid #d1d5db'}})
+              ),
+              group.gigs.map(g=>{
+                const special=g.type==='wedding'||g.type==='private event';
+                return e('div',{key:g.id,style:{display:'grid',gridTemplateColumns:'56px 70px 1fr auto',gap:8,padding:'6px 0',fontSize:13,borderBottom:'1px solid #f3f4f6',alignItems:'baseline'}},
+                  e('div',{style:{fontWeight:700,color:'#111827'}},scheduleDateLabel(g)),
+                  e('div',{style:{color:'#6b7280',fontSize:12}},g.time||''),
+                  e('div',{style:{fontWeight:600,color:special?theme.primary:'#111827',fontStyle:special?'italic':'normal'}},g.venue),
+                  e('div',{style:{color:'#374151',fontSize:12,textAlign:'right'}},g.location||'')
+                );
+              })
+            )
+          ),
+          e('div',{style:{textAlign:'center',marginTop:22,paddingTop:12,borderTop:'1px solid #d1d5db',fontSize:10,letterSpacing:'0.08em',textTransform:'uppercase',color:'#9ca3af'}},'Made with Gig Dashboard')
+        ),
+        e('div',{className:'no-print',style:{display:'flex',gap:8,padding:'14px 20px',borderTop:'1px solid #e5e7eb'}},
+          e('button',{onClick:()=>setShowSchedulePreview(false),style:{flex:1,padding:'9px 0'}},'Close'),
+          e('button',{onClick:()=>window.print(),style:{flex:1,padding:'9px 0',borderRadius:8,border:'0.5px solid #d1d5db',background:'#fff',color:'#374151',cursor:'pointer',fontWeight:500}},'🖨️ Print'),
+          e('button',{onClick:shareSchedule,style:{flex:1,padding:'9px 0',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontWeight:500}},'📤 Share')
+        )
       )
     ),
     confirmReset&&e('div',{onClick:()=>setConfirmReset(false),className:'overlay'},
