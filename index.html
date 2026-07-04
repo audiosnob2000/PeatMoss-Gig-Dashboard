@@ -570,6 +570,11 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
     ),
     showSchedulePreview&&e('div',{onClick:()=>setShowSchedulePreview(false),className:'overlay'},
       e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:460,maxHeight:'90vh',overflowY:'auto',padding:0}},
+        e('div',{className:'no-print',style:{display:'flex',gap:8,padding:'14px 20px',borderBottom:'1px solid #e5e7eb'}},
+          e('button',{onClick:()=>setShowSchedulePreview(false),style:{flex:1,padding:'9px 0'}},'Close'),
+          e('button',{onClick:()=>window.print(),style:{flex:1,padding:'9px 0',borderRadius:8,border:'0.5px solid #d1d5db',background:'#fff',color:'#374151',cursor:'pointer',fontWeight:500}},'🖨️ Print'),
+          e('button',{onClick:shareSchedule,style:{flex:1,padding:'9px 0',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontWeight:500}},'📤 Share')
+        ),
         e('div',{className:'schedule-print-area',style:{padding:'32px 28px 24px',background:'#fff'}},
           e('div',{style:{fontSize:22,fontWeight:700,textAlign:'center',color:'#111827'}},settings.bandName),
           e('div',{style:{fontSize:12,fontWeight:600,color:'#6b7280',textAlign:'center',marginTop:2,letterSpacing:'0.08em',textTransform:'uppercase'}},'Upcoming Shows'),
@@ -593,11 +598,6 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
             )
           ),
           e('div',{style:{textAlign:'center',marginTop:22,paddingTop:12,borderTop:'1px solid #d1d5db',fontSize:10,letterSpacing:'0.08em',textTransform:'uppercase',color:'#9ca3af'}},'Made with Gig Dashboard')
-        ),
-        e('div',{className:'no-print',style:{display:'flex',gap:8,padding:'14px 20px',borderTop:'1px solid #e5e7eb'}},
-          e('button',{onClick:()=>setShowSchedulePreview(false),style:{flex:1,padding:'9px 0'}},'Close'),
-          e('button',{onClick:()=>window.print(),style:{flex:1,padding:'9px 0',borderRadius:8,border:'0.5px solid #d1d5db',background:'#fff',color:'#374151',cursor:'pointer',fontWeight:500}},'🖨️ Print'),
-          e('button',{onClick:shareSchedule,style:{flex:1,padding:'9px 0',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontWeight:500}},'📤 Share')
         )
       )
     ),
