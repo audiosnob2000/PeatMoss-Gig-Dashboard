@@ -700,8 +700,13 @@ function App(){
       // below exists only to filter out unrelated personal notes on the
       // band's shared calendar (e.g. "Jim is off"), not app-created gigs.
       description:'[PMTF_GIG] Type: '+g.type+' · Status: '+g.status+(g.selfPA?' · PA: Self':''),
-      start:{date:g.date},
-      end:{date:g.date}
+      // Explicitly null out dateTime alongside date — PATCHing an event that
+      // was originally created with a specific time (dateTime) over to an
+      // all-day event (date) without clearing the old dateTime leaves both
+      // set at once, which Google's API rejects as an invalid/ambiguous
+      // start or end time.
+      start:{date:g.date,dateTime:null},
+      end:{date:g.date,dateTime:null}
     };
     const base=`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(settings.calendarId)}/events`;
     const url=method==='POST'?base:`${base}/${encodeURIComponent(googleEventId)}`;
