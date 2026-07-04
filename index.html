@@ -203,7 +203,7 @@ function Toggle({on,onToggle}){
 }
 
 function Modal({gig,prefillDate,onSave,onDelete,onClose}){
-  const blank={date:prefillDate||'',venue:'',location:'',type:'bar',status:'confirmed',time:''};
+  const blank={date:prefillDate||'',venue:'',location:'',type:'bar',status:'confirmed',time:'',selfPA:false};
   const [form,setForm]=useState(gig||blank);
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
   const isNew=!gig?.id;
@@ -224,6 +224,13 @@ function Modal({gig,prefillDate,onSave,onDelete,onClose}){
             )
           )
         )
+      ),
+      e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:16,paddingTop:14,borderTop:'1px solid #e5e7eb'}},
+        e('div',null,
+          e('div',{style:{fontSize:14,color:'#111827'}},'🔊 We\'re bringing the PA'),
+          e('div',{style:{fontSize:11.5,color:'#9ca3af',marginTop:1}},'Off = venue provides sound')
+        ),
+        e(Toggle,{on:!!form.selfPA,onToggle:()=>set('selfPA',!form.selfPA)})
       ),
       e('div',{style:{display:'flex',gap:8,justifyContent:'flex-end',marginTop:'1.25rem'}},
         !isNew&&e('button',{onClick:()=>onDelete(gig.id),style:{marginRight:'auto',color:'#b91c1c',borderColor:'#fca5a5'}},'Delete'),
@@ -688,7 +695,7 @@ function App(){
       // sync can trust it even without a location — the location requirement
       // below exists only to filter out unrelated personal notes on the
       // band's shared calendar (e.g. "Jim is off"), not app-created gigs.
-      description:'[PMTF_GIG] Type: '+g.type+' · Status: '+g.status,
+      description:'[PMTF_GIG] Type: '+g.type+' · Status: '+g.status+(g.selfPA?' · PA: Self':''),
       start:{date:g.date},
       end:{date:g.date}
     };
@@ -765,7 +772,8 @@ function App(){
           const te=ev.end?.dateTime?new Date(ev.end.dateTime).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):'';
           const time=ts&&te?`${ts}–${te}`:ts;
           const venue=ev.summary||'Untitled';
-          return{id:ev.id,date,venue,location:ev.location||'',type:venue.toLowerCase().includes('wedding')?'wedding':'bar',status:'confirmed',time,fromCalendar:true};
+          const selfPA=(ev.description||'').includes('PA: Self');
+          return{id:ev.id,date,venue,location:ev.location||'',type:venue.toLowerCase().includes('wedding')?'wedding':'bar',status:'confirmed',time,fromCalendar:true,selfPA};
         }).filter(Boolean);
         // Only replace calendar-sourced gigs; keep manually-added local gigs untouched.
         // Also drop any local gig that matches one just synced (same date+venue) —
@@ -945,7 +953,7 @@ function App(){
       nextGig&&e('div',{style:{marginTop:12,background:'rgba(255,255,255,0.08)',borderRadius:10,padding:'8px 14px',border:'1px solid rgba(255,255,255,0.12)',display:'flex',alignItems:'center',gap:10}},
         e('div',{style:{width:8,height:8,borderRadius:'50%',background:theme.light,flexShrink:0}}),
         e('div',{style:{fontSize:12,color:'#E1F5EE',overflow:'hidden'}},
-          'Next up: ',e('span',{style:{fontWeight:500,color:'#fff'}},nextGig.venue),
+          'Next up: ',e('span',{style:{fontWeight:500,color:'#fff'}},(nextGig.selfPA?'🔊 ':'')+nextGig.venue),
           e('span',{style:{color:theme.accent}},` · ${nextGig.location} · ${nextGig.date}${nextGig.time?' · '+nextGig.time:''}`)
         )
       ),
@@ -979,7 +987,7 @@ function App(){
                 border:isToday?`2px solid ${theme.mid}`:allCancelled?'1px solid #F87171':hasWedding?'1px solid #AFA9EC':hasgig?`1px solid ${theme.light}`:'1px solid #e5e7eb',
                 overflow:'hidden'}},
               e('div',{className:'cal-day',style:{fontSize:12,fontWeight:isToday?500:400,color:isToday?theme.primary:allCancelled?'#B91C1C':hasWedding?'#534AB7':hasgig?'#085041':'#9ca3af'}},day),
-              dg.map(g=>e('div',{key:g.id,className:'cal-gig',style:{fontSize:9,marginTop:2,color:STATUS_STYLE[g.status].color,background:STATUS_STYLE[g.status].bg,borderRadius:3,padding:'1px 4px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',border:!g.fromCalendar?'1.5px dashed #4b5563':'none'}},g.venue))
+              dg.map(g=>e('div',{key:g.id,className:'cal-gig',style:{fontSize:9,marginTop:2,color:STATUS_STYLE[g.status].color,background:STATUS_STYLE[g.status].bg,borderRadius:3,padding:'1px 4px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',border:!g.fromCalendar?'1.5px dashed #4b5563':'none'}},(g.selfPA?'🔊 ':'')+g.venue))
             );
           })
         ),
@@ -1003,7 +1011,7 @@ function App(){
                 e('div',{style:{fontSize:10,color:tc.color,marginTop:2}},MONTHS[parseInt(g.date.slice(5,7))-1])
               ),
               e('div',{style:{flex:1,minWidth:0}},
-                e('div',{style:{fontWeight:500,fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},g.venue),
+                e('div',{style:{fontWeight:500,fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},(g.selfPA?'🔊 ':'')+g.venue),
                 e('div',{style:{fontSize:12,color:'#6b7280',marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},g.location+(g.time?' · '+g.time:'')),
                 e('div',{style:{display:'flex',gap:6,marginTop:5,flexWrap:'wrap',alignItems:'center'}},
                   e('span',{className:'badge',style:{background:tc.bg,color:tc.color}},g.type),
@@ -1150,7 +1158,7 @@ function App(){
             e('div',{key:g.id,onClick:()=>{setDayPopup(null);setGigPopup(g);},
               style:{padding:'10px 12px',borderRadius:10,border:'1px solid #e5e7eb',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}},
               e('div',{style:{minWidth:0}},
-                e('div',{style:{fontWeight:500,fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},g.venue),
+                e('div',{style:{fontWeight:500,fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},(g.selfPA?'🔊 ':'')+g.venue),
                 g.time&&e('div',{style:{fontSize:12,color:'#6b7280',marginTop:2}},g.time)
               ),
               e(Badge,{status:g.status})
@@ -1171,7 +1179,7 @@ function App(){
           ),
           e('button',{onClick:()=>setGigPopup(null),style:{border:'none',background:'none',fontSize:20,color:'#9ca3af',cursor:'pointer',padding:'0 4px'}},'×')
         ),
-        e('div',{style:{fontSize:18,fontWeight:600,marginBottom:4}},gigPopup.venue),
+        e('div',{style:{fontSize:18,fontWeight:600,marginBottom:4}},(gigPopup.selfPA?'🔊 ':'')+gigPopup.venue),
         e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:12}},gigPopup.location),
         e('div',{style:{display:'flex',flexDirection:'column',gap:8,borderTop:'1px solid #e5e7eb',paddingTop:12,marginBottom:16}},
           [['Date',gigPopup.date],['Time',gigPopup.time||'—']].map(([lbl,val])=>
