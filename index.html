@@ -494,7 +494,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         e(Row,{label:'Default view',border:true,
           right:e('select',{value:settings.defaultTab,onChange:ev=>setSettings(s=>({...s,defaultTab:ev.target.value})),
             style:{padding:'5px 8px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'auto'}},
-            e('option',{value:'calendar'},'Calendar'),e('option',{value:'list'},'Shows'),e('option',{value:'chart'},'Chart'),e('option',{value:'checklist'},'Checklists')
+            e('option',{value:'calendar'},'Calendar'),e('option',{value:'list'},'Shows'),e('option',{value:'chart'},'Chart'),e('option',{value:'checklist'},'Lists')
           )
         }),
         e(Row,{label:'Show past gigs',sub:'Applies to both Calendar and Shows tabs',border:true,right:e(Toggle,{on:settings.showPast,onToggle:()=>setSettings(s=>({...s,showPast:!s.showPast}))})}),
@@ -613,7 +613,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:20}},'This will delete all gigs and reset the app to its defaults. This cannot be undone.'),
         e('div',{style:{display:'flex',gap:8,justifyContent:'flex-end'}},
           e('button',{onClick:()=>setConfirmReset(false)},'Cancel'),
-          e('button',{onClick:()=>{setGigs(SAMPLE);setSettings({bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com'});localStorage.removeItem('pmtf_gigs');localStorage.removeItem('pmtf_settings');localStorage.removeItem('pmtf_members');localStorage.removeItem('pmtf_mileage');setConfirmReset(false);onClose();},
+          e('button',{onClick:()=>{setGigs(SAMPLE);setSettings({bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com'});localStorage.removeItem('pmtf_gigs');localStorage.removeItem('pmtf_settings');localStorage.removeItem('pmtf_members');localStorage.removeItem('pmtf_mileage');localStorage.removeItem('pmtf_setlists');setConfirmReset(false);onClose();},
             style:{background:'#dc2626',color:'#fff',border:'none',borderRadius:8,padding:'6px 16px',cursor:'pointer',fontWeight:500}},'Reset')
         )
       )
@@ -651,6 +651,15 @@ function App(){
   const [gigs,setGigs]=useState(()=>{try{const s=localStorage.getItem('pmtf_gigs');return s?JSON.parse(s):SAMPLE;}catch{return SAMPLE;}});
   const [members,setMembers]=useState(()=>{try{const s=localStorage.getItem('pmtf_members');return s?JSON.parse(s):[];}catch{return [];}});
   const [mileageLog,setMileageLog]=useState(()=>{try{const s=localStorage.getItem('pmtf_mileage');return s?JSON.parse(s):[];}catch{return [];}});
+  // Separate storage key from members/checklists — a brand-new feature, so
+  // there's nothing here to migrate and nothing existing to disturb.
+  const [setlists,setSetlists]=useState(()=>{try{const s=localStorage.getItem('pmtf_setlists');return s?JSON.parse(s):[];}catch{return [];}});
+  const [listsSubTab,setListsSubTab]=useState('checklists');
+  const [addingSetlist,setAddingSetlist]=useState(false);
+  const [newSetlistName,setNewSetlistName]=useState('');
+  const [newSetlistType,setNewSetlistType]=useState('text');
+  const [newSetlistContent,setNewSetlistContent]=useState('');
+  const [viewingSetlist,setViewingSetlist]=useState(null);
   const [tab,setTab]=useState(()=>{try{const s=localStorage.getItem('pmtf_settings');return s?JSON.parse(s).defaultTab||'calendar':'calendar';}catch{return 'calendar';}});
   const [calMonth,setCalMonth]=useState(today.getMonth());
   const [calYear,setCalYear]=useState(today.getFullYear());
@@ -688,6 +697,7 @@ function App(){
   useEffect(()=>{try{localStorage.setItem('pmtf_settings',JSON.stringify(settings));}catch{}},[settings]);
   useEffect(()=>{try{localStorage.setItem('pmtf_members',JSON.stringify(members));}catch{}},[members]);
   useEffect(()=>{try{localStorage.setItem('pmtf_mileage',JSON.stringify(mileageLog));}catch{}},[mileageLog]);
+  useEffect(()=>{try{localStorage.setItem('pmtf_setlists',JSON.stringify(setlists));}catch{}},[setlists]);
   useEffect(()=>{
     try{
       if(googleAccessToken&&googleTokenExpiresAt) localStorage.setItem('pmtf_google_auth',JSON.stringify({token:googleAccessToken,expiresAt:googleTokenExpiresAt}));
@@ -1159,6 +1169,34 @@ function App(){
   const deleteMember=mid=>{setMembers(prev=>prev.filter(x=>x.id!==mid));setActiveMember(null);setConfirmDelete(null);};
   const renameMember=(mid,n)=>{if(!n.trim())return;setMembers(prev=>prev.map(m=>m.id!==mid?m:{...m,name:n.trim()}));setEditingName(false);};
 
+  // Downscale before storing as a data URL — a straight-from-phone photo can
+  // be several MB, and every app setting/gig/checklist lives in this same
+  // localStorage origin, so one oversized image could blow the quota for
+  // everything else, not just this setlist.
+  const handleSetlistImageFile=file=>{
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      const img=new Image();
+      img.onload=()=>{
+        const maxDim=1280;
+        let w=img.width,h=img.height;
+        if(w>maxDim||h>maxDim){const scale=maxDim/Math.max(w,h);w=Math.round(w*scale);h=Math.round(h*scale);}
+        const canvas=document.createElement('canvas');
+        canvas.width=w;canvas.height=h;
+        canvas.getContext('2d').drawImage(img,0,0,w,h);
+        setNewSetlistContent(canvas.toDataURL('image/jpeg',0.8));
+      };
+      img.src=ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
+  const addSetlist=()=>{
+    if(!newSetlistName.trim()||!newSetlistContent)return;
+    setSetlists(prev=>[...prev,{id:'sl'+Date.now(),name:newSetlistName.trim(),type:newSetlistType,content:newSetlistContent,updatedAt:todayStr}]);
+    setNewSetlistName('');setNewSetlistType('text');setNewSetlistContent('');setAddingSetlist(false);
+  };
+  const deleteSetlist=id=>{setSetlists(prev=>prev.filter(s=>s.id!==id));setViewingSetlist(null);};
+
   if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,applyFlyerTimes});
 
   return e('div',{style:{maxWidth:720,margin:'0 auto',paddingBottom:'2rem'}},
@@ -1193,7 +1231,7 @@ function App(){
     ),
     e('div',{style:{padding:'0 1rem'}},
       e('div',{className:'tab-bar'},
-        [{id:'calendar',label:'Calendar'},{id:'list',label:'Shows'},{id:'chart',label:'Chart'},{id:'checklist',label:'Checklists'}].map(t=>
+        [{id:'calendar',label:'Calendar'},{id:'list',label:'Shows'},{id:'chart',label:'Chart'},{id:'checklist',label:'Lists'}].map(t=>
           e('button',{key:t.id,className:'tab-btn'+(tab===t.id?' active':''),style:{color:tab===t.id?theme.primary:'#6b7280'},onClick:()=>setTab(t.id)},t.label)
         )
       ),
@@ -1313,6 +1351,57 @@ function App(){
         )
       ),
       tab==='checklist'&&e('div',null,
+        e('div',{style:{display:'flex',gap:18,marginBottom:16,borderBottom:'1px solid #e5e7eb'}},
+          [['checklists','Checklists'],['setlists','Setlists']].map(([id,label])=>
+            e('button',{key:id,onClick:()=>setListsSubTab(id),
+              style:{padding:'8px 2px 10px',fontSize:13,fontWeight:500,color:listsSubTab===id?theme.primary:'#9ca3af',border:'none',borderBottom:listsSubTab===id?`2px solid ${theme.primary}`:'2px solid transparent',borderRadius:0,background:'none',cursor:'pointer'}},label)
+          )
+        ),
+        listsSubTab==='setlists'&&e('div',null,
+          e('div',{style:{borderRadius:12,border:'1px solid #e5e7eb',overflow:'hidden',marginBottom:14}},
+            setlists.length===0&&e('div',{style:{padding:'2rem',textAlign:'center',color:'#6b7280',fontSize:13}},'No setlists yet — add one below'),
+            setlists.map((sl,idx)=>{
+              const icon=sl.type==='image'?'🖼️':sl.type==='link'?'🌐':'📄';
+              return e('div',{key:sl.id,style:{padding:'10px 14px',borderBottom:idx<setlists.length-1?'1px solid #e5e7eb':'none',display:'flex',alignItems:'center',gap:10}},
+                e('div',{style:{width:30,height:30,borderRadius:8,background:theme.pale,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}},icon),
+                e('div',{style:{flex:1,minWidth:0}},
+                  e('div',{style:{fontSize:13.5,fontWeight:500,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},sl.name),
+                  e('div',{style:{fontSize:11,color:'#9ca3af'}},(sl.type.charAt(0).toUpperCase()+sl.type.slice(1))+' · updated '+sl.updatedAt)
+                ),
+                e('button',{onClick:()=>sl.type==='link'?window.open(sl.content,'_blank'):setViewingSetlist(sl),style:{fontSize:12,padding:'5px 12px',flexShrink:0}},'View'),
+                e('button',{onClick:()=>{if(window.confirm('Remove "'+sl.name+'"?'))deleteSetlist(sl.id);},style:{border:'none',background:'none',color:'#d1d5db',fontSize:16,cursor:'pointer',padding:'0 4px',flexShrink:0}},'×')
+              );
+            })
+          ),
+          !addingSetlist&&e('button',{onClick:()=>setAddingSetlist(true),style:{width:'100%',padding:'9px 0',borderRadius:10,border:'none',background:theme.mid,color:'#fff',fontWeight:500,cursor:'pointer',fontSize:14}},'+ Add setlist'),
+          addingSetlist&&e('div',{style:{background:'#fff',border:'1px solid #e5e7eb',borderRadius:12,padding:14}},
+            e('label',null,'Name'),
+            e('input',{autoFocus:true,value:newSetlistName,onChange:ev=>setNewSetlistName(ev.target.value),placeholder:'e.g. Summer 2026 — Full Set'}),
+            e('label',null,'Type'),
+            e('select',{value:newSetlistType,onChange:ev=>{setNewSetlistType(ev.target.value);setNewSetlistContent('');}},
+              e('option',{value:'text'},'Text'),e('option',{value:'link'},'Link (Google Drive, website, etc.)'),e('option',{value:'image'},'Image')
+            ),
+            newSetlistType==='text'&&e('div',null,
+              e('label',null,'Setlist'),
+              e('textarea',{rows:6,value:newSetlistContent,onChange:ev=>setNewSetlistContent(ev.target.value),placeholder:'1. Song one\n2. Song two\n3. ...',
+                style:{fontFamily:'inherit',fontSize:14,padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,width:'100%',outline:'none',background:'#fff',resize:'none'}})
+            ),
+            newSetlistType==='link'&&e('div',null,
+              e('label',null,'Link'),
+              e('input',{value:newSetlistContent,onChange:ev=>setNewSetlistContent(ev.target.value),placeholder:'https://drive.google.com/file/d/...'})
+            ),
+            newSetlistType==='image'&&e('div',null,
+              e('label',null,'Photo'),
+              e('input',{type:'file',accept:'image/*',onChange:ev=>{const f=ev.target.files&&ev.target.files[0];if(f)handleSetlistImageFile(f);}}),
+              newSetlistContent&&e('img',{src:newSetlistContent,style:{maxWidth:'100%',borderRadius:8,marginTop:8}})
+            ),
+            e('div',{style:{display:'flex',gap:8,justifyContent:'flex-end',marginTop:14}},
+              e('button',{onClick:()=>{setAddingSetlist(false);setNewSetlistName('');setNewSetlistType('text');setNewSetlistContent('');}},'Cancel'),
+              e('button',{onClick:addSetlist,style:{background:theme.mid,color:'#fff',border:'none',fontWeight:500}},'Add setlist')
+            )
+          )
+        ),
+        listsSubTab==='checklists'&&e('div',null,
         !activeMember&&e('div',null,
           e('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill, minmax(110px,1fr))',gap:10,marginBottom:14}},
             members.map(m=>{
@@ -1375,6 +1464,17 @@ function App(){
             )
           );
         })
+        )
+      )
+    ),
+    viewingSetlist&&e('div',{onClick:()=>setViewingSetlist(null),className:'overlay'},
+      e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:420,maxHeight:'85vh',overflowY:'auto'}},
+        e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}},
+          e('span',{style:{fontSize:16,fontWeight:600}},viewingSetlist.name),
+          e('button',{onClick:()=>setViewingSetlist(null),style:{border:'none',background:'none',fontSize:20,color:'#9ca3af',cursor:'pointer',padding:'0 4px'}},'×')
+        ),
+        viewingSetlist.type==='text'&&e('div',{style:{fontSize:14,color:'#111827',whiteSpace:'pre-wrap',lineHeight:1.6}},viewingSetlist.content),
+        viewingSetlist.type==='image'&&e('img',{src:viewingSetlist.content,style:{maxWidth:'100%',borderRadius:8}})
       )
     ),
     modal&&e(Modal,{gig:modal.mode==='edit'?modal.gig:null,prefillDate:modal.prefillDate,onSave:saveGig,onDelete:deleteGig,onClose:closeModal}),
