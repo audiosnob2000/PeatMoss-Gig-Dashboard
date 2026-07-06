@@ -657,8 +657,14 @@ function App(){
   const [listsSubTab,setListsSubTab]=useState('checklists');
   const [addingSetlist,setAddingSetlist]=useState(false);
   const [newSetlistName,setNewSetlistName]=useState('');
-  const [newSetlistType,setNewSetlistType]=useState('text');
+  // Mode is which input the form shows — 'upload' is the primary/default
+  // path; 'link' and 'manual' are secondary options for people who'd rather
+  // paste a URL or type it in. The actual stored type (image/html/file/
+  // link/text) is derived separately once we know what was uploaded.
+  const [newSetlistMode,setNewSetlistMode]=useState('upload');
+  const [newSetlistContentType,setNewSetlistContentType]=useState('');
   const [newSetlistContent,setNewSetlistContent]=useState('');
+  const [newSetlistFileName,setNewSetlistFileName]=useState('');
   const [viewingSetlist,setViewingSetlist]=useState(null);
   const [tab,setTab]=useState(()=>{try{const s=localStorage.getItem('pmtf_settings');return s?JSON.parse(s).defaultTab||'calendar':'calendar';}catch{return 'calendar';}});
   const [calMonth,setCalMonth]=useState(today.getMonth());
@@ -1169,31 +1175,55 @@ function App(){
   const deleteMember=mid=>{setMembers(prev=>prev.filter(x=>x.id!==mid));setActiveMember(null);setConfirmDelete(null);};
   const renameMember=(mid,n)=>{if(!n.trim())return;setMembers(prev=>prev.map(m=>m.id!==mid?m:{...m,name:n.trim()}));setEditingName(false);};
 
-  // Downscale before storing as a data URL — a straight-from-phone photo can
-  // be several MB, and every app setting/gig/checklist lives in this same
-  // localStorage origin, so one oversized image could blow the quota for
-  // everything else, not just this setlist.
-  const handleSetlistImageFile=file=>{
-    const reader=new FileReader();
-    reader.onload=ev=>{
-      const img=new Image();
-      img.onload=()=>{
-        const maxDim=1280;
-        let w=img.width,h=img.height;
-        if(w>maxDim||h>maxDim){const scale=maxDim/Math.max(w,h);w=Math.round(w*scale);h=Math.round(h*scale);}
-        const canvas=document.createElement('canvas');
-        canvas.width=w;canvas.height=h;
-        canvas.getContext('2d').drawImage(img,0,0,w,h);
-        setNewSetlistContent(canvas.toDataURL('image/jpeg',0.8));
+  // One file input covers "Photos" and "Files" — the browser/OS picker
+  // already offers both sources for the same <input type=file>. What we do
+  // with the result depends on what got picked:
+  //  - an image: downscale before storing as a data URL. A straight-from-
+  //    phone photo can be several MB, and every app setting/gig/checklist
+  //    lives in this same localStorage origin, so one oversized image could
+  //    blow the quota for everything else, not just this setlist.
+  //  - an HTML file: read as text and render it in an iframe later — safer
+  //    and simpler than trying to open a data: URL in a new tab, which
+  //    modern Chrome blocks as a top-level navigation.
+  //  - anything else: keep the raw file as a data URL, offered as a
+  //    download in the viewer since we can't meaningfully preview it.
+  const handleSetlistFileUpload=file=>{
+    setNewSetlistFileName(file.name);
+    if(file.type.startsWith('image/')){
+      const reader=new FileReader();
+      reader.onload=ev=>{
+        const img=new Image();
+        img.onload=()=>{
+          const maxDim=1280;
+          let w=img.width,h=img.height;
+          if(w>maxDim||h>maxDim){const scale=maxDim/Math.max(w,h);w=Math.round(w*scale);h=Math.round(h*scale);}
+          const canvas=document.createElement('canvas');
+          canvas.width=w;canvas.height=h;
+          canvas.getContext('2d').drawImage(img,0,0,w,h);
+          setNewSetlistContentType('image');
+          setNewSetlistContent(canvas.toDataURL('image/jpeg',0.8));
+        };
+        img.src=ev.target.result;
       };
-      img.src=ev.target.result;
-    };
-    reader.readAsDataURL(file);
+      reader.readAsDataURL(file);
+    } else if(file.type==='text/html'||/\.html?$/i.test(file.name)){
+      const reader=new FileReader();
+      reader.onload=ev=>{setNewSetlistContentType('html');setNewSetlistContent(ev.target.result);};
+      reader.readAsText(file);
+    } else {
+      const reader=new FileReader();
+      reader.onload=ev=>{setNewSetlistContentType('file');setNewSetlistContent(ev.target.result);};
+      reader.readAsDataURL(file);
+    }
+  };
+  const resetSetlistForm=()=>{
+    setNewSetlistName('');setNewSetlistMode('upload');setNewSetlistContentType('');setNewSetlistContent('');setNewSetlistFileName('');setAddingSetlist(false);
   };
   const addSetlist=()=>{
     if(!newSetlistName.trim()||!newSetlistContent)return;
-    setSetlists(prev=>[...prev,{id:'sl'+Date.now(),name:newSetlistName.trim(),type:newSetlistType,content:newSetlistContent,updatedAt:todayStr}]);
-    setNewSetlistName('');setNewSetlistType('text');setNewSetlistContent('');setAddingSetlist(false);
+    const type=newSetlistMode==='link'?'link':newSetlistMode==='manual'?'text':newSetlistContentType;
+    setSetlists(prev=>[...prev,{id:'sl'+Date.now(),name:newSetlistName.trim(),type,content:newSetlistContent,fileName:newSetlistFileName||null,updatedAt:todayStr}]);
+    resetSetlistForm();
   };
   const deleteSetlist=id=>{setSetlists(prev=>prev.filter(s=>s.id!==id));setViewingSetlist(null);};
 
@@ -1361,12 +1391,12 @@ function App(){
           e('div',{style:{borderRadius:12,border:'1px solid #e5e7eb',overflow:'hidden',marginBottom:14}},
             setlists.length===0&&e('div',{style:{padding:'2rem',textAlign:'center',color:'#6b7280',fontSize:13}},'No setlists yet — add one below'),
             setlists.map((sl,idx)=>{
-              const icon=sl.type==='image'?'🖼️':sl.type==='link'?'🌐':'📄';
+              const icon=sl.type==='image'?'🖼️':sl.type==='html'?'🌐':sl.type==='link'?'🔗':sl.type==='file'?'📎':'📝';
               return e('div',{key:sl.id,style:{padding:'10px 14px',borderBottom:idx<setlists.length-1?'1px solid #e5e7eb':'none',display:'flex',alignItems:'center',gap:10}},
                 e('div',{style:{width:30,height:30,borderRadius:8,background:theme.pale,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}},icon),
                 e('div',{style:{flex:1,minWidth:0}},
                   e('div',{style:{fontSize:13.5,fontWeight:500,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},sl.name),
-                  e('div',{style:{fontSize:11,color:'#9ca3af'}},(sl.type.charAt(0).toUpperCase()+sl.type.slice(1))+' · updated '+sl.updatedAt)
+                  e('div',{style:{fontSize:11,color:'#9ca3af'}},({image:'Photo',html:'HTML file',link:'Link',file:'File',text:'Text'}[sl.type]||'Text')+' · updated '+sl.updatedAt)
                 ),
                 e('button',{onClick:()=>sl.type==='link'?window.open(sl.content,'_blank'):setViewingSetlist(sl),style:{fontSize:12,padding:'5px 12px',flexShrink:0}},'View'),
                 e('button',{onClick:()=>{if(window.confirm('Remove "'+sl.name+'"?'))deleteSetlist(sl.id);},style:{border:'none',background:'none',color:'#d1d5db',fontSize:16,cursor:'pointer',padding:'0 4px',flexShrink:0}},'×')
@@ -1377,26 +1407,31 @@ function App(){
           addingSetlist&&e('div',{style:{background:'#fff',border:'1px solid #e5e7eb',borderRadius:12,padding:14}},
             e('label',null,'Name'),
             e('input',{autoFocus:true,value:newSetlistName,onChange:ev=>setNewSetlistName(ev.target.value),placeholder:'e.g. Summer 2026 — Full Set'}),
-            e('label',null,'Type'),
-            e('select',{value:newSetlistType,onChange:ev=>{setNewSetlistType(ev.target.value);setNewSetlistContent('');}},
-              e('option',{value:'text'},'Text'),e('option',{value:'link'},'Link (Google Drive, website, etc.)'),e('option',{value:'image'},'Image')
+            e('label',null,'Add from'),
+            e('select',{value:newSetlistMode,onChange:ev=>{setNewSetlistMode(ev.target.value);setNewSetlistContentType('');setNewSetlistContent('');setNewSetlistFileName('');}},
+              e('option',{value:'upload'},'Upload (photo or file)'),
+              e('option',{value:'link'},'Link (Google Drive, website, etc.)'),
+              e('option',{value:'manual'},'Type it in manually')
             ),
-            newSetlistType==='text'&&e('div',null,
+            newSetlistMode==='upload'&&e('div',null,
+              e('label',null,'Photo or file'),
+              e('input',{type:'file',accept:'image/*,.html,.htm,text/html,.pdf,.txt',onChange:ev=>{const f=ev.target.files&&ev.target.files[0];if(f)handleSetlistFileUpload(f);}}),
+              e('div',{style:{fontSize:11,color:'#9ca3af',marginTop:4}},'Choose from your photo library or files.'),
+              newSetlistContentType==='image'&&newSetlistContent&&e('img',{src:newSetlistContent,style:{maxWidth:'100%',borderRadius:8,marginTop:8}}),
+              newSetlistContentType==='html'&&e('div',{style:{fontSize:12,color:theme.primary,marginTop:8}},'✓ '+newSetlistFileName+' loaded'),
+              newSetlistContentType==='file'&&e('div',{style:{fontSize:12,color:theme.primary,marginTop:8}},'✓ '+newSetlistFileName+' loaded')
+            ),
+            newSetlistMode==='link'&&e('div',null,
+              e('label',null,'Link'),
+              e('input',{value:newSetlistContent,onChange:ev=>setNewSetlistContent(ev.target.value),placeholder:'https://drive.google.com/file/d/...'})
+            ),
+            newSetlistMode==='manual'&&e('div',null,
               e('label',null,'Setlist'),
               e('textarea',{rows:6,value:newSetlistContent,onChange:ev=>setNewSetlistContent(ev.target.value),placeholder:'1. Song one\n2. Song two\n3. ...',
                 style:{fontFamily:'inherit',fontSize:14,padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,width:'100%',outline:'none',background:'#fff',resize:'none'}})
             ),
-            newSetlistType==='link'&&e('div',null,
-              e('label',null,'Link'),
-              e('input',{value:newSetlistContent,onChange:ev=>setNewSetlistContent(ev.target.value),placeholder:'https://drive.google.com/file/d/...'})
-            ),
-            newSetlistType==='image'&&e('div',null,
-              e('label',null,'Photo'),
-              e('input',{type:'file',accept:'image/*',onChange:ev=>{const f=ev.target.files&&ev.target.files[0];if(f)handleSetlistImageFile(f);}}),
-              newSetlistContent&&e('img',{src:newSetlistContent,style:{maxWidth:'100%',borderRadius:8,marginTop:8}})
-            ),
             e('div',{style:{display:'flex',gap:8,justifyContent:'flex-end',marginTop:14}},
-              e('button',{onClick:()=>{setAddingSetlist(false);setNewSetlistName('');setNewSetlistType('text');setNewSetlistContent('');}},'Cancel'),
+              e('button',{onClick:resetSetlistForm},'Cancel'),
               e('button',{onClick:addSetlist,style:{background:theme.mid,color:'#fff',border:'none',fontWeight:500}},'Add setlist')
             )
           )
@@ -1474,7 +1509,13 @@ function App(){
           e('button',{onClick:()=>setViewingSetlist(null),style:{border:'none',background:'none',fontSize:20,color:'#9ca3af',cursor:'pointer',padding:'0 4px'}},'×')
         ),
         viewingSetlist.type==='text'&&e('div',{style:{fontSize:14,color:'#111827',whiteSpace:'pre-wrap',lineHeight:1.6}},viewingSetlist.content),
-        viewingSetlist.type==='image'&&e('img',{src:viewingSetlist.content,style:{maxWidth:'100%',borderRadius:8}})
+        viewingSetlist.type==='image'&&e('img',{src:viewingSetlist.content,style:{maxWidth:'100%',borderRadius:8}}),
+        viewingSetlist.type==='html'&&e('iframe',{srcDoc:viewingSetlist.content,style:{width:'100%',height:400,border:'1px solid #e5e7eb',borderRadius:8}}),
+        viewingSetlist.type==='file'&&e('div',{style:{textAlign:'center',padding:'1.5rem 0'}},
+          e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:12}},'This file type can\'t be previewed here.'),
+          e('a',{href:viewingSetlist.content,download:viewingSetlist.fileName||viewingSetlist.name,
+            style:{display:'inline-block',padding:'9px 18px',borderRadius:10,background:theme.mid,color:'#fff',fontWeight:500,textDecoration:'none',fontSize:14}},'⬇️ Download '+(viewingSetlist.fileName||''))
+        )
       )
     ),
     modal&&e(Modal,{gig:modal.mode==='edit'?modal.gig:null,prefillDate:modal.prefillDate,onSave:saveGig,onDelete:deleteGig,onClose:closeModal}),
