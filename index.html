@@ -209,7 +209,7 @@ function Toggle({on,onToggle}){
 }
 
 function Modal({gig,prefillDate,onSave,onDelete,onClose}){
-  const blank={date:prefillDate||'',venue:'',location:'',type:'bar',status:'confirmed',time:'',selfPA:false};
+  const blank={date:prefillDate||'',venue:'',location:'',type:'bar',status:'confirmed',time:'',selfPA:false,notes:''};
   const [form,setForm]=useState(gig||blank);
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
   const isNew=!gig?.id;
@@ -237,6 +237,12 @@ function Modal({gig,prefillDate,onSave,onDelete,onClose}){
           e('div',{style:{fontSize:11.5,color:'#9ca3af',marginTop:1}},'Off = venue provides sound')
         ),
         e(Toggle,{on:!!form.selfPA,onToggle:()=>set('selfPA',!form.selfPA)})
+      ),
+      e('div',{style:{marginTop:4}},
+        e('label',null,'Notes'),
+        e('textarea',{rows:4,value:form.notes||'',onChange:ev=>set('notes',ev.target.value),
+          placeholder:'e.g. load-in through the back door, ask for Sue, no parking after 6pm...',
+          style:{fontFamily:'inherit',fontSize:14,padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,width:'100%',outline:'none',background:'#fff',resize:'none'}})
       ),
       e('div',{style:{display:'flex',gap:8,justifyContent:'flex-end',marginTop:'1.25rem'}},
         !isNew&&e('button',{onClick:()=>onDelete(gig.id),style:{marginRight:'auto',color:'#b91c1c',borderColor:'#fca5a5'}},'Delete'),
@@ -808,7 +814,11 @@ function App(){
       // real start/end clock time — a gig with a time is written as an
       // all-day event (see dateTime:null below), so a synced-back all-day
       // event has no clock time to derive from and would otherwise lose it.
-      description:'[PMTF_GIG] Type: '+g.type+' · Status: '+g.status+(g.selfPA?' · PA: Self':'')+(g.time?' · Time: '+g.time:'')
+      // Notes goes last since it's free text a person types — it could
+      // contain a "·" itself, which would break parsing of the fields
+      // above it if it came first. Everything after "Notes:" is taken
+      // as-is on sync, so it's fine here.
+      description:'[PMTF_GIG] Type: '+g.type+' · Status: '+g.status+(g.selfPA?' · PA: Self':'')+(g.time?' · Time: '+g.time:'')+(g.notes?' · Notes: '+g.notes:'')
     };
     if(g.time||method==='POST'){
       // Explicitly null out dateTime alongside date — PATCHing an event that
@@ -991,7 +1001,11 @@ function App(){
           }
           const venue=ev.summary||'Untitled';
           const selfPA=(ev.description||'').includes('PA: Self');
-          return{id:ev.id,date,venue,location:ev.location||'',type:venue.toLowerCase().includes('wedding')?'wedding':'bar',status:'confirmed',time,fromCalendar:true,selfPA};
+          // Notes is written last and takes everything after it as-is, since
+          // it's free text that could itself contain "·".
+          const notesTag=(ev.description||'').match(/Notes:\s*([\s\S]*)$/);
+          const notes=notesTag?notesTag[1].trim():'';
+          return{id:ev.id,date,venue,location:ev.location||'',type:venue.toLowerCase().includes('wedding')?'wedding':'bar',status:'confirmed',time,fromCalendar:true,selfPA,notes};
         }).filter(Boolean);
         // Only replace calendar-sourced gigs; keep manually-added local gigs untouched.
         // Also drop any local gig that matches one just synced (same date+venue) —
@@ -1409,6 +1423,10 @@ function App(){
           e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
             e('span',{style:{fontSize:13,color:'#6b7280'}},'Status'),
             e(Badge,{status:gigPopup.status})
+          ),
+          gigPopup.notes&&e('div',null,
+            e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:2}},'Notes'),
+            e('div',{style:{fontSize:13,fontWeight:500,whiteSpace:'pre-wrap'}},gigPopup.notes)
           )
         ),
         e('div',{style:{display:'flex',gap:8,flexDirection:'column'}},
