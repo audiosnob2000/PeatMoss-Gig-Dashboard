@@ -1211,14 +1211,17 @@ function App(){
     setRenamingSetlistId(null);
   };
   const addSetlist=()=>{
-    if(!newSetlistName.trim()){alert('Give it a name first.');return;}
     if(newSetlistProcessing)return;
     if(!newSetlistContent){
       alert(newSetlistMode==='upload'?'Choose a photo or file first.':newSetlistMode==='link'?'Paste a link first.':'Type something in first.');
       return;
     }
+    // No name? Fall back to today's date rather than blocking the save —
+    // people uploading mid-rehearsal often don't want to stop and type one.
+    const now=new Date();
+    const name=newSetlistName.trim()||`${MONTHS[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
     const type=newSetlistMode==='link'?'link':newSetlistMode==='manual'?'text':newSetlistContentType;
-    setSetlists(prev=>[...prev,{id:'sl'+Date.now(),name:newSetlistName.trim(),type,content:newSetlistContent,fileName:newSetlistFileName||null,updatedAt:todayStr}]);
+    setSetlists(prev=>[...prev,{id:'sl'+Date.now(),name,type,content:newSetlistContent,fileName:newSetlistFileName||null,updatedAt:todayStr}]);
     resetSetlistForm();
   };
   const deleteSetlist=id=>{setSetlists(prev=>prev.filter(s=>s.id!==id));setViewingSetlist(null);setRenamingSetlistId(null);setReplacingSetlistId(null);};
@@ -1430,7 +1433,7 @@ function App(){
           !addingSetlist&&e('button',{onClick:()=>setAddingSetlist(true),style:{width:'100%',padding:'9px 0',borderRadius:10,border:'none',background:theme.mid,color:'#fff',fontWeight:500,cursor:'pointer',fontSize:14}},'+ Add setlist'),
           addingSetlist&&e('div',{style:{background:'#fff',border:'1px solid #e5e7eb',borderRadius:12,padding:14}},
             e('label',null,'Name'),
-            e('input',{autoFocus:true,value:newSetlistName,onChange:ev=>setNewSetlistName(ev.target.value),placeholder:'e.g. Summer 2026 — Full Set'}),
+            e('input',{autoFocus:true,value:newSetlistName,onChange:ev=>setNewSetlistName(ev.target.value),placeholder:"e.g. Summer 2026 — Full Set (optional — today's date if left blank)"}),
             e('label',null,'Add from'),
             e('select',{value:newSetlistMode,onChange:ev=>{setNewSetlistMode(ev.target.value);setNewSetlistContentType('');setNewSetlistContent('');setNewSetlistFileName('');}},
               e('option',{value:'upload'},'Upload (photo or file)'),
