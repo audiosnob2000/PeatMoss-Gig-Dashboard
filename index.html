@@ -364,7 +364,7 @@ function CustomColorSwatch({selected,customColor,onPick}){
   );
 }
 
-function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,applyFlyerTimes}){
+function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError}){
   const [confirmReset,setConfirmReset]=useState(false);
   const [showSchedulePreview,setShowSchedulePreview]=useState(false);
   const [editingBandName,setEditingBandName]=useState(false);
@@ -562,9 +562,6 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         e(Row,{label:'Share schedule',sub:'A clean, printable view of upcoming shows to send to friends, family, or fans',border:true,
           right:e('button',{onClick:()=>setShowSchedulePreview(true),style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'View')
         }),
-        e(Row,{label:'Fix show times from flyer',sub:'One-time repair: fills in any Summer 2026 show still missing a time, using the printed flyer as the source',border:true,
-          right:e('button',{onClick:applyFlyerTimes,style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'Run')
-        }),
         e(Row,{label:'Reset all data',sub:'Clears all gigs and returns to defaults',danger:true,border:false,
           right:e('button',{onClick:()=>setConfirmReset(true),style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #fca5a5',color:'#b91c1c',cursor:'pointer'}},'Reset')
         })
@@ -696,6 +693,7 @@ function App(){
   // Use a ref so watchPosition callback always sees current tracking state
   const trackingRef=useRef(null);
   const watchIdRef=useRef(null);
+  const setlistFileInputRef=useRef(null);
 
   const theme=settings.theme==='custom'&&settings.customColor?buildTheme(settings.customColor):(THEMES[settings.theme]||THEMES.green);
 
@@ -924,55 +922,6 @@ function App(){
     }
     setGigs(p=>p.filter(x=>x.id!==id));
     closeModal();
-  };
-
-  // One-time repair: the all-day-event bug (fixed above) had already wiped
-  // the real start times off Summer 2026 shows written before the fix. The
-  // band's printed flyer is the only surviving record of those times, so
-  // this backfills any gig still missing a time from that flyer's schedule —
-  // it only fills blanks, never overwrites a time already present, so it's
-  // safe to run more than once.
-  const FLYER_TIMES_SUMMER_2026={
-    '2026-07-03':'10:00 PM','2026-07-05':'2:00 PM','2026-07-10':'6:00 PM','2026-07-11':'6:30 PM',
-    '2026-07-18':'7:00 PM','2026-07-30':'7:30 PM','2026-07-31':'8:00 PM',
-    '2026-08-01':'1:30 PM','2026-08-02':'7:00 PM','2026-08-07':'6:30 PM','2026-08-15':'6:00 PM',
-    '2026-08-16':'2:00 PM','2026-08-18':'8:00 PM','2026-08-22':'2:00 PM','2026-08-28':'6:00 PM',
-    '2026-09-04':'7:00 PM','2026-09-06':'10:00 PM','2026-09-07':'5:00 PM'
-  };
-  const applyFlyerTimes=async()=>{
-    const targets=gigs.filter(g=>!g.time&&FLYER_TIMES_SUMMER_2026[g.date]);
-    if(targets.length===0){
-      alert('No shows needed a time — everything already has one, or none match the flyer\'s dates.');
-      return;
-    }
-    if(googleAccessToken&&isGoogleTokenExpired()){
-      clearExpiredGoogleAuth();
-      alert('Your Google sign-in expired, so nothing was changed. Sign in again under Settings → Calendar, then try again.');
-      return;
-    }
-    let updated=[];
-    let failed=[];
-    for(const g of targets){
-      const withTime={...g,time:FLYER_TIMES_SUMMER_2026[g.date]};
-      if(googleAccessToken){
-        const result=await writeGigToCalendar(withTime.fromCalendar?'PATCH':'POST',withTime,withTime.fromCalendar?withTime.id:null);
-        if(result.ok){
-          updated.push(withTime.fromCalendar?withTime:{...withTime,fromCalendar:true,id:result.id});
-        } else {
-          failed.push(g.venue+' ('+g.date+'): '+result.error);
-        }
-      } else {
-        updated.push(withTime);
-      }
-    }
-    if(updated.length){
-      setGigs(prev=>prev.map(g=>updated.find(u=>u.id===g.id)||g));
-    }
-    alert(
-      `Updated ${updated.length} show${updated.length===1?'':'s'} with times from the flyer.`+
-      (failed.length?`\n\nFailed to save ${failed.length} to the shared calendar:\n`+failed.join('\n'):'')+
-      (!googleAccessToken?'\n\n(Sign in under Settings → Calendar so these also save to the shared calendar.)':'')
-    );
   };
 
   const syncFromGoogleCalendar=async(silent=false)=>{
@@ -1227,7 +1176,7 @@ function App(){
   };
   const deleteSetlist=id=>{setSetlists(prev=>prev.filter(s=>s.id!==id));setViewingSetlist(null);};
 
-  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,applyFlyerTimes});
+  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError});
 
   return e('div',{style:{maxWidth:720,margin:'0 auto',paddingBottom:'2rem'}},
     e('div',{style:{background:theme.primary,borderRadius:'0 0 20px 20px',padding:'1.25rem 1.25rem 1.5rem',marginBottom:'1.25rem'}},
@@ -1415,11 +1364,16 @@ function App(){
             ),
             newSetlistMode==='upload'&&e('div',null,
               e('label',null,'Photo or file'),
-              e('input',{type:'file',accept:'image/*,.html,.htm,text/html,.pdf,.txt',onChange:ev=>{const f=ev.target.files&&ev.target.files[0];if(f)handleSetlistFileUpload(f);}}),
-              e('div',{style:{fontSize:11,color:'#9ca3af',marginTop:4}},'Choose from your photo library or files.'),
+              e('input',{ref:setlistFileInputRef,type:'file',accept:'image/*,.html,.htm,text/html,.pdf,.txt',style:{display:'none'},
+                onChange:ev=>{const f=ev.target.files&&ev.target.files[0];if(f)handleSetlistFileUpload(f);}}),
+              e('button',{onClick:()=>setlistFileInputRef.current&&setlistFileInputRef.current.click(),
+                style:{width:'100%',padding:'13px 0',borderRadius:12,border:'none',background:theme.mid,color:'#fff',fontWeight:600,fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:8}},
+                '📤 Choose Photo or File'
+              ),
+              e('div',{style:{textAlign:'center',fontSize:11,color:'#9ca3af',marginTop:6}},'Opens your photo library or files'),
               newSetlistContentType==='image'&&newSetlistContent&&e('img',{src:newSetlistContent,style:{maxWidth:'100%',borderRadius:8,marginTop:8}}),
-              newSetlistContentType==='html'&&e('div',{style:{fontSize:12,color:theme.primary,marginTop:8}},'✓ '+newSetlistFileName+' loaded'),
-              newSetlistContentType==='file'&&e('div',{style:{fontSize:12,color:theme.primary,marginTop:8}},'✓ '+newSetlistFileName+' loaded')
+              newSetlistContentType==='html'&&e('div',{style:{fontSize:12,color:theme.primary,marginTop:8,textAlign:'center'}},'✓ '+newSetlistFileName+' loaded'),
+              newSetlistContentType==='file'&&e('div',{style:{fontSize:12,color:theme.primary,marginTop:8,textAlign:'center'}},'✓ '+newSetlistFileName+' loaded')
             ),
             newSetlistMode==='link'&&e('div',null,
               e('label',null,'Link'),
