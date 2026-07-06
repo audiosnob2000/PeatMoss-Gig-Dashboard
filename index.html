@@ -1205,6 +1205,37 @@ function App(){
     );
   };
   const startRenameSetlist=sl=>{setRenamingSetlistId(sl.id);setRenameSetlistValue(sl.name);};
+  const formatSetlistDate=dateStr=>{
+    const [y,m,d]=dateStr.split('-').map(Number);
+    return MONTHS[m-1]+' '+d+', '+y;
+  };
+  const shareSetlist=async sl=>{
+    try{
+      if(sl.type==='link'){
+        if(navigator.share) await navigator.share({title:sl.name,url:sl.content});
+        else {await navigator.clipboard.writeText(sl.content);alert('Link copied to clipboard!');}
+        return;
+      }
+      if(sl.type==='text'||sl.type==='html'){
+        if(navigator.share) await navigator.share({title:sl.name,text:sl.content});
+        else {await navigator.clipboard.writeText(sl.content);alert('Copied to clipboard!');}
+        return;
+      }
+      // image or file — share the actual file where possible
+      const res=await fetch(sl.content);
+      const blob=await res.blob();
+      const filename=sl.fileName||sl.name+(sl.type==='image'?'.jpg':'');
+      const file=new File([blob],filename,{type:blob.type});
+      if(navigator.canShare&&navigator.canShare({files:[file]})){
+        await navigator.share({title:sl.name,files:[file]});
+      } else {
+        const a=document.createElement('a');
+        a.href=sl.content;a.download=filename;a.click();
+      }
+    }catch(err){
+      if(err.name!=='AbortError') alert('Could not share this setlist.');
+    }
+  };
   const saveRenameSetlist=()=>{
     if(!renameSetlistValue.trim()){setRenamingSetlistId(null);return;}
     setSetlists(prev=>prev.map(s=>s.id===renamingSetlistId?{...s,name:renameSetlistValue.trim()}:s));
@@ -1392,7 +1423,7 @@ function App(){
           e('div',{style:{borderRadius:12,border:'1px solid #e5e7eb',overflow:'hidden',marginBottom:14}},
             setlists.length===0&&e('div',{style:{padding:'2rem',textAlign:'center',color:'#6b7280',fontSize:13}},'No setlists yet — add one below'),
             setlists.map((sl,idx)=>{
-              const icon=sl.type==='image'?'🖼️':sl.type==='html'?'🌐':sl.type==='link'?'🔗':sl.type==='file'?'📎':'📝';
+              const icon=sl.type==='image'?'🎼':sl.type==='html'?'🌐':sl.type==='link'?'🔗':sl.type==='file'?'📎':'🎵';
               const border=idx<setlists.length-1?'1px solid #e5e7eb':'none';
               if(renamingSetlistId===sl.id){
                 return e('div',{key:sl.id,style:{padding:'10px 14px',borderBottom:border,display:'flex',alignItems:'center',gap:10}},
@@ -1422,10 +1453,10 @@ function App(){
                 e('div',{style:{width:30,height:30,borderRadius:8,background:theme.pale,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}},icon),
                 e('div',{onClick:()=>startRenameSetlist(sl),style:{flex:1,minWidth:0,cursor:'pointer'}},
                   e('div',{style:{fontSize:13.5,fontWeight:500,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},sl.name),
-                  e('div',{style:{fontSize:11,color:'#9ca3af'}},({image:'Photo',html:'HTML file',link:'Link',file:'File',text:'Text'}[sl.type]||'Text')+' · updated '+sl.updatedAt)
+                  e('div',{style:{fontSize:11,color:'#9ca3af'}},({image:'Photo',html:'HTML file',link:'Link',file:'File',text:'Text'}[sl.type]||'Text')+' · updated '+formatSetlistDate(sl.updatedAt))
                 ),
                 e('button',{onClick:()=>setReplacingSetlistId(sl.id),style:{fontSize:12,padding:'5px 8px',flexShrink:0}},'⬆️'),
-                e('button',{onClick:()=>sl.type==='link'?window.open(sl.content,'_blank'):setViewingSetlist(sl),style:{fontSize:12,padding:'5px 12px',flexShrink:0}},'View'),
+                e('button',{onClick:()=>setViewingSetlist(sl),style:{fontSize:12,padding:'5px 12px',flexShrink:0}},'View'),
                 e('button',{onClick:()=>{if(window.confirm('Remove "'+sl.name+'"?'))deleteSetlist(sl.id);},style:{border:'none',background:'none',color:'#d1d5db',fontSize:16,cursor:'pointer',padding:'0 4px',flexShrink:0}},'×')
               );
             })
@@ -1538,18 +1569,27 @@ function App(){
       )
     ),
     viewingSetlist&&e('div',{onClick:()=>setViewingSetlist(null),className:'overlay'},
-      e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:420,maxHeight:'85vh',overflowY:'auto'}},
-        e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}},
-          e('span',{style:{fontSize:16,fontWeight:600}},viewingSetlist.name),
-          e('button',{onClick:()=>setViewingSetlist(null),style:{border:'none',background:'none',fontSize:20,color:'#9ca3af',cursor:'pointer',padding:'0 4px'}},'×')
+      e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:420,maxHeight:'85vh',overflowY:'auto',padding:0}},
+        e('div',{className:'no-print',style:{display:'flex',gap:8,padding:'14px 20px',borderBottom:'1px solid #e5e7eb'}},
+          e('button',{onClick:()=>setViewingSetlist(null),style:{flex:1,padding:'9px 0'}},'Close'),
+          e('button',{onClick:()=>window.print(),style:{flex:1,padding:'9px 0',borderRadius:8,border:'0.5px solid #d1d5db',background:'#fff',color:'#374151',cursor:'pointer',fontWeight:500}},'🖨️ Print'),
+          e('button',{onClick:()=>shareSetlist(viewingSetlist),style:{flex:1,padding:'9px 0',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontWeight:500}},'📤 Share')
         ),
-        viewingSetlist.type==='text'&&e('div',{style:{fontSize:14,color:'#111827',whiteSpace:'pre-wrap',lineHeight:1.6}},viewingSetlist.content),
-        viewingSetlist.type==='image'&&e('img',{src:viewingSetlist.content,style:{maxWidth:'100%',borderRadius:8}}),
-        viewingSetlist.type==='html'&&e('iframe',{srcDoc:viewingSetlist.content,style:{width:'100%',height:400,border:'1px solid #e5e7eb',borderRadius:8}}),
-        viewingSetlist.type==='file'&&e('div',{style:{textAlign:'center',padding:'1.5rem 0'}},
-          e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:12}},'This file type can\'t be previewed here.'),
-          e('a',{href:viewingSetlist.content,download:viewingSetlist.fileName||viewingSetlist.name,
-            style:{display:'inline-block',padding:'9px 18px',borderRadius:10,background:theme.mid,color:'#fff',fontWeight:500,textDecoration:'none',fontSize:14}},'⬇️ Download '+(viewingSetlist.fileName||''))
+        e('div',{className:'schedule-print-area',style:{padding:'20px'}},
+          e('div',{style:{fontSize:16,fontWeight:600,marginBottom:14}},viewingSetlist.name),
+          viewingSetlist.type==='text'&&e('div',{style:{fontSize:14,color:'#111827',whiteSpace:'pre-wrap',lineHeight:1.6}},viewingSetlist.content),
+          viewingSetlist.type==='image'&&e('img',{src:viewingSetlist.content,style:{maxWidth:'100%',borderRadius:8}}),
+          viewingSetlist.type==='html'&&e('iframe',{srcDoc:viewingSetlist.content,style:{width:'100%',height:400,border:'1px solid #e5e7eb',borderRadius:8}}),
+          viewingSetlist.type==='file'&&e('div',{style:{textAlign:'center',padding:'1.5rem 0'}},
+            e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:12}},'This file type can\'t be previewed here.'),
+            e('a',{href:viewingSetlist.content,download:viewingSetlist.fileName||viewingSetlist.name,
+              style:{display:'inline-block',padding:'9px 18px',borderRadius:10,background:theme.mid,color:'#fff',fontWeight:500,textDecoration:'none',fontSize:14}},'⬇️ Download '+(viewingSetlist.fileName||''))
+          ),
+          viewingSetlist.type==='link'&&e('div',{style:{textAlign:'center',padding:'1.5rem 0'}},
+            e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:12,wordBreak:'break-all'}},viewingSetlist.content),
+            e('a',{href:viewingSetlist.content,target:'_blank',rel:'noopener noreferrer',className:'no-print',
+              style:{display:'inline-block',padding:'9px 18px',borderRadius:10,background:theme.mid,color:'#fff',fontWeight:500,textDecoration:'none',fontSize:14}},'🔗 Open link')
+          )
         )
       )
     ),
