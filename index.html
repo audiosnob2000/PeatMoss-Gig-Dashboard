@@ -664,6 +664,10 @@ function App(){
   const [newSetlistFileName,setNewSetlistFileName]=useState('');
   const [newSetlistProcessing,setNewSetlistProcessing]=useState(false);
   const [viewingSetlist,setViewingSetlist]=useState(null);
+  const [renamingSetlistId,setRenamingSetlistId]=useState(null);
+  const [renameSetlistValue,setRenameSetlistValue]=useState('');
+  const [replacingSetlistId,setReplacingSetlistId]=useState(null);
+  const [replacingProcessing,setReplacingProcessing]=useState(false);
   const [tab,setTab]=useState(()=>{try{const s=localStorage.getItem('pmtf_settings');return s?JSON.parse(s).defaultTab||'calendar':'calendar';}catch{return 'calendar';}});
   const [calMonth,setCalMonth]=useState(today.getMonth());
   const [calYear,setCalYear]=useState(today.getFullYear());
@@ -695,6 +699,7 @@ function App(){
   const trackingRef=useRef(null);
   const watchIdRef=useRef(null);
   const setlistFileInputRef=useRef(null);
+  const replaceSetlistFileInputRef=useRef(null);
 
   const theme=settings.theme==='custom'&&settings.customColor?buildTheme(settings.customColor):(THEMES[settings.theme]||THEMES.green);
 
@@ -1137,13 +1142,12 @@ function App(){
   //    modern Chrome blocks as a top-level navigation.
   //  - anything else: keep the raw file as a data URL, offered as a
   //    download in the viewer since we can't meaningfully preview it.
-  const handleSetlistFileUpload=file=>{
-    setNewSetlistFileName(file.name);
-    setNewSetlistProcessing(true);
-    const fail=msg=>{setNewSetlistProcessing(false);alert(msg);};
+  // Shared by both the "Add setlist" form and the per-item "replace file"
+  // action, so the image/HTML/generic-file handling only lives in one place.
+  const processSetlistFile=(file,onSuccess,onError)=>{
     if(file.type.startsWith('image/')){
       const reader=new FileReader();
-      reader.onerror=()=>fail('Could not read that photo. Try again, or pick a different one.');
+      reader.onerror=()=>onError('Could not read that photo. Try again, or pick a different one.');
       reader.onload=ev=>{
         const img=new Image();
         img.onerror=()=>{
@@ -1151,9 +1155,7 @@ function App(){
           // can't be decoded into a <canvas> in every browser. Rather than
           // fail silently, fall back to saving the original file as-is —
           // it won't preview inline, but it's saved and downloadable.
-          setNewSetlistContentType('file');
-          setNewSetlistContent(ev.target.result);
-          setNewSetlistProcessing(false);
+          onSuccess({type:'file',content:ev.target.result,fileName:file.name});
         };
         img.onload=()=>{
           const maxDim=1280;
@@ -1162,27 +1164,51 @@ function App(){
           const canvas=document.createElement('canvas');
           canvas.width=w;canvas.height=h;
           canvas.getContext('2d').drawImage(img,0,0,w,h);
-          setNewSetlistContentType('image');
-          setNewSetlistContent(canvas.toDataURL('image/jpeg',0.8));
-          setNewSetlistProcessing(false);
+          onSuccess({type:'image',content:canvas.toDataURL('image/jpeg',0.8),fileName:file.name});
         };
         img.src=ev.target.result;
       };
       reader.readAsDataURL(file);
     } else if(file.type==='text/html'||/\.html?$/i.test(file.name)){
       const reader=new FileReader();
-      reader.onerror=()=>fail('Could not read that file. Try again, or pick a different one.');
-      reader.onload=ev=>{setNewSetlistContentType('html');setNewSetlistContent(ev.target.result);setNewSetlistProcessing(false);};
+      reader.onerror=()=>onError('Could not read that file. Try again, or pick a different one.');
+      reader.onload=ev=>onSuccess({type:'html',content:ev.target.result,fileName:file.name});
       reader.readAsText(file);
     } else {
       const reader=new FileReader();
-      reader.onerror=()=>fail('Could not read that file. Try again, or pick a different one.');
-      reader.onload=ev=>{setNewSetlistContentType('file');setNewSetlistContent(ev.target.result);setNewSetlistProcessing(false);};
+      reader.onerror=()=>onError('Could not read that file. Try again, or pick a different one.');
+      reader.onload=ev=>onSuccess({type:'file',content:ev.target.result,fileName:file.name});
       reader.readAsDataURL(file);
     }
   };
+  const handleSetlistFileUpload=file=>{
+    setNewSetlistFileName(file.name);
+    setNewSetlistProcessing(true);
+    processSetlistFile(file,
+      ({type,content})=>{setNewSetlistContentType(type);setNewSetlistContent(content);setNewSetlistProcessing(false);},
+      msg=>{setNewSetlistProcessing(false);alert(msg);}
+    );
+  };
   const resetSetlistForm=()=>{
     setNewSetlistName('');setNewSetlistMode('upload');setNewSetlistContentType('');setNewSetlistContent('');setNewSetlistFileName('');setNewSetlistProcessing(false);setAddingSetlist(false);
+  };
+  const handleReplaceSetlistFile=file=>{
+    if(!replacingSetlistId)return;
+    setReplacingProcessing(true);
+    processSetlistFile(file,
+      ({type,content,fileName})=>{
+        setSetlists(prev=>prev.map(s=>s.id===replacingSetlistId?{...s,type,content,fileName,updatedAt:todayStr}:s));
+        setReplacingProcessing(false);
+        setReplacingSetlistId(null);
+      },
+      msg=>{setReplacingProcessing(false);alert(msg);}
+    );
+  };
+  const startRenameSetlist=sl=>{setRenamingSetlistId(sl.id);setRenameSetlistValue(sl.name);};
+  const saveRenameSetlist=()=>{
+    if(!renameSetlistValue.trim()){setRenamingSetlistId(null);return;}
+    setSetlists(prev=>prev.map(s=>s.id===renamingSetlistId?{...s,name:renameSetlistValue.trim()}:s));
+    setRenamingSetlistId(null);
   };
   const addSetlist=()=>{
     if(!newSetlistName.trim()){alert('Give it a name first.');return;}
@@ -1195,7 +1221,7 @@ function App(){
     setSetlists(prev=>[...prev,{id:'sl'+Date.now(),name:newSetlistName.trim(),type,content:newSetlistContent,fileName:newSetlistFileName||null,updatedAt:todayStr}]);
     resetSetlistForm();
   };
-  const deleteSetlist=id=>{setSetlists(prev=>prev.filter(s=>s.id!==id));setViewingSetlist(null);};
+  const deleteSetlist=id=>{setSetlists(prev=>prev.filter(s=>s.id!==id));setViewingSetlist(null);setRenamingSetlistId(null);setReplacingSetlistId(null);};
 
   if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError});
 
@@ -1358,16 +1384,44 @@ function App(){
           )
         ),
         listsSubTab==='setlists'&&e('div',null,
+          e('input',{ref:replaceSetlistFileInputRef,type:'file',accept:'image/*,.html,.htm,text/html,.pdf,.txt',style:{display:'none'},
+            onChange:ev=>{const f=ev.target.files&&ev.target.files[0];if(f)handleReplaceSetlistFile(f);ev.target.value='';}}),
           e('div',{style:{borderRadius:12,border:'1px solid #e5e7eb',overflow:'hidden',marginBottom:14}},
             setlists.length===0&&e('div',{style:{padding:'2rem',textAlign:'center',color:'#6b7280',fontSize:13}},'No setlists yet — add one below'),
             setlists.map((sl,idx)=>{
               const icon=sl.type==='image'?'🖼️':sl.type==='html'?'🌐':sl.type==='link'?'🔗':sl.type==='file'?'📎':'📝';
-              return e('div',{key:sl.id,style:{padding:'10px 14px',borderBottom:idx<setlists.length-1?'1px solid #e5e7eb':'none',display:'flex',alignItems:'center',gap:10}},
+              const border=idx<setlists.length-1?'1px solid #e5e7eb':'none';
+              if(renamingSetlistId===sl.id){
+                return e('div',{key:sl.id,style:{padding:'10px 14px',borderBottom:border,display:'flex',alignItems:'center',gap:10}},
+                  e('div',{style:{width:30,height:30,borderRadius:8,background:theme.pale,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}},icon),
+                  e('input',{autoFocus:true,value:renameSetlistValue,onChange:ev=>setRenameSetlistValue(ev.target.value),
+                    onKeyDown:ev=>{if(ev.key==='Enter')saveRenameSetlist();if(ev.key==='Escape')setRenamingSetlistId(null);},
+                    style:{flex:1,minWidth:0}}),
+                  e('button',{onClick:saveRenameSetlist,style:{background:theme.mid,color:'#fff',border:'none',fontWeight:500,flexShrink:0}},'Save'),
+                  e('button',{onClick:()=>setRenamingSetlistId(null),style:{flexShrink:0}},'Cancel')
+                );
+              }
+              if(replacingSetlistId===sl.id){
+                return e('div',{key:sl.id,style:{padding:'10px 14px',borderBottom:border}},
+                  e('div',{style:{fontSize:12,color:'#6b7280',marginBottom:8}},
+                    replacingProcessing?'Processing…':'Replacing photo for ',!replacingProcessing&&e('b',null,sl.name)
+                  ),
+                  !replacingProcessing&&e('div',{style:{display:'flex',gap:8}},
+                    e('button',{onClick:()=>replaceSetlistFileInputRef.current&&replaceSetlistFileInputRef.current.click(),
+                      style:{flex:1,padding:'11px 0',borderRadius:10,border:'none',background:theme.mid,color:'#fff',fontWeight:600,cursor:'pointer',fontSize:13.5}},
+                      '📤 Choose Photo or File'
+                    ),
+                    e('button',{onClick:()=>setReplacingSetlistId(null)},'Cancel')
+                  )
+                );
+              }
+              return e('div',{key:sl.id,style:{padding:'10px 14px',borderBottom:border,display:'flex',alignItems:'center',gap:10}},
                 e('div',{style:{width:30,height:30,borderRadius:8,background:theme.pale,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}},icon),
-                e('div',{style:{flex:1,minWidth:0}},
+                e('div',{onClick:()=>startRenameSetlist(sl),style:{flex:1,minWidth:0,cursor:'pointer'}},
                   e('div',{style:{fontSize:13.5,fontWeight:500,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},sl.name),
                   e('div',{style:{fontSize:11,color:'#9ca3af'}},({image:'Photo',html:'HTML file',link:'Link',file:'File',text:'Text'}[sl.type]||'Text')+' · updated '+sl.updatedAt)
                 ),
+                e('button',{onClick:()=>setReplacingSetlistId(sl.id),style:{fontSize:12,padding:'5px 8px',flexShrink:0}},'⬆️'),
                 e('button',{onClick:()=>sl.type==='link'?window.open(sl.content,'_blank'):setViewingSetlist(sl),style:{fontSize:12,padding:'5px 12px',flexShrink:0}},'View'),
                 e('button',{onClick:()=>{if(window.confirm('Remove "'+sl.name+'"?'))deleteSetlist(sl.id);},style:{border:'none',background:'none',color:'#d1d5db',fontSize:16,cursor:'pointer',padding:'0 4px',flexShrink:0}},'×')
               );
