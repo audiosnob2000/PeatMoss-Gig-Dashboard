@@ -197,6 +197,42 @@ function typeStyle(t){
   return {bg:"#E1F5EE",color:"#085041"};
 }
 
+// Keep this display clean: just the venue itself (not "@ Venue" add-ons or
+// descriptive suffixes), just town/state (not a full address or business
+// name), and just the start time (no end time, no on-the-hour ":00").
+// Weddings/private events keep their full venue text since "Wedding @ Venue"
+// is the meaningful part there, not filler.
+function scheduleShortVenue(g){
+  if(g.type==='wedding'||g.type==='private event') return g.venue;
+  const v=g.venue||'';
+  const m=v.match(/^(.*?)(?:,| @ | – | -)/);
+  let short=(m?m[1]:v).trim();
+  short=short.replace(/\s+concert series$/i,'').trim();
+  return short||v.trim();
+}
+function scheduleShortLocation(loc){
+  if(!loc) return loc;
+  const parts=loc.split(',').map(s=>s.trim()).filter(Boolean);
+  if(parts.length<=1) return loc;
+  // Find the "STATE" or "STATE ZIP" segment (a 2-letter code, optionally
+  // followed by a zip) rather than blindly taking the last two parts — real
+  // addresses often have zip/country after it, which would otherwise push
+  // the actual town out of view.
+  const stateIdx=parts.findIndex((p,i)=>i>0&&/^[A-Za-z]{2}(\s|$)/.test(p));
+  if(stateIdx<1) return parts.slice(0,2).join(', ');
+  const town=parts[stateIdx-1];
+  const state=parts[stateIdx].replace(/\d+/g,'').trim();
+  return state?`${town}, ${state}`:town;
+}
+function scheduleShortTime(t){
+  if(!t) return '';
+  const parts=t.split(/[–-]/).map(s=>s.trim());
+  let start=parts[0];
+  const ampm=(parts[parts.length-1]||'').match(/AM|PM/i);
+  if(ampm&&!/AM|PM/i.test(start)) start+=' '+ampm[0].toUpperCase();
+  return start.replace(/:00(?=\s?(AM|PM))/i,'').trim();
+}
+
 function Badge({status}){
   const s=STATUS_STYLE[status];
   return e('span',{className:'badge',style:{background:s.bg,color:s.color}},s.label);
@@ -390,41 +426,6 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
     group.gigs.push(g);
   });
   const scheduleDateLabel=g=>{const d=new Date(g.date+'T12:00:00');return MONTHS[d.getMonth()]+' '+d.getDate();};
-  // Keep this display clean for sharing: just the venue itself (not "@ Venue"
-  // add-ons or descriptive suffixes), just town/state (not a full address or
-  // business name), and just the start time (no end time, no on-the-hour
-  // ":00"). Weddings/private events keep their full text since "Wedding @
-  // Venue" is the meaningful part there, not filler.
-  const scheduleShortVenue=g=>{
-    if(g.type==='wedding'||g.type==='private event') return g.venue;
-    const v=g.venue||'';
-    const m=v.match(/^(.*?)(?:,| @ | – | -)/);
-    let short=(m?m[1]:v).trim();
-    short=short.replace(/\s+concert series$/i,'').trim();
-    return short||v.trim();
-  };
-  const scheduleShortLocation=loc=>{
-    if(!loc) return loc;
-    const parts=loc.split(',').map(s=>s.trim()).filter(Boolean);
-    if(parts.length<=1) return loc;
-    // Find the "STATE" or "STATE ZIP" segment (a 2-letter code, optionally
-    // followed by a zip) rather than blindly taking the last two parts —
-    // real addresses often have zip/country after it, which would otherwise
-    // push the actual town out of view.
-    const stateIdx=parts.findIndex((p,i)=>i>0&&/^[A-Za-z]{2}(\s|$)/.test(p));
-    if(stateIdx<1) return parts.slice(0,2).join(', ');
-    const town=parts[stateIdx-1];
-    const state=parts[stateIdx].replace(/\d+/g,'').trim();
-    return state?`${town}, ${state}`:town;
-  };
-  const scheduleShortTime=t=>{
-    if(!t) return '';
-    const parts=t.split(/[–-]/).map(s=>s.trim());
-    let start=parts[0];
-    const ampm=(parts[parts.length-1]||'').match(/AM|PM/i);
-    if(ampm&&!/AM|PM/i.test(start)) start+=' '+ampm[0].toUpperCase();
-    return start.replace(/:00(?=\s?(AM|PM))/i,'').trim();
-  };
   const scheduleAsText=()=>{
     const lines=[settings.bandName,'Upcoming Shows',''];
     scheduleByMonth.forEach(group=>{
@@ -1342,7 +1343,7 @@ function App(){
               ),
               e('div',{style:{flex:1,minWidth:0}},
                 e('div',{style:{fontWeight:500,fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},(g.selfPA?'🔊 ':'')+g.venue),
-                e('div',{style:{fontSize:12,color:'#6b7280',marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},g.location+(g.time?' · '+g.time:'')),
+                e('div',{style:{fontSize:12,color:'#6b7280',marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},scheduleShortLocation(g.location)+(g.time?' · '+g.time:'')),
                 e('div',{style:{display:'flex',gap:6,marginTop:5,flexWrap:'wrap',alignItems:'center'}},
                   e('span',{className:'badge',style:{background:tc.bg,color:tc.color}},g.type),
                   e(Badge,{status:g.status}),
@@ -1411,10 +1412,10 @@ function App(){
         )
       ),
       tab==='checklist'&&e('div',null,
-        e('div',{style:{display:'flex',gap:18,marginBottom:16,borderBottom:'1px solid #e5e7eb'}},
+        e('div',{style:{display:'flex',marginBottom:16,borderBottom:'1px solid #e5e7eb'}},
           [['checklists','Checklists'],['setlists','Setlists']].map(([id,label])=>
             e('button',{key:id,onClick:()=>setListsSubTab(id),
-              style:{padding:'8px 2px 10px',fontSize:13,fontWeight:500,color:listsSubTab===id?theme.primary:'#9ca3af',border:'none',borderBottom:listsSubTab===id?`2px solid ${theme.primary}`:'2px solid transparent',borderRadius:0,background:'none',cursor:'pointer'}},label)
+              style:{flex:1,textAlign:'center',padding:'8px 2px 10px',fontSize:13,fontWeight:500,color:listsSubTab===id?theme.primary:'#9ca3af',border:'none',borderBottom:listsSubTab===id?`2px solid ${theme.primary}`:'2px solid transparent',borderRadius:0,background:'none',cursor:'pointer'}},label)
           )
         ),
         listsSubTab==='setlists'&&e('div',null,
