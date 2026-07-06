@@ -662,6 +662,7 @@ function App(){
   const [newSetlistContentType,setNewSetlistContentType]=useState('');
   const [newSetlistContent,setNewSetlistContent]=useState('');
   const [newSetlistFileName,setNewSetlistFileName]=useState('');
+  const [newSetlistProcessing,setNewSetlistProcessing]=useState(false);
   const [viewingSetlist,setViewingSetlist]=useState(null);
   const [tab,setTab]=useState(()=>{try{const s=localStorage.getItem('pmtf_settings');return s?JSON.parse(s).defaultTab||'calendar':'calendar';}catch{return 'calendar';}});
   const [calMonth,setCalMonth]=useState(today.getMonth());
@@ -1138,10 +1139,22 @@ function App(){
   //    download in the viewer since we can't meaningfully preview it.
   const handleSetlistFileUpload=file=>{
     setNewSetlistFileName(file.name);
+    setNewSetlistProcessing(true);
+    const fail=msg=>{setNewSetlistProcessing(false);alert(msg);};
     if(file.type.startsWith('image/')){
       const reader=new FileReader();
+      reader.onerror=()=>fail('Could not read that photo. Try again, or pick a different one.');
       reader.onload=ev=>{
         const img=new Image();
+        img.onerror=()=>{
+          // Some photo formats (e.g. HEIC straight from an iPhone camera)
+          // can't be decoded into a <canvas> in every browser. Rather than
+          // fail silently, fall back to saving the original file as-is —
+          // it won't preview inline, but it's saved and downloadable.
+          setNewSetlistContentType('file');
+          setNewSetlistContent(ev.target.result);
+          setNewSetlistProcessing(false);
+        };
         img.onload=()=>{
           const maxDim=1280;
           let w=img.width,h=img.height;
@@ -1151,25 +1164,33 @@ function App(){
           canvas.getContext('2d').drawImage(img,0,0,w,h);
           setNewSetlistContentType('image');
           setNewSetlistContent(canvas.toDataURL('image/jpeg',0.8));
+          setNewSetlistProcessing(false);
         };
         img.src=ev.target.result;
       };
       reader.readAsDataURL(file);
     } else if(file.type==='text/html'||/\.html?$/i.test(file.name)){
       const reader=new FileReader();
-      reader.onload=ev=>{setNewSetlistContentType('html');setNewSetlistContent(ev.target.result);};
+      reader.onerror=()=>fail('Could not read that file. Try again, or pick a different one.');
+      reader.onload=ev=>{setNewSetlistContentType('html');setNewSetlistContent(ev.target.result);setNewSetlistProcessing(false);};
       reader.readAsText(file);
     } else {
       const reader=new FileReader();
-      reader.onload=ev=>{setNewSetlistContentType('file');setNewSetlistContent(ev.target.result);};
+      reader.onerror=()=>fail('Could not read that file. Try again, or pick a different one.');
+      reader.onload=ev=>{setNewSetlistContentType('file');setNewSetlistContent(ev.target.result);setNewSetlistProcessing(false);};
       reader.readAsDataURL(file);
     }
   };
   const resetSetlistForm=()=>{
-    setNewSetlistName('');setNewSetlistMode('upload');setNewSetlistContentType('');setNewSetlistContent('');setNewSetlistFileName('');setAddingSetlist(false);
+    setNewSetlistName('');setNewSetlistMode('upload');setNewSetlistContentType('');setNewSetlistContent('');setNewSetlistFileName('');setNewSetlistProcessing(false);setAddingSetlist(false);
   };
   const addSetlist=()=>{
-    if(!newSetlistName.trim()||!newSetlistContent)return;
+    if(!newSetlistName.trim()){alert('Give it a name first.');return;}
+    if(newSetlistProcessing)return;
+    if(!newSetlistContent){
+      alert(newSetlistMode==='upload'?'Choose a photo or file first.':newSetlistMode==='link'?'Paste a link first.':'Type something in first.');
+      return;
+    }
     const type=newSetlistMode==='link'?'link':newSetlistMode==='manual'?'text':newSetlistContentType;
     setSetlists(prev=>[...prev,{id:'sl'+Date.now(),name:newSetlistName.trim(),type,content:newSetlistContent,fileName:newSetlistFileName||null,updatedAt:todayStr}]);
     resetSetlistForm();
@@ -1371,9 +1392,10 @@ function App(){
                 '📤 Choose Photo or File'
               ),
               e('div',{style:{textAlign:'center',fontSize:11,color:'#9ca3af',marginTop:6}},'Opens your photo library or files'),
+              newSetlistProcessing&&e('div',{style:{fontSize:12,color:'#6b7280',marginTop:8,textAlign:'center'}},'Processing…'),
               newSetlistContentType==='image'&&newSetlistContent&&e('img',{src:newSetlistContent,style:{maxWidth:'100%',borderRadius:8,marginTop:8}}),
               newSetlistContentType==='html'&&e('div',{style:{fontSize:12,color:theme.primary,marginTop:8,textAlign:'center'}},'✓ '+newSetlistFileName+' loaded'),
-              newSetlistContentType==='file'&&e('div',{style:{fontSize:12,color:theme.primary,marginTop:8,textAlign:'center'}},'✓ '+newSetlistFileName+' loaded')
+              newSetlistContentType==='file'&&e('div',{style:{fontSize:12,color:theme.primary,marginTop:8,textAlign:'center'}},'✓ '+newSetlistFileName+' saved (preview not available for this file type)')
             ),
             newSetlistMode==='link'&&e('div',null,
               e('label',null,'Link'),
@@ -1386,7 +1408,9 @@ function App(){
             ),
             e('div',{style:{display:'flex',gap:8,justifyContent:'flex-end',marginTop:14}},
               e('button',{onClick:resetSetlistForm},'Cancel'),
-              e('button',{onClick:addSetlist,style:{background:theme.mid,color:'#fff',border:'none',fontWeight:500}},'Add setlist')
+              e('button',{onClick:addSetlist,disabled:newSetlistProcessing,
+                style:{background:newSetlistProcessing?'#9ca3af':theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:newSetlistProcessing?'not-allowed':'pointer'}},
+                newSetlistProcessing?'Processing…':'Add setlist')
             )
           )
         ),
