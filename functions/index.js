@@ -150,7 +150,10 @@ const REMINDER_OFFSETS = {
   '3d': {kind: 'date', days: 3, hour: 18, minute: 0},
   '2d': {kind: 'date', days: 2, hour: 18, minute: 0},
   '1d': {kind: 'date', days: 1, hour: 18, minute: 0},
-  'dayof': {kind: 'date', days: 0, hour: 9, minute: 0},
+  // "Time of event" fires right at the gig's actual start time rather than
+  // a fixed morning hour, so — like the other hour-based options — it needs
+  // a parseable start time and is skipped otherwise.
+  'dayof': {kind: 'hours', hours: 0},
   '4h': {kind: 'hours', hours: 4},
   '3h': {kind: 'hours', hours: 3},
   '2h': {kind: 'hours', hours: 2},
@@ -207,7 +210,7 @@ function reminderText(gig, pref) {
   if (pref === '3d') return `${gig.venue} is in 3 days (${dateLabel})`;
   if (pref === '2d') return `${gig.venue} is in 2 days (${dateLabel})`;
   if (pref === '1d') return `${gig.venue} is tomorrow (${dateLabel})`;
-  if (pref === 'dayof') return `${gig.venue} is today${gig.time ? ' at ' + gig.time : ''}`;
+  if (pref === 'dayof') return `${gig.venue} is starting now${gig.time ? ' (' + gig.time + ')' : ''}`;
   const hours = REMINDER_OFFSETS[pref].hours;
   return `${gig.venue} starts in ${hours} hour${hours > 1 ? 's' : ''}`;
 }
