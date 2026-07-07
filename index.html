@@ -56,7 +56,7 @@ label{font-size:12px;font-weight:500;color:#6b7280;display:block;margin-bottom:4
 <div id="root"></div>
 <script>
 const e=React.createElement;
-const {useState,useMemo,useEffect,useRef}=React;
+const {useState,useMemo,useEffect,useRef,useCallback}=React;
 const {BarChart,Bar,LineChart,Line,XAxis,YAxis,Tooltip,ResponsiveContainer,Legend}=Recharts;
 
 const GOOGLE_API_KEY='AIzaSyDDfPjbqTtgXOacnkjrr9SbGVcWWVW3hYg';
@@ -84,6 +84,7 @@ const GOOGLE_CLIENT_ID='675499838790-l0lgct7rbkbc7u4lttqkpjta3vm9qrvi.apps.googl
 // avoids a redirect_uri_mismatch depending on how the page happened to load.
 const GOOGLE_REDIRECT_URI='https://audiosnob2000.github.io/PeatMoss-Gig-Dashboard/';
 const CALENDAR_WRITE_SCOPE='https://www.googleapis.com/auth/calendar.events';
+const FUNCTIONS_BASE_URL='https://us-central1-peatmoss-gig-dashboard-4f41b.cloudfunctions.net';
 const IRS_RATE=0.67;
 const KM_PER_MILE=1.60934;
 const TYPES=["bar","wedding","private event","other"];
@@ -650,18 +651,32 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
   );
 }
 
-// Reads a previously-saved Google sign-in token, ignoring (and clearing) it
-// if it's past its expiry — Google's tokens are short-lived and there's no
-// refresh token in this flow, so an expired one just means signed-out again.
+// Reads a previously-saved Google sign-in token for instant first paint.
+// If it's past expiry we still return it — the mount-time effect in App()
+// will silently refresh it via the stored refresh token (held server-side
+// by the Cloud Function) rather than treating an expired access token as
+// "signed out".
 function loadStoredGoogleAuth(){
   try{
     const s=localStorage.getItem('pmtf_google_auth');
     if(!s) return {token:null,expiresAt:null};
     const parsed=JSON.parse(s);
-    if(parsed.token&&parsed.expiresAt&&Date.now()<parsed.expiresAt) return parsed;
-    localStorage.removeItem('pmtf_google_auth');
+    if(parsed.token&&parsed.expiresAt) return parsed;
     return {token:null,expiresAt:null};
   }catch{return {token:null,expiresAt:null};}
+}
+// A stable per-device ID (not tied to any Google identity) that the Cloud
+// Function uses to look up this device's stored refresh token. Generated
+// once and kept in localStorage indefinitely.
+function getDeviceId(){
+  try{
+    let id=localStorage.getItem('pmtf_device_id');
+    if(!id){
+      id=(crypto.randomUUID?crypto.randomUUID():'dev-'+Date.now()+'-'+Math.random().toString(36).slice(2));
+      localStorage.setItem('pmtf_device_id',id);
+    }
+    return id;
+  }catch{return 'dev-'+Date.now();}
 }
 
 function App(){
@@ -818,29 +833,71 @@ function App(){
   // Keep ref in sync with state so GPS callback can read it
   useEffect(()=>{ trackingRef.current=trackingMiles; },[trackingMiles]);
 
-  // Pick up the access token Google hands back in the URL fragment after a
-  // sign-in redirect (used instead of a popup — popups can't return to a
-  // standalone/home-screen web app on iOS, they just get stranded on
-  // Google's page with no opener to report back to).
+  // Pick up the authorization code Google hands back as a URL query param
+  // after a sign-in redirect (used instead of a popup — popups can't return
+  // to a standalone/home-screen web app on iOS, they just get stranded on
+  // Google's page with no opener to report back to). The code itself is
+  // useless without the client secret, so it's handed to the Cloud Function
+  // to exchange for tokens — that's also where the long-lived refresh token
+  // ends up stored, never in the browser.
   useEffect(()=>{
-    if(!window.location.hash.includes('access_token')) return;
-    const params=new URLSearchParams(window.location.hash.slice(1));
-    const token=params.get('access_token');
+    const params=new URLSearchParams(window.location.search);
+    const code=params.get('code');
     const err=params.get('error');
-    if(token){
-      const expiresIn=parseInt(params.get('expires_in'),10)||3600;
-      setGoogleAccessToken(token);
-      setGoogleTokenExpiresAt(Date.now()+expiresIn*1000);
-      setGoogleAuthError('');
+    const cleanUrl=()=>window.history.replaceState(null,'',window.location.pathname);
+    const reopenIfNeeded=()=>{
+      if(sessionStorage.getItem('pmtf_reopen_settings')==='1'){
+        setShowSettings(true);
+        sessionStorage.removeItem('pmtf_reopen_settings');
+      }
+    };
+    if(code){
+      fetch(FUNCTIONS_BASE_URL+'/exchangeGoogleAuthCode',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({code,deviceId:getDeviceId(),redirectUri:GOOGLE_REDIRECT_URI})
+      }).then(r=>r.json().then(data=>({ok:r.ok,data}))).then(({ok,data})=>{
+        if(ok){
+          setGoogleAccessToken(data.accessToken);
+          setGoogleTokenExpiresAt(Date.now()+data.expiresIn*1000);
+          setGoogleAuthError('');
+        } else {
+          setGoogleAuthError('Google sign-in failed: '+(data.error||'unknown error'));
+        }
+      }).catch(()=>setGoogleAuthError('Google sign-in failed: could not reach the server.'))
+        .finally(()=>{reopenIfNeeded();cleanUrl();});
     } else if(err){
       setGoogleAuthError('Google sign-in failed: '+err);
+      reopenIfNeeded();
+      cleanUrl();
     }
-    if(sessionStorage.getItem('pmtf_reopen_settings')==='1'){
-      setShowSettings(true);
-      sessionStorage.removeItem('pmtf_reopen_settings');
-    }
-    window.history.replaceState(null,'',window.location.pathname+window.location.search);
   },[]);
+  // Silently refresh the Google access token — on mount if it's already
+  // expired (e.g. app reopened after a long time away), and periodically
+  // in the background so it never actually expires mid-use. Falls back to
+  // clearing the sign-in state (prompting the user to reconnect) only if
+  // the stored refresh token itself is no longer valid.
+  const refreshGoogleToken=useCallback(()=>{
+    return fetch(FUNCTIONS_BASE_URL+'/refreshGoogleAuthToken',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({deviceId:getDeviceId()})
+    }).then(r=>r.json().then(data=>({ok:r.ok,data}))).then(({ok,data})=>{
+      if(ok){
+        setGoogleAccessToken(data.accessToken);
+        setGoogleTokenExpiresAt(Date.now()+data.expiresIn*1000);
+        return true;
+      }
+      setGoogleAccessToken(null);
+      setGoogleTokenExpiresAt(null);
+      return false;
+    }).catch(()=>false);
+  },[]);
+  useEffect(()=>{
+    if(googleTokenExpiresAt&&Date.now()>=googleTokenExpiresAt-5*60*1000) refreshGoogleToken();
+    const interval=setInterval(()=>{
+      if(googleAccessToken&&googleTokenExpiresAt&&Date.now()>=googleTokenExpiresAt-5*60*1000) refreshGoogleToken();
+    },5*60*1000);
+    return ()=>clearInterval(interval);
+  },[googleAccessToken,googleTokenExpiresAt,refreshGoogleToken]);
 
   // Persist tracking state so banner survives page reload (e.g. returning from Maps app)
   useEffect(()=>{
@@ -896,7 +953,8 @@ function App(){
     const params=new URLSearchParams({
       client_id:GOOGLE_CLIENT_ID,
       redirect_uri:GOOGLE_REDIRECT_URI,
-      response_type:'token',
+      response_type:'code',
+      access_type:'offline',
       scope:CALENDAR_WRITE_SCOPE,
       include_granted_scopes:'true',
       prompt:'consent'
@@ -904,10 +962,10 @@ function App(){
     window.location.href='https://accounts.google.com/o/oauth2/v2/auth?'+params.toString();
   };
   const signOutGoogle=()=>{
-    if(googleAccessToken){
-      fetch('https://oauth2.googleapis.com/revoke?token='+encodeURIComponent(googleAccessToken),
-        {method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'}}).catch(()=>{});
-    }
+    fetch(FUNCTIONS_BASE_URL+'/revokeGoogleAuth',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({deviceId:getDeviceId()})
+    }).catch(()=>{});
     setGoogleAccessToken(null);
     setGoogleTokenExpiresAt(null);
   };

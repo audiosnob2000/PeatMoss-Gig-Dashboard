@@ -23,6 +23,10 @@ jobs:
         run: echo "$FIREBASE_SERVICE_ACCOUNT" > /tmp/gcp-key.json
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      - name: Write function environment secrets
+        run: echo "GOOGLE_OAUTH_CLIENT_SECRET=$GOOGLE_OAUTH_CLIENT_SECRET" > functions/.env
+        env:
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
       - name: Deploy to Firebase
         # --force auto-configures the Artifact Registry cleanup policy on
         # first deploy instead of failing the whole run over it.
