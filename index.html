@@ -13,6 +13,7 @@
 <script src="vendor/Recharts.js"></script>
 <script src="vendor/firebase-app-compat.js"></script>
 <script src="vendor/firebase-firestore-compat.js"></script>
+<script src="vendor/firebase-messaging-compat.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{overflow-x:hidden;width:100%}
@@ -64,9 +65,11 @@ const firebaseConfig={
   messagingSenderId:"228689391582",
   appId:"1:228689391582:web:a6f3bd098b6e810fcb374b"
 };
+const FCM_VAPID_KEY='BKATe0QN1FrjWid92DVXJx_TCpwjD1iU7G3DTUN_E58quzdW6IbPRHr-h8B6QW305Z9KEogo_JelmLu68R5EdQM';
 firebase.initializeApp(firebaseConfig);
 const db=firebase.firestore();
 try{db.enablePersistence({synchronizeTabs:true});}catch(err){}
+const messagingSupported=typeof window!=='undefined'&&'serviceWorker' in navigator&&'Notification' in window;
 const GOOGLE_CLIENT_ID='675499838790-l0lgct7rbkbc7u4lttqkpjta3vm9qrvi.apps.googleusercontent.com';
 // Fixed rather than derived from window.location — the app can be reached via
 // a few slightly different URLs (with/without trailing slash, index.html,
@@ -254,8 +257,9 @@ function Badge({status}){
   return e('span',{className:'badge',style:{background:s.bg,color:s.color}},s.label);
 }
 
-function Toggle({on,onToggle}){
-  return e('div',{onClick:onToggle,style:{width:44,height:26,borderRadius:99,background:on?'#1D9E75':'#e5e7eb',cursor:'pointer',position:'relative',flexShrink:0,transition:'background 0.2s'}},
+function Toggle({on,onToggle,disabled,label}){
+  return e('div',{onClick:disabled?undefined:onToggle,role:'switch','aria-checked':on,'aria-label':label,
+    style:{width:44,height:26,borderRadius:99,background:on?'#1D9E75':'#e5e7eb',cursor:disabled?'default':'pointer',opacity:disabled?0.6:1,position:'relative',flexShrink:0,transition:'background 0.2s'}},
     e('div',{style:{width:20,height:20,borderRadius:'50%',background:'#fff',position:'absolute',top:3,left:on?21:3,transition:'left 0.2s'}})
   );
 }
@@ -416,7 +420,7 @@ function CustomColorSwatch({selected,customColor,onPick}){
   );
 }
 
-function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError}){
+function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications}){
   const [confirmReset,setConfirmReset]=useState(false);
   const [showSchedulePreview,setShowSchedulePreview]=useState(false);
   const [editingBandName,setEditingBandName]=useState(false);
@@ -472,7 +476,12 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
     ),
     e('div',{style:{padding:'1rem',maxWidth:520,margin:'0 auto'}},
       e(Section,{icon:'🔔',title:'Notifications'},
-        e(Row,{label:'Push notifications',sub:'Coming soon — requires Firebase setup',border:false,right:e(Toggle,{on:false,onToggle:()=>{}})})
+        e(Row,{label:'Push notifications',
+          sub:pushToken?"You'll be notified on this device when a new setlist is uploaded":'Get notified on this device when a new setlist is uploaded',
+          border:false,
+          right:e(Toggle,{on:!!pushToken,onToggle:()=>pushToken?disablePushNotifications():enablePushNotifications(),disabled:pushEnabling,label:'Push notifications'})
+        }),
+        pushError&&e('div',{style:{padding:'0 14px 12px',fontSize:12,color:'#b91c1c'}},pushError)
       ),
       e(Section,{icon:'🎨',title:'Appearance'},
         e(Row,{label:'Band name',border:true,
@@ -712,6 +721,9 @@ function App(){
   const [googleTokenExpiresAt,setGoogleTokenExpiresAt]=useState(()=>loadStoredGoogleAuth().expiresAt);
   const [googleAuthError,setGoogleAuthError]=useState('');
   const [showSettings,setShowSettings]=useState(false);
+  const [pushToken,setPushToken]=useState(()=>{try{return localStorage.getItem('pmtf_push_token');}catch{return null;}});
+  const [pushEnabling,setPushEnabling]=useState(false);
+  const [pushError,setPushError]=useState('');
   const [trackingMiles,setTrackingMiles]=useState(()=>{try{const s=localStorage.getItem('pmtf_tracking');return s?JSON.parse(s):null;}catch{return null;}});
   const [askTrack,setAskTrack]=useState(null);
   const [calSyncing,setCalSyncing]=useState(false);
@@ -729,6 +741,48 @@ function App(){
   useEffect(()=>{try{localStorage.setItem('pmtf_settings',JSON.stringify(settings));}catch{}},[settings]);
   useEffect(()=>{try{localStorage.setItem('pmtf_members',JSON.stringify(members));}catch{}},[members]);
   useEffect(()=>{try{localStorage.setItem('pmtf_mileage',JSON.stringify(mileageLog));}catch{}},[mileageLog]);
+  useEffect(()=>{try{if(pushToken)localStorage.setItem('pmtf_push_token',pushToken);else localStorage.removeItem('pmtf_push_token');}catch{}},[pushToken]);
+  // Register the service worker once so it's ready to receive background
+  // pushes, and forward foreground pushes (tab open + focused) through the
+  // same notification UI rather than relying on FCM's default (which stays
+  // silent when the page has focus).
+  useEffect(()=>{
+    if(!messagingSupported)return;
+    navigator.serviceWorker.register('firebase-messaging-sw.js').then(registration=>{
+      const messaging=firebase.messaging();
+      messaging.onMessage(payload=>{
+        const title=(payload.notification&&payload.notification.title)||(payload.data&&payload.data.title)||'Peat Moss & The Fertilizers';
+        const body=(payload.notification&&payload.notification.body)||(payload.data&&payload.data.body)||'';
+        registration.showNotification(title,{body,data:payload.data||{}});
+      });
+    }).catch(()=>{});
+  },[]);
+  const enablePushNotifications=()=>{
+    if(!messagingSupported){setPushError("This browser doesn't support push notifications.");return;}
+    setPushError('');setPushEnabling(true);
+    Notification.requestPermission().then(permission=>{
+      if(permission!=='granted'){
+        setPushEnabling(false);
+        setPushError('Notifications were blocked. Allow them for this site in your browser settings and try again.');
+        return;
+      }
+      navigator.serviceWorker.ready.then(registration=>
+        firebase.messaging().getToken({vapidKey:FCM_VAPID_KEY,serviceWorkerRegistration:registration})
+      ).then(token=>{
+        if(!token) throw new Error('No token returned.');
+        return db.collection('fcmTokens').doc(token).set({token,createdAt:todayStr,ua:navigator.userAgent}).then(()=>token);
+      }).then(token=>{
+        setPushToken(token);setPushEnabling(false);
+      }).catch(err=>{
+        setPushEnabling(false);
+        setPushError('Could not enable notifications: '+err.message);
+      });
+    });
+  };
+  const disablePushNotifications=()=>{
+    if(pushToken) db.collection('fcmTokens').doc(pushToken).delete().catch(()=>{});
+    setPushToken(null);
+  };
   // Live-sync setlists from Firestore so every band member sees the same
   // list. On first run, if Firestore is empty but this device already has
   // setlists saved locally (from before sync existed), upload them once
@@ -1303,7 +1357,7 @@ function App(){
     setViewingSetlist(null);setRenamingSetlistId(null);setReplacingSetlistId(null);
   };
 
-  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError});
+  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications});
 
   return e('div',{style:{maxWidth:720,margin:'0 auto',paddingBottom:'2rem'}},
     e('div',{style:{background:theme.primary,borderRadius:'0 0 20px 20px',padding:'1.25rem 1.25rem 1.5rem',marginBottom:'1.25rem'}},
