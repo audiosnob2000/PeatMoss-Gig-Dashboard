@@ -197,8 +197,9 @@ function parseGigEvent(ev) {
   const time = timeTag ? timeTag[1].trim() : '';
   const statusTag = description.match(/Status:\s*([^·]+)/);
   const status = statusTag ? statusTag[1].trim().toLowerCase() : 'confirmed';
+  const selfPA = description.includes('PA: Self');
   const venue = ev.summary || 'Untitled';
-  return {id: ev.id, date, venue, time, status, startDateTime: parseGigStartTime(date, time)};
+  return {id: ev.id, date, venue, time, status, selfPA, startDateTime: parseGigStartTime(date, time)};
 }
 
 function reminderText(gig, pref) {
@@ -232,8 +233,12 @@ exports.sendGigReminders = onSchedule({schedule: 'every 15 minutes', timeZone: '
   const candidates = [];
   for (const gig of gigs) {
     for (const doc of tokensSnap.docs) {
-      const {reminder1, reminder2} = doc.data();
-      for (const [slotName, pref] of [['reminder1', reminder1], ['reminder2', reminder2]]) {
+      const data = doc.data();
+      // A gig marked "doing sound" needs more lead time — swap reminder 1
+      // for the standalone sound-gig override when the device has one set.
+      const effectiveReminder1 = (gig.selfPA && data.selfPaReminderEnabled && data.selfPaReminderTime)
+        ? data.selfPaReminderTime : data.reminder1;
+      for (const [slotName, pref] of [['reminder1', effectiveReminder1], ['reminder2', data.reminder2]]) {
         if (!pref || pref === 'off') continue;
         const offset = REMINDER_OFFSETS[pref];
         if (!offset) continue;
