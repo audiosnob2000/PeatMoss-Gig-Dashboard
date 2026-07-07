@@ -148,8 +148,10 @@ exports.notifyOnNewSetlist = onDocumentCreated('setlists/{setlistId}', async (ev
 // reminders line up with what the app itself shows.
 const REMINDER_OFFSETS = {
   '3d': {kind: 'date', days: 3, hour: 18, minute: 0},
+  '2d': {kind: 'date', days: 2, hour: 18, minute: 0},
   '1d': {kind: 'date', days: 1, hour: 18, minute: 0},
   'dayof': {kind: 'date', days: 0, hour: 9, minute: 0},
+  '4h': {kind: 'hours', hours: 4},
   '3h': {kind: 'hours', hours: 3},
   '2h': {kind: 'hours', hours: 2},
   '1h': {kind: 'hours', hours: 1}
@@ -202,9 +204,10 @@ function parseGigEvent(ev) {
 function reminderText(gig, pref) {
   const dateLabel = new Date(gig.date + 'T12:00:00').toLocaleDateString('en-US', {month: 'short', day: 'numeric'});
   if (pref === '3d') return `${gig.venue} is in 3 days (${dateLabel})`;
+  if (pref === '2d') return `${gig.venue} is in 2 days (${dateLabel})`;
   if (pref === '1d') return `${gig.venue} is tomorrow (${dateLabel})`;
   if (pref === 'dayof') return `${gig.venue} is today${gig.time ? ' at ' + gig.time : ''}`;
-  const hours = pref === '3h' ? 3 : pref === '2h' ? 2 : 1;
+  const hours = REMINDER_OFFSETS[pref].hours;
   return `${gig.venue} starts in ${hours} hour${hours > 1 ? 's' : ''}`;
 }
 
