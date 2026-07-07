@@ -485,10 +485,37 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
       e(Section,{icon:'🔔',title:'Notifications'},
         e(Row,{label:'Push notifications',
           sub:pushToken?"You'll be notified on this device when a new setlist is uploaded":'Get notified on this device when a new setlist is uploaded',
-          border:false,
+          border:true,
           right:e(Toggle,{on:!!pushToken,onToggle:()=>pushToken?disablePushNotifications():enablePushNotifications(),disabled:pushEnabling,label:'Push notifications'})
         }),
-        pushError&&e('div',{style:{padding:'0 14px 12px',fontSize:12,color:'#b91c1c'}},pushError)
+        pushError&&e('div',{style:{padding:'0 14px 12px',fontSize:12,color:'#b91c1c'}},pushError),
+        e(Row,{label:'Upcoming gig reminder 1',sub:'First heads-up before a show',border:true,
+          right:e('select',{value:settings.gigReminder1,disabled:!pushToken,
+            onChange:ev=>setSettings(s=>({...s,gigReminder1:ev.target.value})),
+            style:{padding:'5px 8px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'auto'}},
+            e('option',{value:'off'},'Off'),
+            e('option',{value:'3d'},'3 days before'),
+            e('option',{value:'1d'},'1 day before'),
+            e('option',{value:'dayof'},'Day of, morning'),
+            e('option',{value:'3h'},'3 hours before'),
+            e('option',{value:'2h'},'2 hours before'),
+            e('option',{value:'1h'},'1 hour before')
+          )
+        }),
+        e(Row,{label:'Upcoming gig reminder 2',sub:'Optional second reminder, closer to showtime',border:false,
+          right:e('select',{value:settings.gigReminder2,disabled:!pushToken,
+            onChange:ev=>setSettings(s=>({...s,gigReminder2:ev.target.value})),
+            style:{padding:'5px 8px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'auto'}},
+            e('option',{value:'off'},'Off'),
+            e('option',{value:'3d'},'3 days before'),
+            e('option',{value:'1d'},'1 day before'),
+            e('option',{value:'dayof'},'Day of, morning'),
+            e('option',{value:'3h'},'3 hours before'),
+            e('option',{value:'2h'},'2 hours before'),
+            e('option',{value:'1h'},'1 hour before')
+          )
+        }),
+        !pushToken&&e('div',{style:{padding:'0 14px 14px',fontSize:12,color:'#9ca3af'}},'Turn on push notifications above to set gig reminders.')
       ),
       e(Section,{icon:'🎨',title:'Appearance'},
         e(Row,{label:'Band name',border:true,
@@ -681,7 +708,7 @@ function getDeviceId(){
 
 function App(){
   const [settings,setSettings]=useState(()=>{
-    const defaults={bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com'};
+    const defaults={bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com',gigReminder1:'off',gigReminder2:'off'};
     try{
       const s=localStorage.getItem('pmtf_settings');
       if(!s) return defaults;
@@ -791,7 +818,7 @@ function App(){
         firebase.messaging().getToken({vapidKey:FCM_VAPID_KEY,serviceWorkerRegistration:registration})
       ).then(token=>{
         if(!token) throw new Error('No token returned.');
-        return db.collection('fcmTokens').doc(token).set({token,createdAt:todayStr,ua:navigator.userAgent}).then(()=>token);
+        return db.collection('fcmTokens').doc(token).set({token,createdAt:todayStr,ua:navigator.userAgent,reminder1:settings.gigReminder1,reminder2:settings.gigReminder2}).then(()=>token);
       }).then(token=>{
         setPushToken(token);setPushEnabling(false);
       }).catch(err=>{
@@ -804,6 +831,19 @@ function App(){
     if(pushToken) db.collection('fcmTokens').doc(pushToken).delete().catch(()=>{});
     setPushToken(null);
   };
+  // Keep this device's reminder timing choices in sync with its Firestore
+  // token doc — that's what the scheduled Cloud Function reads to decide
+  // when (and whether) to send this device a gig reminder.
+  useEffect(()=>{
+    if(!pushToken)return;
+    db.collection('fcmTokens').doc(pushToken).update({reminder1:settings.gigReminder1,reminder2:settings.gigReminder2}).catch(()=>{});
+  },[pushToken,settings.gigReminder1,settings.gigReminder2]);
+  // The reminder Cloud Function can't read localStorage, so the calendar ID
+  // needs a shared copy it can actually reach.
+  useEffect(()=>{
+    if(!settings.calendarId)return;
+    db.collection('bandSettings').doc('global').set({calendarId:settings.calendarId},{merge:true}).catch(()=>{});
+  },[settings.calendarId]);
   // Live-sync setlists from Firestore so every band member sees the same
   // list. On first run, if Firestore is empty but this device already has
   // setlists saved locally (from before sync existed), upload them once
