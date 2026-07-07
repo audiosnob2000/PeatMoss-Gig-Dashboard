@@ -24,6 +24,8 @@ jobs:
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
       - name: Deploy to Firebase
-        run: npx firebase-tools deploy --only functions --non-interactive
+        # --force auto-configures the Artifact Registry cleanup policy on
+        # first deploy instead of failing the whole run over it.
+        run: npx firebase-tools deploy --only functions --non-interactive --force
         env:
           GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcp-key.json
