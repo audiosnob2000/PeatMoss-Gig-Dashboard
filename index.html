@@ -504,11 +504,31 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
             e('option',{value:'1h'},'1 hour before')
           )
         }),
-        e(Row,{label:'Upcoming gig reminder 2',sub:'Optional second reminder, closer to showtime',border:false,
+        e(Row,{label:'Upcoming gig reminder 2',sub:'Optional second reminder, closer to showtime',border:true,
           right:e('select',{value:settings.gigReminder2,disabled:!pushToken,
             onChange:ev=>setSettings(s=>({...s,gigReminder2:ev.target.value})),
             style:{padding:'5px 8px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'auto'}},
             e('option',{value:'off'},'Off'),
+            e('option',{value:'3d'},'3 days before'),
+            e('option',{value:'2d'},'2 days before'),
+            e('option',{value:'1d'},'1 day before'),
+            e('option',{value:'dayof'},'Day of, morning'),
+            e('option',{value:'4h'},'4 hours before'),
+            e('option',{value:'3h'},'3 hours before'),
+            e('option',{value:'2h'},'2 hours before'),
+            e('option',{value:'1h'},'1 hour before')
+          )
+        }),
+        e(Row,{label:'Different time for sound gigs',
+          sub:'Override reminder 1 on gigs marked "doing sound" — those usually need more lead time',
+          border:settings.selfPaReminderEnabled,
+          right:e(Toggle,{on:settings.selfPaReminderEnabled,disabled:!pushToken,label:'Different time for sound gigs',
+            onToggle:()=>setSettings(s=>({...s,selfPaReminderEnabled:!s.selfPaReminderEnabled}))})
+        }),
+        settings.selfPaReminderEnabled&&e(Row,{label:'Sound gig reminder',border:false,
+          right:e('select',{value:settings.selfPaReminderTime,disabled:!pushToken,
+            onChange:ev=>setSettings(s=>({...s,selfPaReminderTime:ev.target.value})),
+            style:{padding:'5px 8px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'auto'}},
             e('option',{value:'3d'},'3 days before'),
             e('option',{value:'2d'},'2 days before'),
             e('option',{value:'1d'},'1 day before'),
@@ -712,7 +732,7 @@ function getDeviceId(){
 
 function App(){
   const [settings,setSettings]=useState(()=>{
-    const defaults={bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com',gigReminder1:'off',gigReminder2:'off'};
+    const defaults={bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com',gigReminder1:'off',gigReminder2:'off',selfPaReminderEnabled:false,selfPaReminderTime:'4h'};
     try{
       const s=localStorage.getItem('pmtf_settings');
       if(!s) return defaults;
@@ -822,7 +842,7 @@ function App(){
         firebase.messaging().getToken({vapidKey:FCM_VAPID_KEY,serviceWorkerRegistration:registration})
       ).then(token=>{
         if(!token) throw new Error('No token returned.');
-        return db.collection('fcmTokens').doc(token).set({token,createdAt:todayStr,ua:navigator.userAgent,reminder1:settings.gigReminder1,reminder2:settings.gigReminder2}).then(()=>token);
+        return db.collection('fcmTokens').doc(token).set({token,createdAt:todayStr,ua:navigator.userAgent,reminder1:settings.gigReminder1,reminder2:settings.gigReminder2,selfPaReminderEnabled:settings.selfPaReminderEnabled,selfPaReminderTime:settings.selfPaReminderTime}).then(()=>token);
       }).then(token=>{
         setPushToken(token);setPushEnabling(false);
       }).catch(err=>{
@@ -840,8 +860,11 @@ function App(){
   // when (and whether) to send this device a gig reminder.
   useEffect(()=>{
     if(!pushToken)return;
-    db.collection('fcmTokens').doc(pushToken).update({reminder1:settings.gigReminder1,reminder2:settings.gigReminder2}).catch(()=>{});
-  },[pushToken,settings.gigReminder1,settings.gigReminder2]);
+    db.collection('fcmTokens').doc(pushToken).update({
+      reminder1:settings.gigReminder1,reminder2:settings.gigReminder2,
+      selfPaReminderEnabled:settings.selfPaReminderEnabled,selfPaReminderTime:settings.selfPaReminderTime
+    }).catch(()=>{});
+  },[pushToken,settings.gigReminder1,settings.gigReminder2,settings.selfPaReminderEnabled,settings.selfPaReminderTime]);
   // The reminder Cloud Function can't read localStorage, so the calendar ID
   // needs a shared copy it can actually reach.
   useEffect(()=>{
