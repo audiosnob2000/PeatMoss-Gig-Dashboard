@@ -11,6 +11,8 @@
 <script src="vendor/react-dom.production.min.js"></script>
 <script src="vendor/prop-types.min.js"></script>
 <script src="vendor/Recharts.js"></script>
+<script src="vendor/firebase-app-compat.js"></script>
+<script src="vendor/firebase-firestore-compat.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{overflow-x:hidden;width:100%}
@@ -51,6 +53,20 @@ const {useState,useMemo,useEffect,useRef}=React;
 const {BarChart,Bar,LineChart,Line,XAxis,YAxis,Tooltip,ResponsiveContainer,Legend}=Recharts;
 
 const GOOGLE_API_KEY='AIzaSyDDfPjbqTtgXOacnkjrr9SbGVcWWVW3hYg';
+// Firebase's web apiKey isn't a secret — it just identifies the project to
+// Google's servers. Actual access control lives in Firestore security rules,
+// not in hiding this value (same trust model as GOOGLE_API_KEY above).
+const firebaseConfig={
+  apiKey:"AIzaSyDotc2kC4LmF9EUvNFlJglwJtZMJAPcJRQ",
+  authDomain:"peatmoss-gig-dashboard-4f41b.firebaseapp.com",
+  projectId:"peatmoss-gig-dashboard-4f41b",
+  storageBucket:"peatmoss-gig-dashboard-4f41b.firebasestorage.app",
+  messagingSenderId:"228689391582",
+  appId:"1:228689391582:web:a6f3bd098b6e810fcb374b"
+};
+firebase.initializeApp(firebaseConfig);
+const db=firebase.firestore();
+try{db.enablePersistence({synchronizeTabs:true});}catch(err){}
 const GOOGLE_CLIENT_ID='675499838790-l0lgct7rbkbc7u4lttqkpjta3vm9qrvi.apps.googleusercontent.com';
 // Fixed rather than derived from window.location — the app can be reached via
 // a few slightly different URLs (with/without trailing slash, index.html,
@@ -651,6 +667,11 @@ function App(){
   const [mileageLog,setMileageLog]=useState(()=>{try{const s=localStorage.getItem('pmtf_mileage');return s?JSON.parse(s):[];}catch{return [];}});
   // Separate storage key from members/checklists — a brand-new feature, so
   // there's nothing here to migrate and nothing existing to disturb.
+  // Setlists are shared across the whole band via Firestore rather than
+  // localStorage — a photo uploaded on one phone shows up on everyone
+  // else's automatically. The localStorage read here is only a fallback for
+  // instant first paint and to seed a one-time migration of anything saved
+  // before this synced (see the onSnapshot effect below).
   const [setlists,setSetlists]=useState(()=>{try{const s=localStorage.getItem('pmtf_setlists');return s?JSON.parse(s):[];}catch{return [];}});
   const [listsSubTab,setListsSubTab]=useState('checklists');
   const [addingSetlist,setAddingSetlist]=useState(false);
@@ -708,7 +729,25 @@ function App(){
   useEffect(()=>{try{localStorage.setItem('pmtf_settings',JSON.stringify(settings));}catch{}},[settings]);
   useEffect(()=>{try{localStorage.setItem('pmtf_members',JSON.stringify(members));}catch{}},[members]);
   useEffect(()=>{try{localStorage.setItem('pmtf_mileage',JSON.stringify(mileageLog));}catch{}},[mileageLog]);
-  useEffect(()=>{try{localStorage.setItem('pmtf_setlists',JSON.stringify(setlists));}catch{}},[setlists]);
+  // Live-sync setlists from Firestore so every band member sees the same
+  // list. On first run, if Firestore is empty but this device already has
+  // setlists saved locally (from before sync existed), upload them once
+  // rather than letting them silently vanish.
+  useEffect(()=>{
+    let migrating=false;
+    const unsub=db.collection('setlists').onSnapshot(snap=>{
+      if(snap.empty&&!migrating&&setlists.length>0&&!localStorage.getItem('pmtf_setlists_migrated')){
+        migrating=true;
+        const batch=db.batch();
+        setlists.forEach(s=>{const{id,...rest}=s;batch.set(db.collection('setlists').doc(id),rest);});
+        batch.commit().then(()=>{try{localStorage.setItem('pmtf_setlists_migrated','1');}catch{}})
+          .catch(()=>{migrating=false;});
+        return;
+      }
+      setSetlists(snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>a.id<b.id?-1:1));
+    },()=>{});
+    return unsub;
+  },[]);
   useEffect(()=>{
     try{
       if(googleAccessToken&&googleTokenExpiresAt) localStorage.setItem('pmtf_google_auth',JSON.stringify({token:googleAccessToken,expiresAt:googleTokenExpiresAt}));
@@ -1198,7 +1237,8 @@ function App(){
     setReplacingProcessing(true);
     processSetlistFile(file,
       ({type,content,fileName})=>{
-        setSetlists(prev=>prev.map(s=>s.id===replacingSetlistId?{...s,type,content,fileName,updatedAt:todayStr}:s));
+        db.collection('setlists').doc(replacingSetlistId).update({type,content,fileName,updatedAt:todayStr})
+          .catch(()=>alert('Could not save — check your connection and try again.'));
         setReplacingProcessing(false);
         setReplacingSetlistId(null);
       },
@@ -1239,7 +1279,8 @@ function App(){
   };
   const saveRenameSetlist=()=>{
     if(!renameSetlistValue.trim()){setRenamingSetlistId(null);return;}
-    setSetlists(prev=>prev.map(s=>s.id===renamingSetlistId?{...s,name:renameSetlistValue.trim()}:s));
+    db.collection('setlists').doc(renamingSetlistId).update({name:renameSetlistValue.trim()})
+      .catch(()=>alert('Could not save — check your connection and try again.'));
     setRenamingSetlistId(null);
   };
   const addSetlist=()=>{
@@ -1253,10 +1294,14 @@ function App(){
     const now=new Date();
     const name=newSetlistName.trim()||`${MONTHS[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
     const type=newSetlistMode==='link'?'link':newSetlistMode==='manual'?'text':newSetlistContentType;
-    setSetlists(prev=>[...prev,{id:'sl'+Date.now(),name,type,content:newSetlistContent,fileName:newSetlistFileName||null,updatedAt:todayStr}]);
+    db.collection('setlists').doc('sl'+Date.now()).set({name,type,content:newSetlistContent,fileName:newSetlistFileName||null,updatedAt:todayStr})
+      .catch(()=>alert('Could not save — check your connection and try again.'));
     resetSetlistForm();
   };
-  const deleteSetlist=id=>{setSetlists(prev=>prev.filter(s=>s.id!==id));setViewingSetlist(null);setRenamingSetlistId(null);setReplacingSetlistId(null);};
+  const deleteSetlist=id=>{
+    db.collection('setlists').doc(id).delete().catch(()=>alert('Could not delete — check your connection and try again.'));
+    setViewingSetlist(null);setRenamingSetlistId(null);setReplacingSetlistId(null);
+  };
 
   if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError});
 
