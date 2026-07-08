@@ -1141,7 +1141,12 @@ function App(){
       access_type:'offline',
       scope:CALENDAR_WRITE_SCOPE,
       include_granted_scopes:'true',
-      prompt:'consent'
+      // "consent" alone lets Google skip straight to a manual sign-in form
+      // instead of showing the account picker (saved names/avatars) — this
+      // still forces the consent screen every time (needed since we always
+      // want a fresh refresh_token), but shows the picker first when there
+      // are recognized signed-in Google sessions to choose from.
+      prompt:'select_account consent'
     });
     window.location.href='https://accounts.google.com/o/oauth2/v2/auth?'+params.toString();
   };
