@@ -811,6 +811,7 @@ function App(){
   const watchIdRef=useRef(null);
   const setlistFileInputRef=useRef(null);
   const replaceSetlistFileInputRef=useRef(null);
+  const firestoreGigIdsRef=useRef(new Set());
 
   const theme=settings.theme==='custom'&&settings.customColor?buildTheme(settings.customColor):(THEMES[settings.theme]||THEMES.green);
 
@@ -892,6 +893,35 @@ function App(){
         return;
       }
       setSetlists(snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>a.id<b.id?-1:1));
+    },()=>{});
+    return unsub;
+  },[]);
+  // Live-sync gigs from Firestore so every device sees gigs added on any
+  // other device instantly, whether or not that device is signed into
+  // Google. This runs alongside (never in place of) the Google Calendar
+  // sync above — a fromCalendar gig always wins over a Firestore copy of
+  // the same date+venue, so nothing here changes calendar behavior.
+  useEffect(()=>{
+    const dedupeKey=g=>g.date+'|'+(g.venue||'').trim().toLowerCase();
+    const prevRemoteIds=firestoreGigIdsRef.current;
+    const unsub=db.collection('gigs').onSnapshot(snap=>{
+      const remoteGigs=snap.docs.map(d=>({id:d.id,...d.data()}));
+      const remoteIds=new Set(remoteGigs.map(g=>String(g.id)));
+      const removedIds=new Set([...prevRemoteIds].filter(id=>!remoteIds.has(id)));
+      prevRemoteIds.clear();
+      remoteIds.forEach(id=>prevRemoteIds.add(id));
+      setGigs(prev=>{
+        let next=prev;
+        if(removedIds.size) next=next.filter(g=>!(removedIds.has(String(g.id))&&!g.fromCalendar));
+        const localCalKeys=new Set(next.filter(g=>g.fromCalendar).map(dedupeKey));
+        const byId=new Map(next.map(g=>[String(g.id),g]));
+        remoteGigs.forEach(rg=>{
+          const existing=byId.get(String(rg.id));
+          if(existing){ if(!existing.fromCalendar) byId.set(String(rg.id),{...rg,id:existing.id}); }
+          else if(!localCalKeys.has(dedupeKey(rg))) byId.set(String(rg.id),rg);
+        });
+        return Array.from(byId.values());
+      });
     },()=>{});
     return unsub;
   },[]);
@@ -1138,6 +1168,11 @@ function App(){
       }
     }
     setGigs(p=>p.find(x=>x.id===g.id)?p.map(x=>x.id===g.id?g:x):[...p,g]);
+    // Broadcast to every other device via Firestore, regardless of Google
+    // sign-in state — this is what makes a newly-added gig show up
+    // everywhere instantly instead of waiting on the next calendar sync.
+    const{id:_gid,...gigBody}=g;
+    db.collection('gigs').doc(String(g.id)).set(gigBody).catch(()=>{});
     closeModal();
   };
   const deleteGig=async id=>{
@@ -1157,6 +1192,7 @@ function App(){
       }
     }
     setGigs(p=>p.filter(x=>x.id!==id));
+    db.collection('gigs').doc(String(id)).delete().catch(()=>{});
     closeModal();
   };
 
@@ -1553,7 +1589,7 @@ function App(){
                 border:isToday?`2px solid ${theme.mid}`:allCancelled?'1px solid #F87171':hasWedding?'1px solid #AFA9EC':hasgig?`1px solid ${theme.light}`:'1px solid #e5e7eb',
                 overflow:'hidden'}},
               e('div',{className:'cal-day',style:{fontSize:12,fontWeight:isToday?500:400,color:isToday?theme.primary:allCancelled?'#B91C1C':hasWedding?'#534AB7':hasgig?'#085041':'#9ca3af'}},day),
-              dg.map(g=>e('div',{key:g.id,className:'cal-gig',style:{fontSize:9,marginTop:2,color:STATUS_STYLE[g.status].color,background:STATUS_STYLE[g.status].bg,borderRadius:3,padding:'1px 4px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',border:!g.fromCalendar?'1.5px dashed #4b5563':'none'}},(g.selfPA?'🔊 ':'')+g.venue))
+              dg.map(g=>e('div',{key:g.id,className:'cal-gig',style:{fontSize:9,marginTop:2,color:STATUS_STYLE[g.status].color,background:STATUS_STYLE[g.status].bg,borderRadius:3,padding:'1px 4px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},(g.selfPA?'🔊 ':'')+g.venue))
             );
           })
         ),
@@ -1582,7 +1618,6 @@ function App(){
                 e('div',{style:{display:'flex',gap:6,marginTop:5,flexWrap:'wrap',alignItems:'center'}},
                   e('span',{className:'badge',style:{background:tc.bg,color:tc.color}},g.type),
                   e(Badge,{status:g.status}),
-                  !g.fromCalendar&&e('span',{className:'badge',style:{background:'#374151',color:'#fff',fontWeight:700}},'Only on this device'),
                   g.location&&e('button',{onClick:ev=>{ev.stopPropagation();openMaps(g.venue,g.location);},
                     style:{fontSize:11,padding:'2px 8px',borderRadius:99,background:'#E0EFFE',color:'#1D4ED8',fontWeight:500,border:'none',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:3}},'📍 Map')
                 )
@@ -1858,8 +1893,7 @@ function App(){
       e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:360}},
         e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}},
           e('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
-            e('span',{className:'badge',style:{background:typeStyle(gigPopup.type).bg,color:typeStyle(gigPopup.type).color}},gigPopup.type),
-            !gigPopup.fromCalendar&&e('span',{className:'badge',style:{background:'#374151',color:'#fff',fontWeight:700}},'Only on this device')
+            e('span',{className:'badge',style:{background:typeStyle(gigPopup.type).bg,color:typeStyle(gigPopup.type).color}},gigPopup.type)
           ),
           e('button',{onClick:()=>setGigPopup(null),style:{border:'none',background:'none',fontSize:20,color:'#9ca3af',cursor:'pointer',padding:'0 4px'}},'×')
         ),
