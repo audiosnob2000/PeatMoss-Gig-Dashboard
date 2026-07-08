@@ -741,7 +741,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
       ),
       e(Section,{icon:'🔔',title:'Notifications'},
         e(Row,{label:'Push notifications',
-          sub:pushEnabling?'Enabling…':pushToken?reminderSummary():'Get notified on this device when a new setlist is uploaded',
+          sub:pushEnabling?'Enabling…':pushToken?reminderSummary():'Get notified on this device when you have upcoming gigs',
           border:pushToken&&notificationsOpen,
           right:e('div',{style:{display:'flex',alignItems:'center',gap:10}},
             e('button',{
