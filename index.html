@@ -275,6 +275,53 @@ function Badge({status}){
   return e('span',{className:'badge',style:{background:s.bg,color:s.color}},s.label);
 }
 
+const SWIPE_DELETE_WIDTH=72;
+function SwipeableGigRow({g,bg,border,tc,onEdit,onDelete,onMap}){
+  const [tx,setTx]=useState(0);
+  const dragRef=useRef({startX:0,startTx:0,dragging:false,moved:false});
+  const onPointerDown=ev=>{
+    dragRef.current={startX:ev.clientX,startTx:tx,dragging:true,moved:false};
+    if(ev.currentTarget.setPointerCapture)ev.currentTarget.setPointerCapture(ev.pointerId);
+  };
+  const onPointerMove=ev=>{
+    const d=dragRef.current;
+    if(!d.dragging)return;
+    const delta=ev.clientX-d.startX;
+    if(Math.abs(delta)>4)d.moved=true;
+    setTx(Math.max(-SWIPE_DELETE_WIDTH,Math.min(0,d.startTx+delta)));
+  };
+  const onPointerUp=()=>{
+    const d=dragRef.current;
+    if(!d.dragging)return;
+    d.dragging=false;
+    setTx(prev=>prev<-SWIPE_DELETE_WIDTH/2?-SWIPE_DELETE_WIDTH:0);
+  };
+  return e('div',{style:{position:'relative',overflow:'hidden',borderBottom:border}},
+    e('div',{onClick:()=>{if(window.confirm('Delete "'+g.venue+'"?'))onDelete(g.id);},
+      style:{position:'absolute',top:0,right:0,bottom:0,width:SWIPE_DELETE_WIDTH,background:'#DC2626',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:600,cursor:'pointer'}},'Delete'),
+    e('div',{
+      onPointerDown,onPointerMove,onPointerUp,onPointerCancel:onPointerUp,
+      style:{position:'relative',background:bg,padding:'12px 14px',display:'flex',alignItems:'center',gap:12,transform:`translateX(${tx}px)`,transition:dragRef.current.dragging?'none':'transform 0.2s ease',touchAction:'pan-y'}
+    },
+      e('div',{style:{background:tc.bg,borderRadius:8,padding:'8px 0',width:44,flexShrink:0,textAlign:'center'}},
+        e('div',{style:{fontSize:16,fontWeight:500,color:tc.color,lineHeight:1}},g.date.slice(8)),
+        e('div',{style:{fontSize:10,color:tc.color,marginTop:2}},MONTHS[parseInt(g.date.slice(5,7))-1])
+      ),
+      e('div',{style:{flex:1,minWidth:0}},
+        e('div',{style:{fontWeight:500,fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},(g.selfPA?'🔊 ':'')+g.venue),
+        e('div',{style:{fontSize:12,color:'#6b7280',marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},scheduleShortLocation(g.location)+(g.time?' · '+g.time:'')),
+        e('div',{style:{display:'flex',gap:6,marginTop:5,flexWrap:'wrap',alignItems:'center'}},
+          e('span',{className:'badge',style:{background:tc.bg,color:tc.color}},g.type),
+          e(Badge,{status:g.status}),
+          g.location&&e('button',{onClick:ev=>{ev.stopPropagation();onMap();},
+            style:{fontSize:11,padding:'2px 8px',borderRadius:99,background:'#E0EFFE',color:'#1D4ED8',fontWeight:500,border:'none',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:3}},'📍 Map')
+        )
+      ),
+      e('button',{onClick:onEdit,style:{fontSize:12,padding:'5px 12px',flexShrink:0}},'Edit')
+    )
+  );
+}
+
 function Toggle({on,onToggle,disabled,label}){
   return e('div',{onClick:disabled?undefined:onToggle,role:'switch','aria-checked':on,'aria-label':label,
     style:{width:44,height:26,borderRadius:99,background:on?'#1D9E75':'#e5e7eb',cursor:disabled?'default':'pointer',opacity:disabled?0.6:1,position:'relative',flexShrink:0,transition:'background 0.2s'}},
@@ -1642,23 +1689,13 @@ function App(){
           filteredUpcoming.length===0&&e('div',{style:{padding:'2rem',textAlign:'center',color:'#6b7280',fontSize:13}},showsSearch?'No gigs match your search':'No upcoming gigs'),
           filteredUpcoming.map((g,idx)=>{
             const tc=typeStyle(g.type);
-            return e('div',{key:g.id,style:{padding:'12px 14px',borderBottom:idx<filteredUpcoming.length-1?'1px solid #e5e7eb':'none',background:idx%2===0?'#fff':'#f9fafb',display:'flex',alignItems:'center',gap:12}},
-              e('div',{style:{background:tc.bg,borderRadius:8,padding:'8px 0',width:44,flexShrink:0,textAlign:'center'}},
-                e('div',{style:{fontSize:16,fontWeight:500,color:tc.color,lineHeight:1}},g.date.slice(8)),
-                e('div',{style:{fontSize:10,color:tc.color,marginTop:2}},MONTHS[parseInt(g.date.slice(5,7))-1])
-              ),
-              e('div',{style:{flex:1,minWidth:0}},
-                e('div',{style:{fontWeight:500,fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},(g.selfPA?'🔊 ':'')+g.venue),
-                e('div',{style:{fontSize:12,color:'#6b7280',marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},scheduleShortLocation(g.location)+(g.time?' · '+g.time:'')),
-                e('div',{style:{display:'flex',gap:6,marginTop:5,flexWrap:'wrap',alignItems:'center'}},
-                  e('span',{className:'badge',style:{background:tc.bg,color:tc.color}},g.type),
-                  e(Badge,{status:g.status}),
-                  g.location&&e('button',{onClick:ev=>{ev.stopPropagation();openMaps(g.venue,g.location);},
-                    style:{fontSize:11,padding:'2px 8px',borderRadius:99,background:'#E0EFFE',color:'#1D4ED8',fontWeight:500,border:'none',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:3}},'📍 Map')
-                )
-              ),
-              e('button',{onClick:()=>openEdit(g),style:{fontSize:12,padding:'5px 12px',flexShrink:0}},'Edit')
-            );
+            return e(SwipeableGigRow,{key:g.id,g,tc,
+              bg:idx%2===0?'#fff':'#f9fafb',
+              border:idx<filteredUpcoming.length-1?'1px solid #e5e7eb':'none',
+              onEdit:()=>openEdit(g),
+              onDelete:deleteGig,
+              onMap:()=>openMaps(g.venue,g.location)
+            });
           })
         ),
         e('div',{style:{marginTop:10,fontSize:13,color:'#6b7280'}},filteredUpcoming.length+' upcoming gig'+(filteredUpcoming.length!==1?'s':''))
@@ -1957,7 +1994,9 @@ function App(){
             settings.homeAddress&&e('button',{onClick:()=>goHome(gigPopup),
               style:{flex:1,padding:'9px 0',borderRadius:10,background:'#E1F5EE',color:'#0F6E56',fontWeight:500,border:'none',cursor:'pointer',fontSize:14}},'🏠 Home'),
             e('button',{onClick:()=>{setGigPopup(null);openEdit(gigPopup);},
-              style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:14}},'✏️ Edit')
+              style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:14}},'✏️ Edit'),
+            e('button',{onClick:()=>{if(window.confirm('Delete "'+gigPopup.venue+'"?')){const id=gigPopup.id;setGigPopup(null);deleteGig(id);}},
+              style:{flex:'0 0 42px',padding:'9px 0',borderRadius:10,background:'#FEE2E2',color:'#B91C1C',border:'none',cursor:'pointer',fontSize:14}},'🗑️')
           ),
           !settings.homeAddress&&e('div',{style:{fontSize:11,color:'#9ca3af',textAlign:'center',paddingTop:2}},'Set a home address in Settings to enable the Home button'),
           e('button',{onClick:()=>{const d=gigPopup.date;setGigPopup(null);openAdd(d);},
