@@ -641,6 +641,22 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
   const [editingBandName,setEditingBandName]=useState(false);
   const [bandNameValue,setBandNameValue]=useState('');
   const [mileageOpen,setMileageOpen]=useState(false);
+  const [notificationsOpen,setNotificationsOpen]=useState(false);
+  // Auto-expand the reminder controls the moment push notifications get
+  // turned on (so there's somewhere to actually set them right away), but
+  // only on that transition — not just because a token already existed
+  // when Settings was reopened, which should stay collapsed by default.
+  const prevPushTokenRef=useRef(pushToken);
+  useEffect(()=>{
+    if(!prevPushTokenRef.current&&pushToken) setNotificationsOpen(true);
+    prevPushTokenRef.current=pushToken;
+  },[pushToken]);
+  const REMINDER_SHORT={'1h':'1h before','2h':'2h before','3h':'3h before','4h':'4h before',dayof:'Day of','1d':'1d before','2d':'2d before','3d':'3d before'};
+  const reminderSummary=()=>{
+    const parts=[settings.gigReminder1,settings.gigReminder2].map(v=>REMINDER_SHORT[v]).filter(Boolean);
+    if(settings.selfPaReminderEnabled)parts.push('🔊 sound override on');
+    return parts.length?parts.join(', '):'No reminders set';
+  };
   const totalMiles=mileageLog.reduce((s,t)=>s+t.miles,0);
   const totalDeduction=(totalMiles*IRS_RATE).toFixed(2);
   // Trips are always stored in miles; mileageUnit only controls how they're
@@ -725,13 +741,25 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
       ),
       e(Section,{icon:'🔔',title:'Notifications'},
         e(Row,{label:'Push notifications',
-          sub:pushToken?"You'll be notified on this device when a new setlist is uploaded":'Get notified on this device when a new setlist is uploaded',
-          border:true,
-          right:e(Toggle,{on:!!pushToken,onToggle:()=>pushToken?disablePushNotifications():enablePushNotifications(),disabled:pushEnabling,label:'Push notifications'})
+          sub:pushEnabling?'Enabling…':pushToken?reminderSummary():'Get notified on this device when a new setlist is uploaded',
+          border:pushToken&&notificationsOpen,
+          right:e('div',{style:{display:'flex',alignItems:'center',gap:10}},
+            e('button',{
+              onClick:()=>{
+                if(pushToken){disablePushNotifications();setNotificationsOpen(false);}
+                else enablePushNotifications();
+              },
+              disabled:pushEnabling,
+              style:{border:'none',background:'none',padding:0,cursor:pushEnabling?'default':'pointer',fontSize:13,fontWeight:600,color:pushToken?theme.mid:'#9ca3af'}
+            },pushEnabling?'…':pushToken?'On':'Off'),
+            pushToken&&e('button',{onClick:()=>setNotificationsOpen(o=>!o),
+              style:{border:'none',background:'none',padding:0,cursor:'pointer',fontSize:16,color:'#9ca3af'}},
+              notificationsOpen?'∨':'›')
+          )
         }),
         pushError&&e('div',{style:{padding:'0 14px 12px',fontSize:12,color:'#b91c1c'}},pushError),
-        e(Row,{label:'Upcoming gig reminder 1',sub:'First heads-up before a show',border:true,
-          right:e('select',{value:settings.gigReminder1,disabled:!pushToken,
+        pushToken&&notificationsOpen&&e(Row,{label:'Upcoming gig reminder 1',sub:'First heads-up before a show',border:true,
+          right:e('select',{value:settings.gigReminder1,
             onChange:ev=>setSettings(s=>({...s,gigReminder1:ev.target.value})),
             style:{padding:'5px 8px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'auto'}},
             e('option',{value:'off'},'Off'),
@@ -745,8 +773,8 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
             e('option',{value:'3d'},'3 days before')
           )
         }),
-        e(Row,{label:'Upcoming gig reminder 2',sub:'Optional second reminder, closer to showtime',border:true,
-          right:e('select',{value:settings.gigReminder2,disabled:!pushToken,
+        pushToken&&notificationsOpen&&e(Row,{label:'Upcoming gig reminder 2',sub:'Optional second reminder, closer to showtime',border:true,
+          right:e('select',{value:settings.gigReminder2,
             onChange:ev=>setSettings(s=>({...s,gigReminder2:ev.target.value})),
             style:{padding:'5px 8px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'auto'}},
             e('option',{value:'off'},'Off'),
@@ -760,14 +788,14 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
             e('option',{value:'3d'},'3 days before')
           )
         }),
-        e(Row,{label:'🔊 Different time for sound gigs',
+        pushToken&&notificationsOpen&&e(Row,{label:'🔊 Different time for sound gigs',
           sub:'Override reminder 1 on gigs marked "doing sound" — those usually need more lead time',
           border:settings.selfPaReminderEnabled,
-          right:e(Toggle,{on:settings.selfPaReminderEnabled,disabled:!pushToken,label:'Different time for sound gigs',
+          right:e(Toggle,{on:settings.selfPaReminderEnabled,label:'Different time for sound gigs',
             onToggle:()=>setSettings(s=>({...s,selfPaReminderEnabled:!s.selfPaReminderEnabled}))})
         }),
-        settings.selfPaReminderEnabled&&e(Row,{label:'🔊 Sound gig reminder',border:false,
-          right:e('select',{value:settings.selfPaReminderTime,disabled:!pushToken,
+        pushToken&&notificationsOpen&&settings.selfPaReminderEnabled&&e(Row,{label:'🔊 Sound gig reminder',border:false,
+          right:e('select',{value:settings.selfPaReminderTime,
             onChange:ev=>{
               const v=ev.target.value;
               if(v==='off')setSettings(s=>({...s,selfPaReminderEnabled:false}));
@@ -784,8 +812,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
             e('option',{value:'2d'},'2 days before'),
             e('option',{value:'3d'},'3 days before')
           )
-        }),
-        !pushToken&&e('div',{style:{padding:'0 14px 14px',fontSize:12,color:'#9ca3af'}},'Turn on push notifications above to set gig reminders.')
+        })
       ),
       e(Section,{icon:'📅',title:'Calendar'},
         e(Row,{label:'Default view',border:true,
