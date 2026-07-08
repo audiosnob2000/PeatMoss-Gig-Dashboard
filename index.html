@@ -381,6 +381,7 @@ function Row({label,sub,right,danger,border=true}){return e('div',{style:{paddin
 function HomeAddressInput({settings,setSettings,theme}){
   const inputRef=useRef(null);
   const [locating,setLocating]=useState(false);
+  const [showOpenInSafari,setShowOpenInSafari]=useState(false);
   useEffect(()=>{if(inputRef.current)inputRef.current.value=settings.homeAddress||'';},[]);
   const save=()=>{
     if(inputRef.current){
@@ -398,7 +399,7 @@ function HomeAddressInput({settings,setSettings,theme}){
     const isIOSStandalone=window.navigator.standalone===true;
     const GPS_ERROR_MESSAGES={
       1:isIOSStandalone
-        ?'Location doesn\'t work reliably in the installed app on iPhone — that\'s an Apple limitation, not a setting you can fix. Tap OK to open this page in Safari and use it there, or Cancel to just type your address.'
+        ?'Location doesn\'t work reliably in the installed app on iPhone — that\'s an Apple limitation, not a setting you can fix. Use the "Open in Safari" link below to set your address there, or just type it in.'
         :'Location access is turned off for this app. Enable it in your device or browser settings, then try again — or just type your address.',
       2:'Couldn\'t pin down your location right now. Try again outdoors or somewhere with a clearer signal, or type your address.',
       3:'Location took too long to respond. Try again, or type your address.'
@@ -436,12 +437,12 @@ function HomeAddressInput({settings,setSettings,theme}){
       }
       setLocating(false);
     },err=>{
-      const msg=GPS_ERROR_MESSAGES[err.code]||'GPS unavailable. Try typing your address.';
-      if(err.code===1&&isIOSStandalone){
-        if(window.confirm(msg)) window.open(window.location.href,'_blank');
-      } else {
-        alert(msg);
-      }
+      alert(GPS_ERROR_MESSAGES[err.code]||'GPS unavailable. Try typing your address.');
+      // window.open() is just as unreliable as geolocation itself inside an
+      // iOS standalone app — there's no browser chrome for it to open a tab
+      // in. A real <a> tag the user taps directly is what actually works,
+      // so show one instead of trying to script the hand-off to Safari.
+      if(err.code===1&&isIOSStandalone) setShowOpenInSafari(true);
       setLocating(false);
     },{enableHighAccuracy:true,timeout:15000,maximumAge:60000});
   };
@@ -452,7 +453,12 @@ function HomeAddressInput({settings,setSettings,theme}){
     e('div',{style:{display:'flex',gap:8}},
       e('button',{onClick:useMyLocation,disabled:locating,style:{flex:1,padding:'8px 0',borderRadius:8,border:`1px solid ${theme.mid}`,color:theme.mid,background:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},locating?'📍 Locating...':'📍 Use my location'),
       e('button',{onClick:save,style:{padding:'8px 16px',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},'Save')
-    )
+    ),
+    // A real link the user taps directly — window.open() can't reliably
+    // hand off to Safari from inside an installed iOS home-screen app.
+    showOpenInSafari&&e('a',{href:window.location.href,target:'_blank',rel:'noopener',
+      style:{display:'block',textAlign:'center',marginTop:8,fontSize:12.5,color:theme.mid,fontWeight:500,textDecoration:'underline'}},
+      '↗ Open in Safari to use your location')
   );
 }
 
