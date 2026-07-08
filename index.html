@@ -270,6 +270,58 @@ function scheduleShortTime(t){
   return start.replace(/:00(?=\s?(AM|PM))/i,'').trim();
 }
 
+// One file input covers "Photos" and "Files" — the browser/OS picker
+// already offers both sources for the same <input type=file>. What we do
+// with the result depends on what got picked:
+//  - an image: downscale before storing as a data URL. A straight-from-
+//    phone photo can be several MB, and every app setting/gig/checklist
+//    lives in this same localStorage origin, so one oversized image could
+//    blow the quota for everything else, not just this upload.
+//  - an HTML file: read as text and render it in an iframe later — safer
+//    and simpler than trying to open a data: URL in a new tab, which
+//    modern Chrome blocks as a top-level navigation.
+//  - anything else: keep the raw file as a data URL, offered as a
+//    download in the viewer since we can't meaningfully preview it.
+// Shared across every "upload a photo or file" flow in the app (setlists,
+// stage plot, per-item setlist replace) so this handling only lives once.
+function processUploadedFile(file,onSuccess,onError){
+  if(file.type.startsWith('image/')){
+    const reader=new FileReader();
+    reader.onerror=()=>onError('Could not read that photo. Try again, or pick a different one.');
+    reader.onload=ev=>{
+      const img=new Image();
+      img.onerror=()=>{
+        // Some photo formats (e.g. HEIC straight from an iPhone camera)
+        // can't be decoded into a <canvas> in every browser. Rather than
+        // fail silently, fall back to saving the original file as-is —
+        // it won't preview inline, but it's saved and downloadable.
+        onSuccess({type:'file',content:ev.target.result,fileName:file.name});
+      };
+      img.onload=()=>{
+        const maxDim=1280;
+        let w=img.width,h=img.height;
+        if(w>maxDim||h>maxDim){const scale=maxDim/Math.max(w,h);w=Math.round(w*scale);h=Math.round(h*scale);}
+        const canvas=document.createElement('canvas');
+        canvas.width=w;canvas.height=h;
+        canvas.getContext('2d').drawImage(img,0,0,w,h);
+        onSuccess({type:'image',content:canvas.toDataURL('image/jpeg',0.8),fileName:file.name});
+      };
+      img.src=ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  } else if(file.type==='text/html'||/\.html?$/i.test(file.name)){
+    const reader=new FileReader();
+    reader.onerror=()=>onError('Could not read that file. Try again, or pick a different one.');
+    reader.onload=ev=>onSuccess({type:'html',content:ev.target.result,fileName:file.name});
+    reader.readAsText(file);
+  } else {
+    const reader=new FileReader();
+    reader.onerror=()=>onError('Could not read that file. Try again, or pick a different one.');
+    reader.onload=ev=>onSuccess({type:'file',content:ev.target.result,fileName:file.name});
+    reader.readAsDataURL(file);
+  }
+}
+
 function Badge({status}){
   const s=STATUS_STYLE[status];
   return e('span',{className:'badge',style:{background:s.bg,color:s.color}},s.label);
@@ -464,10 +516,41 @@ function HomeAddressInput({settings,setSettings,theme}){
 
 function StagePlotSection({settings,setSettings,theme}){
   const linkRef=useRef(null);
+  const fileInputRef=useRef(null);
   const [copied,setCopied]=useState(false);
+  const [mode,setMode]=useState(settings.stagePlotUrl?'link':'upload');
+  const [processing,setProcessing]=useState(false);
   useEffect(()=>{if(linkRef.current)linkRef.current.value=settings.stagePlotUrl||'';},[]);
   const saveLink=()=>{
-    if(linkRef.current) setSettings(s=>({...s,stagePlotUrl:linkRef.current.value.trim()}));
+    if(linkRef.current) setSettings(s=>({...s,stagePlotUrl:linkRef.current.value.trim(),stagePlotFile:null}));
+  };
+  const handleFileUpload=file=>{
+    setProcessing(true);
+    processUploadedFile(file,
+      ({type,content,fileName})=>{
+        setSettings(s=>({...s,stagePlotFile:{type,content,fileName},stagePlotUrl:''}));
+        setProcessing(false);
+      },
+      msg=>{setProcessing(false);alert(msg);}
+    );
+  };
+  const removeFile=()=>{
+    if(window.confirm('Remove the uploaded stage plot?')) setSettings(s=>({...s,stagePlotFile:null}));
+  };
+  const shareFile=async()=>{
+    const f=settings.stagePlotFile;
+    if(!f) return;
+    try{
+      const res=await fetch(f.content);
+      const blob=await res.blob();
+      const shareFileObj=new File([blob],f.fileName||'stage-plot',{type:blob.type});
+      if(navigator.canShare&&navigator.canShare({files:[shareFileObj]})){
+        await navigator.share({files:[shareFileObj],title:'Stage Plot — '+settings.bandName});
+        return;
+      }
+    }catch(err){}
+    // Web Share (with files) isn't supported everywhere — fall back to just opening it.
+    window.open(f.content,'_blank');
   };
   const copyLink=()=>{
     const url=settings.stagePlotUrl;
@@ -484,24 +567,49 @@ function StagePlotSection({settings,setSettings,theme}){
     }
   };
   const hasLink=!!(settings.stagePlotUrl&&settings.stagePlotUrl.trim());
-  const isImage=hasLink&&/\.(jpe?g|png|gif|webp|heic)(\?|#|$)/i.test(settings.stagePlotUrl);
+  const isUrlImage=hasLink&&/\.(jpe?g|png|gif|webp|heic)(\?|#|$)/i.test(settings.stagePlotUrl);
+  const file=settings.stagePlotFile;
+  const hasFile=!!file;
   return e('div',{style:{padding:'12px 14px'}},
-    e('div',{style:{fontSize:14,color:'#111827',marginBottom:4}},'Stage plot link'),
-    e('div',{style:{fontSize:12,color:'#9ca3af',marginBottom:10}},'Paste a link to your stage plot — a photo, PDF, or any file. Works with Google Drive, Dropbox, iCloud, or anywhere else, as long as the link is shared so anyone can view it.'),
-    e('input',{ref:linkRef,defaultValue:settings.stagePlotUrl||'',onBlur:saveLink,
-      placeholder:'https://...',
-      style:{padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'100%',marginBottom:8}}),
-    e('div',{style:{display:'flex',gap:8,marginBottom:hasLink?10:0}},
-      e('button',{onClick:saveLink,style:{flex:1,padding:'8px 0',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},'Save link')
+    e('div',{style:{fontSize:14,color:'#111827',marginBottom:4}},'Stage plot'),
+    e('div',{style:{fontSize:12,color:'#9ca3af',marginBottom:10}},'Upload a photo or PDF directly, or paste a link — Google Drive, Dropbox, iCloud, or anywhere else, as long as it\'s shared so anyone can view it.'),
+    e('select',{value:mode,onChange:ev=>setMode(ev.target.value),
+      style:{marginBottom:8,padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'100%',background:'#fff'}},
+      e('option',{value:'upload'},'Upload a photo or PDF'),
+      e('option',{value:'link'},'Paste a link instead')
     ),
-    isImage&&e('img',{src:settings.stagePlotUrl,onClick:()=>window.open(settings.stagePlotUrl,'_blank'),
-      onError:ev=>{ev.target.style.display='none';},
-      style:{width:'100%',maxHeight:220,objectFit:'contain',borderRadius:8,border:'1px solid #e5e7eb',marginBottom:10,cursor:'pointer',background:'#f9fafb',display:'block'}}),
-    hasLink&&e('div',{style:{display:'flex',gap:8}},
-      !isImage&&e('button',{onClick:()=>window.open(settings.stagePlotUrl,'_blank'),
-        style:{flex:1,padding:'9px 0',borderRadius:8,border:'0.5px solid #d1d5db',background:'#fff',color:'#374151',cursor:'pointer',fontSize:13,fontWeight:500}},'👁 Preview'),
-      e('button',{onClick:copyLink,style:{flex:1,padding:'9px 0',borderRadius:8,border:`1px solid ${theme.mid}`,color:theme.mid,background:copied?theme.pale:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},copied?'✓ Copied!':'🔗 Copy link'),
-      e('button',{onClick:shareLink,style:{flex:1,padding:'9px 0',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},'📤 Share')
+    mode==='upload'&&e('div',null,
+      e('input',{ref:fileInputRef,type:'file',accept:'image/*,.pdf',style:{display:'none'},
+        onChange:ev=>{const f=ev.target.files&&ev.target.files[0];if(f)handleFileUpload(f);}}),
+      e('button',{onClick:()=>fileInputRef.current&&fileInputRef.current.click(),disabled:processing,
+        style:{width:'100%',padding:'9px 0',borderRadius:8,border:'none',background:processing?'#9ca3af':theme.mid,color:'#fff',cursor:processing?'not-allowed':'pointer',fontSize:13,fontWeight:500,marginBottom:hasFile?10:0}},
+        processing?'Processing…':hasFile?'📤 Replace photo or PDF':'📤 Choose photo or PDF'),
+      file&&file.type==='image'&&e('img',{src:file.content,onClick:()=>window.open(file.content,'_blank'),
+        style:{width:'100%',maxHeight:220,objectFit:'contain',borderRadius:8,border:'1px solid #e5e7eb',marginBottom:10,cursor:'pointer',background:'#f9fafb',display:'block'}}),
+      file&&file.type!=='image'&&e('div',{style:{fontSize:12,color:theme.primary,marginBottom:10,textAlign:'center'}},'✓ '+file.fileName+' saved'),
+      hasFile&&e('div',{style:{display:'flex',gap:8}},
+        file.type!=='image'&&e('button',{onClick:()=>window.open(file.content,'_blank'),
+          style:{flex:1,padding:'9px 0',borderRadius:8,border:'0.5px solid #d1d5db',background:'#fff',color:'#374151',cursor:'pointer',fontSize:13,fontWeight:500}},'👁 Preview'),
+        e('button',{onClick:shareFile,style:{flex:1,padding:'9px 0',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},'📤 Share'),
+        e('button',{onClick:removeFile,style:{flex:1,padding:'9px 0',borderRadius:8,border:'0.5px solid #fca5a5',background:'#fff',color:'#b91c1c',cursor:'pointer',fontSize:13,fontWeight:500}},'Remove')
+      )
+    ),
+    mode==='link'&&e('div',null,
+      e('input',{ref:linkRef,defaultValue:settings.stagePlotUrl||'',onBlur:saveLink,
+        placeholder:'https://...',
+        style:{padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'100%',marginBottom:8}}),
+      e('div',{style:{display:'flex',gap:8,marginBottom:hasLink?10:0}},
+        e('button',{onClick:saveLink,style:{flex:1,padding:'8px 0',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},'Save link')
+      ),
+      isUrlImage&&e('img',{src:settings.stagePlotUrl,onClick:()=>window.open(settings.stagePlotUrl,'_blank'),
+        onError:ev=>{ev.target.style.display='none';},
+        style:{width:'100%',maxHeight:220,objectFit:'contain',borderRadius:8,border:'1px solid #e5e7eb',marginBottom:10,cursor:'pointer',background:'#f9fafb',display:'block'}}),
+      hasLink&&e('div',{style:{display:'flex',gap:8}},
+        !isUrlImage&&e('button',{onClick:()=>window.open(settings.stagePlotUrl,'_blank'),
+          style:{flex:1,padding:'9px 0',borderRadius:8,border:'0.5px solid #d1d5db',background:'#fff',color:'#374151',cursor:'pointer',fontSize:13,fontWeight:500}},'👁 Preview'),
+        e('button',{onClick:copyLink,style:{flex:1,padding:'9px 0',borderRadius:8,border:`1px solid ${theme.mid}`,color:theme.mid,background:copied?theme.pale:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},copied?'✓ Copied!':'🔗 Copy link'),
+        e('button',{onClick:shareLink,style:{flex:1,padding:'9px 0',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},'📤 Share')
+      )
     )
   );
 }
@@ -799,7 +907,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:20}},'This will delete all gigs and reset the app to its defaults. This cannot be undone.'),
         e('div',{style:{display:'flex',gap:8,justifyContent:'flex-end'}},
           e('button',{onClick:()=>setConfirmReset(false)},'Cancel'),
-          e('button',{onClick:()=>{setGigs(SAMPLE);setSettings({bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com'});localStorage.removeItem('pmtf_gigs');localStorage.removeItem('pmtf_settings');localStorage.removeItem('pmtf_members');localStorage.removeItem('pmtf_mileage');localStorage.removeItem('pmtf_setlists');setConfirmReset(false);onClose();},
+          e('button',{onClick:()=>{setGigs(SAMPLE);setSettings({bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',stagePlotFile:null,calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com'});localStorage.removeItem('pmtf_gigs');localStorage.removeItem('pmtf_settings');localStorage.removeItem('pmtf_members');localStorage.removeItem('pmtf_mileage');localStorage.removeItem('pmtf_setlists');setConfirmReset(false);onClose();},
             style:{background:'#dc2626',color:'#fff',border:'none',borderRadius:8,padding:'6px 16px',cursor:'pointer',fontWeight:500}},'Reset')
         )
       )
@@ -837,7 +945,7 @@ function getDeviceId(){
 
 function App(){
   const [settings,setSettings]=useState(()=>{
-    const defaults={bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com',gigReminder1:'off',gigReminder2:'off',selfPaReminderEnabled:false,selfPaReminderTime:'4h'};
+    const defaults={bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',stagePlotFile:null,calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com',gigReminder1:'off',gigReminder2:'off',selfPaReminderEnabled:false,selfPaReminderTime:'4h'};
     try{
       const s=localStorage.getItem('pmtf_settings');
       if(!s) return defaults;
@@ -1504,61 +1612,10 @@ function App(){
   const deleteMember=mid=>{setMembers(prev=>prev.filter(x=>x.id!==mid));setActiveMember(null);setConfirmDelete(null);};
   const renameMember=(mid,n)=>{if(!n.trim())return;setMembers(prev=>prev.map(m=>m.id!==mid?m:{...m,name:n.trim()}));setEditingName(false);};
 
-  // One file input covers "Photos" and "Files" — the browser/OS picker
-  // already offers both sources for the same <input type=file>. What we do
-  // with the result depends on what got picked:
-  //  - an image: downscale before storing as a data URL. A straight-from-
-  //    phone photo can be several MB, and every app setting/gig/checklist
-  //    lives in this same localStorage origin, so one oversized image could
-  //    blow the quota for everything else, not just this setlist.
-  //  - an HTML file: read as text and render it in an iframe later — safer
-  //    and simpler than trying to open a data: URL in a new tab, which
-  //    modern Chrome blocks as a top-level navigation.
-  //  - anything else: keep the raw file as a data URL, offered as a
-  //    download in the viewer since we can't meaningfully preview it.
-  // Shared by both the "Add setlist" form and the per-item "replace file"
-  // action, so the image/HTML/generic-file handling only lives in one place.
-  const processSetlistFile=(file,onSuccess,onError)=>{
-    if(file.type.startsWith('image/')){
-      const reader=new FileReader();
-      reader.onerror=()=>onError('Could not read that photo. Try again, or pick a different one.');
-      reader.onload=ev=>{
-        const img=new Image();
-        img.onerror=()=>{
-          // Some photo formats (e.g. HEIC straight from an iPhone camera)
-          // can't be decoded into a <canvas> in every browser. Rather than
-          // fail silently, fall back to saving the original file as-is —
-          // it won't preview inline, but it's saved and downloadable.
-          onSuccess({type:'file',content:ev.target.result,fileName:file.name});
-        };
-        img.onload=()=>{
-          const maxDim=1280;
-          let w=img.width,h=img.height;
-          if(w>maxDim||h>maxDim){const scale=maxDim/Math.max(w,h);w=Math.round(w*scale);h=Math.round(h*scale);}
-          const canvas=document.createElement('canvas');
-          canvas.width=w;canvas.height=h;
-          canvas.getContext('2d').drawImage(img,0,0,w,h);
-          onSuccess({type:'image',content:canvas.toDataURL('image/jpeg',0.8),fileName:file.name});
-        };
-        img.src=ev.target.result;
-      };
-      reader.readAsDataURL(file);
-    } else if(file.type==='text/html'||/\.html?$/i.test(file.name)){
-      const reader=new FileReader();
-      reader.onerror=()=>onError('Could not read that file. Try again, or pick a different one.');
-      reader.onload=ev=>onSuccess({type:'html',content:ev.target.result,fileName:file.name});
-      reader.readAsText(file);
-    } else {
-      const reader=new FileReader();
-      reader.onerror=()=>onError('Could not read that file. Try again, or pick a different one.');
-      reader.onload=ev=>onSuccess({type:'file',content:ev.target.result,fileName:file.name});
-      reader.readAsDataURL(file);
-    }
-  };
   const handleSetlistFileUpload=file=>{
     setNewSetlistFileName(file.name);
     setNewSetlistProcessing(true);
-    processSetlistFile(file,
+    processUploadedFile(file,
       ({type,content})=>{setNewSetlistContentType(type);setNewSetlistContent(content);setNewSetlistProcessing(false);},
       msg=>{setNewSetlistProcessing(false);alert(msg);}
     );
@@ -1569,7 +1626,7 @@ function App(){
   const handleReplaceSetlistFile=file=>{
     if(!replacingSetlistId)return;
     setReplacingProcessing(true);
-    processSetlistFile(file,
+    processUploadedFile(file,
       ({type,content,fileName})=>{
         db.collection('setlists').doc(replacingSetlistId).update({type,content,fileName,updatedAt:todayStr})
           .catch(()=>alert('Could not save — check your connection and try again.'));
