@@ -333,23 +333,37 @@ function HomeAddressInput({settings,setSettings,theme}){
   const useMyLocation=()=>{
     if(!navigator.geolocation){alert('GPS not available.');return;}
     setLocating(true);
-    navigator.geolocation.getCurrentPosition(async pos=>{
-      try{
-        // Free reverse geocode — no API key needed
-        const res=await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&format=json`);
-        const data=await res.json();
-        if(data&&data.display_name){
-          const addr=data.display_name;
-          if(inputRef.current) inputRef.current.value=addr;
-          setSettings(s=>({...s,homeAddress:addr}));
-        } else {
+    const GPS_ERROR_MESSAGES={
+      1:'Location access is turned off for this app. Enable it in your device or browser settings, then try again — or just type your address.',
+      2:'Couldn\'t pin down your location right now. Try again outdoors or somewhere with a clearer signal, or type your address.',
+      3:'Location took too long to respond. Try again, or type your address.'
+    };
+    const attempt=highAccuracy=>{
+      navigator.geolocation.getCurrentPosition(async pos=>{
+        try{
+          // Free reverse geocode — no API key needed
+          const res=await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&format=json`);
+          const data=await res.json();
+          if(data&&data.display_name){
+            const addr=data.display_name;
+            if(inputRef.current) inputRef.current.value=addr;
+            setSettings(s=>({...s,homeAddress:addr}));
+          } else {
+            alert('Could not get address. Try typing it manually.');
+          }
+        }catch(err){
           alert('Could not get address. Try typing it manually.');
         }
-      }catch(err){
-        alert('Could not get address. Try typing it manually.');
-      }
-      setLocating(false);
-    },()=>{alert('GPS unavailable. Try typing your address.');setLocating(false);},{enableHighAccuracy:true,timeout:10000});
+        setLocating(false);
+      },err=>{
+        // High-accuracy GPS often can't get a fix indoors — fall back to a
+        // coarser, network-based location once before giving up.
+        if(highAccuracy){attempt(false);return;}
+        alert(GPS_ERROR_MESSAGES[err.code]||'GPS unavailable. Try typing your address.');
+        setLocating(false);
+      },{enableHighAccuracy:highAccuracy,timeout:highAccuracy?8000:12000,maximumAge:60000});
+    };
+    attempt(true);
   };
   return e('div',{style:{padding:'12px 14px'}},
     e('div',{style:{fontSize:14,color:'#111827',marginBottom:4}},'Home address'),
