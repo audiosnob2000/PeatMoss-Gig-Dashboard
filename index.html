@@ -391,8 +391,15 @@ function HomeAddressInput({settings,setSettings,theme}){
   const useMyLocation=()=>{
     if(!navigator.geolocation){alert('GPS not available.');return;}
     setLocating(true);
+    // iOS standalone home-screen web apps run in a stripped-down WKWebView
+    // that doesn't reliably support the geolocation permission handshake —
+    // a known Apple/WebKit limitation, not something fixable from here. It
+    // works fine in a normal Safari tab, so offer to open there instead.
+    const isIOSStandalone=window.navigator.standalone===true;
     const GPS_ERROR_MESSAGES={
-      1:'Location access is turned off for this app. Enable it in your device or browser settings, then try again — or just type your address.',
+      1:isIOSStandalone
+        ?'Location doesn\'t work reliably in the installed app on iPhone — that\'s an Apple limitation, not a setting you can fix. Tap OK to open this page in Safari and use it there, or Cancel to just type your address.'
+        :'Location access is turned off for this app. Enable it in your device or browser settings, then try again — or just type your address.',
       2:'Couldn\'t pin down your location right now. Try again outdoors or somewhere with a clearer signal, or type your address.',
       3:'Location took too long to respond. Try again, or type your address.'
     };
@@ -429,7 +436,12 @@ function HomeAddressInput({settings,setSettings,theme}){
       }
       setLocating(false);
     },err=>{
-      alert(GPS_ERROR_MESSAGES[err.code]||'GPS unavailable. Try typing your address.');
+      const msg=GPS_ERROR_MESSAGES[err.code]||'GPS unavailable. Try typing your address.';
+      if(err.code===1&&isIOSStandalone){
+        if(window.confirm(msg)) window.open(window.location.href,'_blank');
+      } else {
+        alert(msg);
+      }
       setLocating(false);
     },{enableHighAccuracy:true,timeout:15000,maximumAge:60000});
   };
