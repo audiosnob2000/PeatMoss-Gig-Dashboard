@@ -874,6 +874,8 @@ function App(){
   const [confirmDelete,setConfirmDelete]=useState(null);
   const [editingName,setEditingName]=useState(false);
   const [editNameValue,setEditNameValue]=useState('');
+  const [editingItemId,setEditingItemId]=useState(null);
+  const [editItemValue,setEditItemValue]=useState('');
   const [gigPopup,setGigPopup]=useState(null);
   const [dayPopup,setDayPopup]=useState(null);
   const [googleAccessToken,setGoogleAccessToken]=useState(()=>loadStoredGoogleAuth().token);
@@ -1479,6 +1481,7 @@ function App(){
   const resetMember=mid=>setMembers(prev=>prev.map(m=>m.id!==mid?m:{...m,items:m.items.map(it=>({...it,checked:false}))}));
   const addItem=mid=>{if(!newItemText.trim())return;setMembers(prev=>prev.map(m=>m.id!==mid?m:{...m,items:[...m.items,{id:'i'+Date.now(),text:newItemText.trim(),checked:false}]}));setNewItemText('');};
   const deleteItem=(mid,iid)=>setMembers(prev=>prev.map(m=>m.id!==mid?m:{...m,items:m.items.filter(it=>it.id!==iid)}));
+  const editItem=(mid,iid,text)=>{if(!text.trim())return;setMembers(prev=>prev.map(m=>m.id!==mid?m:{...m,items:m.items.map(it=>it.id!==iid?it:{...it,text:text.trim()})}));setEditingItemId(null);};
   const addMember=()=>{if(!newMemberName.trim())return;setMembers(prev=>[...prev,{id:'m'+Date.now(),name:newMemberName.trim(),items:[]}]);setNewMemberName('');setAddingMember(false);};
   const deleteMember=mid=>{setMembers(prev=>prev.filter(x=>x.id!==mid));setActiveMember(null);setConfirmDelete(null);};
   const renameMember=(mid,n)=>{if(!n.trim())return;setMembers(prev=>prev.map(m=>m.id!==mid?m:{...m,name:n.trim()}));setEditingName(false);};
@@ -1676,7 +1679,15 @@ function App(){
                 border:isToday?`2px solid ${theme.mid}`:allCancelled?'1px solid #F87171':hasWedding?'1px solid #AFA9EC':hasgig?`1px solid ${theme.light}`:'1px solid #e5e7eb',
                 overflow:'hidden'}},
               e('div',{className:'cal-day',style:{fontSize:12,fontWeight:isToday?500:400,color:isToday?theme.primary:allCancelled?'#B91C1C':hasWedding?'#534AB7':hasgig?'#085041':'#9ca3af'}},day),
-              dg.map(g=>e('div',{key:g.id,className:'cal-gig',style:{fontSize:9,marginTop:2,color:STATUS_STYLE[g.status].color,background:STATUS_STYLE[g.status].bg,borderRadius:3,padding:'1px 4px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},(g.selfPA?'🔊 ':'')+g.venue))
+              dg.map(g=>{
+                // Color the chip by gig type (wedding = purple, etc.) so it
+                // matches the day cell's own type-based styling above —
+                // status color was making every confirmed gig look the same
+                // shade of green regardless of type. Cancelled still wins,
+                // since that's the more important thing to flag at a glance.
+                const gs=g.status==='cancelled'?STATUS_STYLE.cancelled:typeStyle(g.type);
+                return e('div',{key:g.id,className:'cal-gig',style:{fontSize:9,marginTop:2,color:gs.color,background:gs.bg,borderRadius:3,padding:'1px 4px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},(g.selfPA?'🔊 ':'')+g.venue);
+              })
             );
           })
         ),
@@ -1898,14 +1909,25 @@ function App(){
             ),
             e('div',{style:{borderRadius:12,border:'1px solid #e5e7eb',overflow:'hidden',marginBottom:14}},
               m.items.length===0&&e('div',{style:{padding:'2rem',textAlign:'center',color:'#6b7280',fontSize:13}},'No items yet — add some below'),
-              m.items.map((it,idx)=>e('div',{key:it.id,onClick:()=>toggleItem(m.id,it.id),
-                style:{padding:'12px 14px',borderBottom:idx<m.items.length-1?'1px solid #e5e7eb':'none',background:it.checked?'#f9fafb':'#fff',display:'flex',alignItems:'center',gap:12,cursor:'pointer'}},
-                e('div',{style:{width:20,height:20,borderRadius:6,border:it.checked?'none':'2px solid #d1d5db',background:it.checked?theme.mid:'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}},
-                  it.checked?e('span',{style:{color:'#fff',fontSize:13,fontWeight:700}},'✓'):null
-                ),
-                e('div',{style:{flex:1,fontSize:14,color:it.checked?'#9ca3af':'#111827',textDecoration:it.checked?'line-through':'none'}},it.text),
-                e('button',{onClick:ev=>{ev.stopPropagation();deleteItem(m.id,it.id);},style:{border:'none',background:'none',color:'#d1d5db',fontSize:16,cursor:'pointer',padding:'0 4px'}},'×')
-              ))
+              m.items.map((it,idx)=>{
+                const isEditing=editingItemId===it.id;
+                return e('div',{key:it.id,onClick:isEditing?undefined:()=>toggleItem(m.id,it.id),
+                  style:{padding:'12px 14px',borderBottom:idx<m.items.length-1?'1px solid #e5e7eb':'none',background:it.checked?'#f9fafb':'#fff',display:'flex',alignItems:'center',gap:12,cursor:isEditing?'default':'pointer'}},
+                  e('div',{style:{width:20,height:20,borderRadius:6,border:it.checked?'none':'2px solid #d1d5db',background:it.checked?theme.mid:'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}},
+                    it.checked?e('span',{style:{color:'#fff',fontSize:13,fontWeight:700}},'✓'):null
+                  ),
+                  isEditing
+                    ?e('input',{autoFocus:true,value:editItemValue,onClick:ev=>ev.stopPropagation(),
+                        onChange:ev=>setEditItemValue(ev.target.value),
+                        onKeyDown:ev=>{if(ev.key==='Enter')editItem(m.id,it.id,editItemValue);if(ev.key==='Escape')setEditingItemId(null);},
+                        style:{flex:1,fontSize:14,padding:'4px 8px',border:'1px solid #d1d5db',borderRadius:6}})
+                    :e('div',{style:{flex:1,fontSize:14,color:it.checked?'#9ca3af':'#111827',textDecoration:it.checked?'line-through':'none'}},it.text),
+                  isEditing
+                    ?e('button',{onClick:ev=>{ev.stopPropagation();editItem(m.id,it.id,editItemValue);},style:{padding:'4px 10px',borderRadius:6,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontSize:12}},'Save')
+                    :e('button',{onClick:ev=>{ev.stopPropagation();setEditingItemId(it.id);setEditItemValue(it.text);},style:{border:'none',background:'none',color:'#9ca3af',fontSize:13,cursor:'pointer',padding:'0 4px'}},'✏️'),
+                  e('button',{onClick:ev=>{ev.stopPropagation();deleteItem(m.id,it.id);},style:{border:'none',background:'none',color:'#d1d5db',fontSize:16,cursor:'pointer',padding:'0 4px'}},'×')
+                );
+              })
             ),
             e('div',{style:{display:'flex',gap:8}},
               e('input',{value:newItemText,onChange:ev=>setNewItemText(ev.target.value),placeholder:'Add an item...',onKeyDown:ev=>{if(ev.key==='Enter')addItem(m.id);},style:{flex:1,padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,fontSize:14}}),
