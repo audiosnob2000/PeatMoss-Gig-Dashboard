@@ -152,6 +152,17 @@ const THEMES={
   teal: buildTheme('#0E8A93'),
   pink: buildTheme('#D6488E'),
 };
+const US_STATE_ABBR={
+  Alabama:'AL',Alaska:'AK',Arizona:'AZ',Arkansas:'AR',California:'CA',Colorado:'CO',
+  Connecticut:'CT',Delaware:'DE','District of Columbia':'DC',Florida:'FL',Georgia:'GA',
+  Hawaii:'HI',Idaho:'ID',Illinois:'IL',Indiana:'IN',Iowa:'IA',Kansas:'KS',Kentucky:'KY',
+  Louisiana:'LA',Maine:'ME',Maryland:'MD',Massachusetts:'MA',Michigan:'MI',Minnesota:'MN',
+  Mississippi:'MS',Missouri:'MO',Montana:'MT',Nebraska:'NE',Nevada:'NV','New Hampshire':'NH',
+  'New Jersey':'NJ','New Mexico':'NM','New York':'NY','North Carolina':'NC','North Dakota':'ND',
+  Ohio:'OH',Oklahoma:'OK',Oregon:'OR',Pennsylvania:'PA','Rhode Island':'RI','South Carolina':'SC',
+  'South Dakota':'SD',Tennessee:'TN',Texas:'TX',Utah:'UT',Vermont:'VT',Virginia:'VA',
+  Washington:'WA','West Virginia':'WV',Wisconsin:'WI',Wyoming:'WY'
+};
 const STATUS_STYLE={
   confirmed:{bg:"#d1fae5",color:"#065f46",label:"Confirmed"},
   pending: {bg:"#fef9c3",color:"#854d0e",label:"Pending"},
@@ -338,17 +349,28 @@ function HomeAddressInput({settings,setSettings,theme}){
       2:'Couldn\'t pin down your location right now. Try again outdoors or somewhere with a clearer signal, or type your address.',
       3:'Location took too long to respond. Try again, or type your address.'
     };
-    // A single coarse (non-GPS, network-based) request — plenty precise for
-    // a one-time home address lookup, and far more reliable than requesting
-    // high-accuracy GPS first. A second automatic getCurrentPosition call
-    // isn't tied to the user's tap, and Safari silently denies location
-    // requests that aren't directly gesture-triggered — so no retry here.
+    // A single request — the earlier "permission denied" bug came from an
+    // automatic SECOND getCurrentPosition call that wasn't tied to the
+    // user's tap (Safari silently denies those), not from high accuracy
+    // itself. So: real GPS, one call only, no retry.
     navigator.geolocation.getCurrentPosition(async pos=>{
       try{
-        // Free reverse geocode — no API key needed
-        const res=await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&format=json`);
+        // Free reverse geocode — no API key needed. addressdetails=1 gives
+        // structured fields so we can build a short "123 Main St, City, ST
+        // ZIP" address instead of Nominatim's display_name, which strings
+        // together every administrative layer (town, county, country).
+        const res=await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&format=json&addressdetails=1`);
         const data=await res.json();
-        if(data&&data.display_name){
+        const a=data&&data.address;
+        if(a){
+          const street=[a.house_number,a.road].filter(Boolean).join(' ');
+          const city=a.city||a.town||a.village||a.hamlet||a.suburb||'';
+          const state=US_STATE_ABBR[a.state]||a.state||'';
+          const cityStateZip=[city,[state,a.postcode].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+          const addr=[street,cityStateZip].filter(Boolean).join(', ')||data.display_name;
+          if(inputRef.current) inputRef.current.value=addr;
+          setSettings(s=>({...s,homeAddress:addr}));
+        } else if(data&&data.display_name){
           const addr=data.display_name;
           if(inputRef.current) inputRef.current.value=addr;
           setSettings(s=>({...s,homeAddress:addr}));
@@ -362,7 +384,7 @@ function HomeAddressInput({settings,setSettings,theme}){
     },err=>{
       alert(GPS_ERROR_MESSAGES[err.code]||'GPS unavailable. Try typing your address.');
       setLocating(false);
-    },{enableHighAccuracy:false,timeout:15000,maximumAge:60000});
+    },{enableHighAccuracy:true,timeout:15000,maximumAge:60000});
   };
   return e('div',{style:{padding:'12px 14px'}},
     e('div',{style:{fontSize:14,color:'#111827',marginBottom:4}},'Home address'),
