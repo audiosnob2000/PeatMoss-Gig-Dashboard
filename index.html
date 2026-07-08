@@ -641,6 +641,12 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
   const [editingBandName,setEditingBandName]=useState(false);
   const [bandNameValue,setBandNameValue]=useState('');
   const [mileageOpen,setMileageOpen]=useState(false);
+  const [openMonths,setOpenMonths]=useState(()=>new Set([todayStr.slice(0,7)]));
+  const toggleMonth=key=>setOpenMonths(prev=>{
+    const next=new Set(prev);
+    if(next.has(key))next.delete(key);else next.add(key);
+    return next;
+  });
   const [notificationsOpen,setNotificationsOpen]=useState(false);
   // Auto-expand the reminder controls the moment push notifications get
   // turned on (so there's somewhere to actually set them right away), but
@@ -663,6 +669,26 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
   // displayed. Defaults to miles for everyone who hasn't chosen km.
   const mileageUnit=settings.mileageUnit==='km'?'km':'mi';
   const toDisplayDistance=miles=>mileageUnit==='km'?miles*KM_PER_MILE:miles;
+  // Grouped by month so a full season of trips doesn't dump one giant flat
+  // list on screen — each month collapses to a subtotal, current month
+  // starts open. idx is the trip's real position in mileageLog (not its
+  // position within the group), since that's what deleting needs.
+  const monthGroups=useMemo(()=>{
+    const map=new Map();
+    mileageLog.forEach((t,idx)=>{
+      const key=(t.date||'').slice(0,7)||'unknown';
+      if(!map.has(key))map.set(key,[]);
+      map.get(key).push({...t,idx});
+    });
+    return Array.from(map.entries())
+      .sort((a,b)=>a[0]<b[0]?1:-1)
+      .map(([key,trips])=>({
+        key,
+        label:key==='unknown'?'Unknown date':new Date(key+'-01T12:00:00').toLocaleDateString('en-US',{month:'long',year:'numeric'}),
+        trips,
+        totalMiles:trips.reduce((s,t)=>s+t.miles,0)
+      }));
+  },[mileageLog]);
   const setMileageUnit=unit=>setSettings(s=>({...s,mileageUnit:unit}));
   const saveBandName=()=>{if(bandNameValue.trim())setSettings(s=>({...s,bandName:bandNameValue.trim()}));setEditingBandName(false);};
 
@@ -866,13 +892,23 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
             )
           ),
           mileageLog.length===0&&e('div',{style:{padding:'1.5rem',textAlign:'center',color:'#9ca3af',fontSize:13}},'No trips logged yet — tap Map on a gig to start tracking'),
-          mileageLog.map((t,i)=>e('div',{key:i,style:{padding:'10px 14px',borderBottom:i<mileageLog.length-1?'1px solid #e5e7eb':'none',display:'flex',justifyContent:'space-between',alignItems:'center'}},
-            e('div',null,e('div',{style:{fontSize:13,fontWeight:500,color:'#111827'}},t.venue),e('div',{style:{fontSize:11,color:'#9ca3af'}},t.date)),
-            e('div',{style:{display:'flex',alignItems:'center',gap:10}},
-              e('div',{style:{fontSize:13,fontWeight:500,color:theme.primary}},toDisplayDistance(t.miles).toFixed(1)+' '+mileageUnit),
-              e('button',{onClick:()=>setMileageLog(prev=>prev.filter((_,idx)=>idx!==i)),
-                style:{border:'none',background:'none',color:'#d1d5db',fontSize:18,cursor:'pointer',padding:'0 4px',lineHeight:1}},'×')
-            )
+          monthGroups.map(group=>e('div',{key:group.key},
+            e('div',{onClick:()=>toggleMonth(group.key),
+              style:{padding:'10px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer',background:'#fbfbfc',borderBottom:'1px solid #e5e7eb'}},
+              e('div',null,
+                e('div',{style:{fontSize:13,fontWeight:600,color:'#111827'}},group.label),
+                e('div',{style:{fontSize:11,color:'#9ca3af'}},`${group.trips.length} trip${group.trips.length!==1?'s':''} · ${toDisplayDistance(group.totalMiles).toFixed(1)} ${mileageUnit}`)
+              ),
+              e('span',{style:{fontSize:14,color:'#9ca3af'}},openMonths.has(group.key)?'∨':'›')
+            ),
+            openMonths.has(group.key)&&group.trips.map((t,gi)=>e('div',{key:t.idx,style:{padding:'10px 14px',borderBottom:gi<group.trips.length-1?'1px solid #f1f1f3':'none',display:'flex',justifyContent:'space-between',alignItems:'center'}},
+              e('div',null,e('div',{style:{fontSize:13,fontWeight:500,color:'#111827'}},t.venue),e('div',{style:{fontSize:11,color:'#9ca3af'}},t.date)),
+              e('div',{style:{display:'flex',alignItems:'center',gap:10}},
+                e('div',{style:{fontSize:13,fontWeight:500,color:theme.primary}},toDisplayDistance(t.miles).toFixed(1)+' '+mileageUnit),
+                e('button',{onClick:()=>setMileageLog(prev=>prev.filter((_,idx)=>idx!==t.idx)),
+                  style:{border:'none',background:'none',color:'#d1d5db',fontSize:18,cursor:'pointer',padding:'0 4px',lineHeight:1}},'×')
+              )
+            ))
           )),
           mileageLog.length>0&&e('div',{style:{padding:'10px 14px',borderTop:'1px solid #e5e7eb'}},
             e('button',{onClick:()=>{if(window.confirm('Clear all mileage logs?'))setMileageLog([]);},style:{fontSize:12,color:'#b91c1c',borderColor:'#fca5a5',width:'100%',padding:'7px 0'}},'Clear mileage log')
