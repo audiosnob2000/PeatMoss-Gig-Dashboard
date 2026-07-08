@@ -482,6 +482,39 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
       )
     ),
     e('div',{style:{padding:'1rem',maxWidth:520,margin:'0 auto'}},
+      e(Section,{icon:'🎨',title:'Appearance'},
+        e(Row,{label:'Band name',border:true,
+          right:editingBandName
+            ?e('div',{style:{display:'flex',alignItems:'center',gap:6}},
+                e('input',{autoFocus:true,value:bandNameValue,onChange:ev=>setBandNameValue(ev.target.value),
+                  onKeyDown:ev=>{if(ev.key==='Enter')saveBandName();if(ev.key==='Escape')setEditingBandName(false);},
+                  style:{padding:'4px 8px',border:'1px solid #d1d5db',borderRadius:6,fontSize:13,width:160}}),
+                e('button',{onClick:saveBandName,style:{fontSize:12,padding:'4px 10px',borderRadius:6,border:'none',background:theme.mid,color:'#fff',cursor:'pointer'}},'Save')
+              )
+            :e('div',{style:{display:'flex',alignItems:'center',gap:8}},
+                e('span',{style:{fontSize:12,color:'#6b7280'}},settings.bandName),
+                e('button',{onClick:()=>{setBandNameValue(settings.bandName);setEditingBandName(true);},style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'Edit')
+              )
+        }),
+        e(Row,{label:'Color scheme',border:false,
+          right:e('div',{style:{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-end'}},
+            Object.entries(THEMES).map(([k,v])=>
+              e('div',{key:k,onClick:()=>setSettings(s=>({...s,theme:k})),
+                style:{width:24,height:24,borderRadius:'50%',background:v.primary,cursor:'pointer',
+                  border:settings.theme===k?'3px solid #fff':'3px solid transparent',
+                  boxShadow:settings.theme===k?`0 0 0 2px ${v.primary}`:'none'}})
+            ),
+            e(CustomColorSwatch,{
+              selected:settings.theme==='custom',
+              customColor:settings.customColor,
+              onPick:hex=>setSettings(s=>({...s,theme:'custom',customColor:hex}))
+            })
+          )
+        })
+      ),
+      e(Section,{icon:'🏠',title:'Home'},
+        e(HomeAddressInput,{settings,setSettings,theme})
+      ),
       e(Section,{icon:'🔔',title:'Notifications'},
         e(Row,{label:'Push notifications',
           sub:pushToken?"You'll be notified on this device when a new setlist is uploaded":'Get notified on this device when a new setlist is uploaded',
@@ -541,39 +574,6 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         }),
         !pushToken&&e('div',{style:{padding:'0 14px 14px',fontSize:12,color:'#9ca3af'}},'Turn on push notifications above to set gig reminders.')
       ),
-      e(Section,{icon:'🎨',title:'Appearance'},
-        e(Row,{label:'Band name',border:true,
-          right:editingBandName
-            ?e('div',{style:{display:'flex',alignItems:'center',gap:6}},
-                e('input',{autoFocus:true,value:bandNameValue,onChange:ev=>setBandNameValue(ev.target.value),
-                  onKeyDown:ev=>{if(ev.key==='Enter')saveBandName();if(ev.key==='Escape')setEditingBandName(false);},
-                  style:{padding:'4px 8px',border:'1px solid #d1d5db',borderRadius:6,fontSize:13,width:160}}),
-                e('button',{onClick:saveBandName,style:{fontSize:12,padding:'4px 10px',borderRadius:6,border:'none',background:theme.mid,color:'#fff',cursor:'pointer'}},'Save')
-              )
-            :e('div',{style:{display:'flex',alignItems:'center',gap:8}},
-                e('span',{style:{fontSize:12,color:'#6b7280'}},settings.bandName),
-                e('button',{onClick:()=>{setBandNameValue(settings.bandName);setEditingBandName(true);},style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'Edit')
-              )
-        }),
-        e(Row,{label:'Color scheme',border:false,
-          right:e('div',{style:{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-end'}},
-            Object.entries(THEMES).map(([k,v])=>
-              e('div',{key:k,onClick:()=>setSettings(s=>({...s,theme:k})),
-                style:{width:24,height:24,borderRadius:'50%',background:v.primary,cursor:'pointer',
-                  border:settings.theme===k?'3px solid #fff':'3px solid transparent',
-                  boxShadow:settings.theme===k?`0 0 0 2px ${v.primary}`:'none'}})
-            ),
-            e(CustomColorSwatch,{
-              selected:settings.theme==='custom',
-              customColor:settings.customColor,
-              onPick:hex=>setSettings(s=>({...s,theme:'custom',customColor:hex}))
-            })
-          )
-        })
-      ),
-      e(Section,{icon:'🏠',title:'Home'},
-        e(HomeAddressInput,{settings,setSettings,theme})
-      ),
       e(Section,{icon:'📅',title:'Calendar'},
         e(Row,{label:'Default view',border:true,
           right:e('select',{value:settings.defaultTab,onChange:ev=>setSettings(s=>({...s,defaultTab:ev.target.value})),
@@ -591,9 +591,6 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
             googleAccessToken?'Disconnect':'Sign in')
         }),
         googleAuthError&&e('div',{style:{padding:'0 14px 12px',fontSize:12,color:'#b91c1c'}},googleAuthError)
-      ),
-      e(Section,{icon:'🎸',title:'Stage Plot'},
-        e(StagePlotSection,{settings,setSettings,theme})
       ),
       e(Section,{icon:'🚗',title:'Mileage report'},
         e('div',{onClick:()=>setMileageOpen(o=>!o),style:{padding:'12px 14px',display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'pointer',borderBottom:mileageOpen?'1px solid #e5e7eb':'none'}},
@@ -641,6 +638,9 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
             e('button',{onClick:()=>{if(window.confirm('Clear all mileage logs?'))setMileageLog([]);},style:{fontSize:12,color:'#b91c1c',borderColor:'#fca5a5',width:'100%',padding:'7px 0'}},'Clear mileage log')
           )
         )
+      ),
+      e(Section,{icon:'🎸',title:'Stage Plot'},
+        e(StagePlotSection,{settings,setSettings,theme})
       ),
       e(Section,{icon:'📤',title:'Data'},
         e(Row,{label:'Share schedule',sub:'A clean, printable view of upcoming shows to send to friends, family, or fans',border:true,
