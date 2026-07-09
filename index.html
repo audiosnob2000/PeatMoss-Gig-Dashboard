@@ -671,14 +671,13 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
   const toDisplayDistance=miles=>mileageUnit==='km'?miles*KM_PER_MILE:miles;
   // Grouped by month so a full season of trips doesn't dump one giant flat
   // list on screen — each month collapses to a subtotal, current month
-  // starts open. idx is the trip's real position in mileageLog (not its
-  // position within the group), since that's what deleting needs.
+  // starts open.
   const monthGroups=useMemo(()=>{
     const map=new Map();
-    mileageLog.forEach((t,idx)=>{
+    mileageLog.forEach(t=>{
       const key=(t.date||'').slice(0,7)||'unknown';
       if(!map.has(key))map.set(key,[]);
-      map.get(key).push({...t,idx});
+      map.get(key).push(t);
     });
     return Array.from(map.entries())
       .sort((a,b)=>a[0]<b[0]?1:-1)
@@ -901,17 +900,26 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
               ),
               e('span',{style:{fontSize:14,color:'#9ca3af'}},openMonths.has(group.key)?'∨':'›')
             ),
-            openMonths.has(group.key)&&group.trips.map((t,gi)=>e('div',{key:t.idx,style:{padding:'10px 14px',borderBottom:gi<group.trips.length-1?'1px solid #f1f1f3':'none',display:'flex',justifyContent:'space-between',alignItems:'center'}},
+            openMonths.has(group.key)&&group.trips.map((t,gi)=>e('div',{key:t.id||gi,style:{padding:'10px 14px',borderBottom:gi<group.trips.length-1?'1px solid #f1f1f3':'none',display:'flex',justifyContent:'space-between',alignItems:'center'}},
               e('div',null,e('div',{style:{fontSize:13,fontWeight:500,color:'#111827'}},t.venue),e('div',{style:{fontSize:11,color:'#9ca3af'}},t.date)),
               e('div',{style:{display:'flex',alignItems:'center',gap:10}},
                 e('div',{style:{fontSize:13,fontWeight:500,color:theme.primary}},toDisplayDistance(t.miles).toFixed(1)+' '+mileageUnit),
-                e('button',{onClick:()=>setMileageLog(prev=>prev.filter((_,idx)=>idx!==t.idx)),
+                e('button',{onClick:()=>{
+                    setMileageLog(prev=>prev.filter(x=>x!==t));
+                    if(t.id) db.collection('mileageTrips').doc(t.id).delete().catch(()=>{});
+                  },
                   style:{border:'none',background:'none',color:'#d1d5db',fontSize:18,cursor:'pointer',padding:'0 4px',lineHeight:1}},'×')
               )
             ))
           )),
           mileageLog.length>0&&e('div',{style:{padding:'10px 14px',borderTop:'1px solid #e5e7eb'}},
-            e('button',{onClick:()=>{if(window.confirm('Clear all mileage logs?'))setMileageLog([]);},style:{fontSize:12,color:'#b91c1c',borderColor:'#fca5a5',width:'100%',padding:'7px 0'}},'Clear mileage log')
+            e('button',{onClick:()=>{
+                if(!window.confirm('Clear all mileage logs?'))return;
+                const batch=db.batch();
+                mileageLog.forEach(t=>{if(t.id)batch.delete(db.collection('mileageTrips').doc(t.id));});
+                batch.commit().catch(()=>{});
+                setMileageLog([]);
+              },style:{fontSize:12,color:'#b91c1c',borderColor:'#fca5a5',width:'100%',padding:'7px 0'}},'Clear mileage log')
           )
         )
       ),
@@ -1205,6 +1213,32 @@ function App(){
       else localStorage.removeItem('pmtf_google_auth');
     }catch{}
   },[googleAccessToken,googleTokenExpiresAt]);
+
+  // Back up this device's mileage log to Firestore so it survives local
+  // storage getting cleared (the same class of loss that hit gigs/setlists
+  // before they got synced). Mileage is personal — every trip carries this
+  // device's id and each client filters down to just its own, so nobody
+  // else's trips show up here even though the collection itself is shared.
+  useEffect(()=>{
+    const deviceId=getDeviceId();
+    let migrating=false;
+    const unsub=db.collection('mileageTrips').onSnapshot(snap=>{
+      const mine=snap.docs.filter(d=>d.data().deviceId===deviceId);
+      if(mine.length===0&&!migrating&&mileageLog.length>0&&!localStorage.getItem('pmtf_mileage_migrated')){
+        migrating=true;
+        const withIds=mileageLog.map(t=>t.id?t:{...t,id:'trip'+Date.now()+Math.random().toString(36).slice(2,8)});
+        const batch=db.batch();
+        withIds.forEach(t=>{const{id,...rest}=t;batch.set(db.collection('mileageTrips').doc(id),{...rest,deviceId});});
+        batch.commit().then(()=>{
+          try{localStorage.setItem('pmtf_mileage_migrated','1');}catch{}
+          setMileageLog(withIds);
+        }).catch(()=>{migrating=false;});
+        return;
+      }
+      setMileageLog(mine.map(d=>{const{deviceId,...rest}=d.data();return{id:d.id,...rest};}));
+    },()=>{});
+    return unsub;
+  },[]);
 
   // Keep ref in sync with state so GPS callback can read it
   useEffect(()=>{ trackingRef.current=trackingMiles; },[trackingMiles]);
@@ -1629,12 +1663,16 @@ function App(){
     }
     const t=trackingRef.current;
     if(t){
-      setMileageLog(prev=>[...prev,{
+      const newTrip={
+        id:'trip'+Date.now(),
         gigId:t.gigId,
         venue:t.venueName,
         date:t.date,
         miles:parseFloat((t.miles||0).toFixed(1))
-      }]);
+      };
+      setMileageLog(prev=>[...prev,newTrip]);
+      const{id,...tripBody}=newTrip;
+      db.collection('mileageTrips').doc(id).set({...tripBody,deviceId:getDeviceId()}).catch(()=>{});
     }
     setTrackingMiles(null);
     trackingRef.current=null;
