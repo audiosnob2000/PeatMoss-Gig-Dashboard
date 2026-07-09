@@ -246,6 +246,18 @@ function typeStyle(t){
   if(t==="private event")return {bg:"#FAECE7",color:"#993C1D"};
   return {bg:"#E1F5EE",color:"#085041"};
 }
+// Steps the header band-name font size down as the name gets longer, so it
+// keeps to one centered line instead of wrapping — most bands fit at full
+// size; only unusually long names actually shrink.
+function bandNameFontSize(name){
+  const len=(name||'').length;
+  if(len<=16)return 26;
+  if(len<=22)return 24;
+  if(len<=28)return 21;
+  if(len<=36)return 18;
+  if(len<=46)return 15;
+  return 13;
+}
 
 // Keep this display clean: just the venue itself (not "@ Venue" add-ons or
 // descriptive suffixes), just town/state (not a full address or business
@@ -648,7 +660,7 @@ function CustomColorSwatch({selected,customColor,onPick}){
   );
 }
 
-function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar,onAutoScrolled}){
+function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar,onAutoScrolled,syncFromGoogleCalendar,calSyncing,lastSynced}){
   const googleCalendarRowRef=useRef(null);
   useEffect(()=>{
     if(autoScrollToCalendar&&googleCalendarRowRef.current){
@@ -875,13 +887,19 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         e('div',{ref:googleCalendarRowRef},
           e(Row,{label:googleAccessToken?'Connected to Google Calendar':'Connect Google Calendar',
             sub:googleAccessToken?'Gigs you add/edit/delete now write directly to the shared calendar':'Sign in to make "+ Add gig" write to the real shared calendar instead of just this device',
-            border:false,
+            border:true,
             right:e('button',{onClick:googleAccessToken?signOutGoogle:signInWithGoogle,
               style:{fontSize:12,padding:'6px 14px',borderRadius:8,border:'1px solid '+(googleAccessToken?'#fca5a5':theme.mid),
                 color:googleAccessToken?'#b91c1c':theme.mid,background:'#fff',cursor:'pointer',fontWeight:500}},
               googleAccessToken?'Disconnect':'Sign in')
           })
         ),
+        e(Row,{label:'Sync now',sub:lastSynced?'Last synced: '+lastSynced:'Pulls the latest events from the shared calendar',border:false,
+          right:e('button',{onClick:()=>syncFromGoogleCalendar(),disabled:calSyncing,
+            style:{fontSize:12,padding:'6px 14px',borderRadius:8,border:'1px solid '+theme.mid,
+              color:theme.mid,background:'#fff',cursor:calSyncing?'default':'pointer',fontWeight:500}},
+            calSyncing?'Syncing…':'🔄 Sync')
+        }),
         googleAuthError&&e('div',{style:{padding:'0 14px 12px',fontSize:12,color:'#b91c1c'}},googleAuthError)
       ),
       e(Section,{icon:'🚗',title:'Mileage report'},
@@ -1840,15 +1858,12 @@ function App(){
     setViewingSetlist(null);setRenamingSetlistId(null);setReplacingSetlistId(null);
   };
 
-  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false)});
+  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced});
 
   return e('div',{style:{maxWidth:720,margin:'0 auto',paddingBottom:'2rem'}},
     e('div',{style:{background:theme.primary,borderRadius:'0 0 20px 20px',padding:'1.25rem 1.25rem 1.5rem',marginBottom:'1.25rem'}},
-      e('div',{style:{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:8}},
-        e('div',null,
-          e('div',{style:{fontSize:11,color:theme.headerSoft||theme.accent,fontWeight:500,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:4}},'Gig Dashboard'),
-          e('div',{style:{fontSize:22,fontWeight:600,color:theme.headerText,lineHeight:1.2}},settings.bandName)
-        ),
+      e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}},
+        e('div',{style:{fontSize:11,color:theme.headerSoft||theme.accent,fontWeight:500,letterSpacing:'0.08em',textTransform:'uppercase'}},'Gig Dashboard'),
         e('div',{style:{display:'flex',alignItems:'center',gap:8,flexShrink:0}},
           e('button',{
             onClick:()=>{setSettingsAutoScroll(true);setShowSettings(true);},
@@ -1863,10 +1878,13 @@ function App(){
             googleAccessToken?'Synced':'Offline'
           ),
           e('button',{onClick:()=>setShowSettings(true),style:{background:'none',border:'none',cursor:'pointer',fontSize:18,opacity:0.6,padding:0}},'⚙️'),
-          e('button',{onClick:syncFromGoogleCalendar,disabled:calSyncing,style:{background:`rgba(${theme.headerBase},0.15)`,color:theme.headerText,border:`1px solid rgba(${theme.headerBase},0.3)`,borderRadius:10,padding:'7px 12px',cursor:'pointer',fontSize:12,whiteSpace:'nowrap'}},calSyncing?'Syncing...':'🔄 Sync'),
           e('button',{onClick:openAdd,style:{background:theme.mid,color:theme.midText,border:`1px solid ${theme.light}`,borderRadius:10,padding:'7px 14px',cursor:'pointer',fontWeight:500,fontSize:13,whiteSpace:'nowrap'}},'+ Add gig')
         )
       ),
+      e('div',{style:{
+        fontSize:bandNameFontSize(settings.bandName),fontWeight:600,color:theme.headerText,
+        textAlign:'center',marginTop:16,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'
+      }},settings.bandName),
       e('div',{style:{display:'flex',gap:10,marginTop:'1rem',flexWrap:'wrap'}},
         [{label:'Upcoming Gigs',value:upcomingCount,accent:theme.light},{label:'Confirmed',value:confirmed,accent:theme.accent},{label:'Weddings',value:weddings,accent:'#AFA9EC'}].map(c=>
           e('div',{key:c.label,style:{flex:1,minWidth:80,background:`rgba(${theme.headerBase},0.1)`,borderRadius:10,padding:'10px 14px',border:`1px solid rgba(${theme.headerBase},0.15)`}},
@@ -1881,8 +1899,7 @@ function App(){
           'Next up: ',e('span',{style:{fontWeight:500,color:theme.headerText}},(nextGig.selfPA?'🔊 ':'')+nextGig.venue),
           e('span',{style:{color:theme.headerSoft||theme.accent}},` · ${nextGig.location} · ${nextGig.date}${nextGig.time?' · '+nextGig.time:''}`)
         )
-      ),
-      lastSynced&&e('div',{style:{marginTop:8,fontSize:11,color:`rgba(${theme.headerBase},0.5)`,textAlign:'right'}},'Last synced: '+lastSynced)
+      )
     ),
     e('div',{style:{padding:'0 1rem'}},
       e('div',{className:'tab-bar'},
