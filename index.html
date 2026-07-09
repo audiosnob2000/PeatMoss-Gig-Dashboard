@@ -545,7 +545,15 @@ function StagePlotSection({settings,setSettings,theme}){
   const [copied,setCopied]=useState(false);
   const [mode,setMode]=useState(settings.stagePlotUrl?'link':'upload');
   const [processing,setProcessing]=useState(false);
-  useEffect(()=>{if(linkRef.current)linkRef.current.value=settings.stagePlotUrl||'';},[]);
+  useEffect(()=>{if(linkRef.current)linkRef.current.value=settings.stagePlotUrl||'';},[settings.stagePlotUrl]);
+  // The stage plot is shared band-wide now, so it can change out from under
+  // this component (another member uploads/links one) after mount — keep
+  // the upload/link toggle in sync with whichever one actually has content,
+  // otherwise an incoming update could be hidden behind the wrong tab.
+  useEffect(()=>{
+    if(settings.stagePlotUrl)setMode('link');
+    else if(settings.stagePlotFile)setMode('upload');
+  },[settings.stagePlotUrl,settings.stagePlotFile]);
   const saveLink=()=>{
     if(linkRef.current) setSettings(s=>({...s,stagePlotUrl:linkRef.current.value.trim(),stagePlotFile:null}));
   };
@@ -1149,6 +1157,8 @@ function App(){
   const checklistHydratedRef=useRef(false);
   // Same guard, same reasoning, for unpaid-gig marks (also per-device).
   const unpaidHydratedRef=useRef(false);
+  // Same guard, but for the stage plot, which is shared band-wide (one doc, no deviceId).
+  const stagePlotHydratedRef=useRef(false);
 
   const theme=useMemo(()=>{
     const base=settings.theme==='custom'&&settings.customColor?buildTheme(settings.customColor,{preserveLightness:true}):(THEMES[settings.theme]||THEMES.green);
@@ -1230,6 +1240,35 @@ function App(){
     if(!settings.calendarId)return;
     db.collection('bandSettings').doc('global').set({calendarId:settings.calendarId},{merge:true}).catch(()=>{});
   },[settings.calendarId]);
+  // Live-sync the stage plot from Firestore, shared band-wide (unlike
+  // mileage/checklist/unpaid-gigs, this is one doc for the whole band, not
+  // per-device) — whoever uploads or links a stage plot, everyone should
+  // see it. Same one-time migration + hydration-guard pattern as those.
+  useEffect(()=>{
+    let migrating=false;
+    const localUrl=settings.stagePlotUrl;
+    const localFile=settings.stagePlotFile;
+    const unsub=db.collection('bandSettings').doc('stagePlot').onSnapshot(doc=>{
+      if(!doc.exists&&!migrating&&(localUrl||localFile)&&!localStorage.getItem('pmtf_stageplot_migrated')){
+        migrating=true;
+        db.collection('bandSettings').doc('stagePlot').set({stagePlotUrl:localUrl||'',stagePlotFile:localFile||null}).then(()=>{
+          try{localStorage.setItem('pmtf_stageplot_migrated','1');}catch{}
+          stagePlotHydratedRef.current=true;
+        }).catch(()=>{migrating=false;});
+        return;
+      }
+      if(doc.exists){
+        const d=doc.data();
+        setSettings(s=>({...s,stagePlotUrl:d.stagePlotUrl||'',stagePlotFile:d.stagePlotFile||null}));
+      }
+      stagePlotHydratedRef.current=true;
+    },()=>{stagePlotHydratedRef.current=true;});
+    return unsub;
+  },[]);
+  useEffect(()=>{
+    if(!stagePlotHydratedRef.current)return;
+    db.collection('bandSettings').doc('stagePlot').set({stagePlotUrl:settings.stagePlotUrl||'',stagePlotFile:settings.stagePlotFile||null}).catch(()=>{});
+  },[settings.stagePlotUrl,settings.stagePlotFile]);
   // Live-sync setlists from Firestore so every band member sees the same
   // list. On first run, if Firestore is empty but this device already has
   // setlists saved locally (from before sync existed), upload them once
