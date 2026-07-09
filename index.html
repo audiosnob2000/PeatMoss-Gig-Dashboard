@@ -160,10 +160,10 @@ const THEMES={
   blue: {primary:"#185FA5",mid:"#378ADD",light:"#85B7EB",pale:"#E6F1FB",accent:"#B5D4F4"},
   purple:{primary:"#3C3489",mid:"#7F77DD",light:"#AFA9EC",pale:"#EEEDFE",accent:"#CECBF6"},
   red: {primary:"#A32D2D",mid:"#E24B4A",light:"#F09595",pale:"#FCEBEB",accent:"#F7C1C1"},
-  dark: {primary:"#1a1a2e",mid:"#16213e",light:"#0f3460",pale:"#e94560",accent:"#a8a8b3"},
-  orange:buildTheme('#E2691E'),
-  teal: buildTheme('#0E8A93'),
-  pink: buildTheme('#D6488E'),
+  dark: {primary:"#1a1a2e",mid:"#16213e",light:"#0f3460",pale:"#E7EDF3",accent:"#a8a8b3"},
+  orange:buildTheme('#E2691E',{preserveLightness:true}),
+  teal: buildTheme('#0E8A93',{preserveLightness:true}),
+  pink: buildTheme('#D6488E',{preserveLightness:true}),
 };
 const US_STATE_ABBR={
   Alabama:'AL',Alaska:'AK',Arizona:'AZ',Arkansas:'AR',California:'CA',Colorado:'CO',
