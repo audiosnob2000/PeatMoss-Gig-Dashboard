@@ -1140,6 +1140,11 @@ function App(){
   const setlistFileInputRef=useRef(null);
   const replaceSetlistFileInputRef=useRef(null);
   const firestoreGigIdsRef=useRef(new Set());
+  // Guards the checklist Firestore write-effect from firing on mount, before
+  // the sync effect below has had a chance to read (or migrate) this
+  // device's existing data — otherwise an empty/stale local value could
+  // stomp real data still loading from Firestore.
+  const checklistHydratedRef=useRef(false);
 
   const theme=useMemo(()=>{
     const base=settings.theme==='custom'&&settings.customColor?buildTheme(settings.customColor,{preserveLightness:true}):(THEMES[settings.theme]||THEMES.green);
@@ -1154,7 +1159,10 @@ function App(){
 
   useEffect(()=>{try{localStorage.setItem('pmtf_gigs',JSON.stringify(gigs));}catch{}},[gigs]);
   useEffect(()=>{try{localStorage.setItem('pmtf_settings',JSON.stringify(settings));}catch{}},[settings]);
-  useEffect(()=>{try{localStorage.setItem('pmtf_members',JSON.stringify(members));}catch{}},[members]);
+  useEffect(()=>{
+    try{localStorage.setItem('pmtf_members',JSON.stringify(members));}catch{}
+    if(checklistHydratedRef.current) db.collection('checklists').doc(getDeviceId()).set({members}).catch(()=>{});
+  },[members]);
   useEffect(()=>{try{localStorage.setItem('pmtf_mileage',JSON.stringify(mileageLog));}catch{}},[mileageLog]);
   useEffect(()=>{try{if(pushToken)localStorage.setItem('pmtf_push_token',pushToken);else localStorage.removeItem('pmtf_push_token');}catch{}},[pushToken]);
   // Register the service worker once so it's ready to receive background
@@ -1292,6 +1300,28 @@ function App(){
       }
       setMileageLog(mine.map(d=>{const{deviceId,...rest}=d.data();return{id:d.id,...rest};}));
     },()=>{});
+    return unsub;
+  },[]);
+
+  // Back up this device's checklist (members + their items) to Firestore,
+  // same reasoning and pattern as mileage above — personal, not shared
+  // band-wide, stored as one doc per device rather than per-item since the
+  // whole checklist is small and always written/read as a unit.
+  useEffect(()=>{
+    const deviceId=getDeviceId();
+    let migrating=false;
+    const unsub=db.collection('checklists').doc(deviceId).onSnapshot(doc=>{
+      if(!doc.exists&&!migrating&&members.length>0&&!localStorage.getItem('pmtf_members_migrated')){
+        migrating=true;
+        db.collection('checklists').doc(deviceId).set({members}).then(()=>{
+          try{localStorage.setItem('pmtf_members_migrated','1');}catch{}
+          checklistHydratedRef.current=true;
+        }).catch(()=>{migrating=false;});
+        return;
+      }
+      if(doc.exists) setMembers(doc.data().members||[]);
+      checklistHydratedRef.current=true;
+    },()=>{checklistHydratedRef.current=true;});
     return unsub;
   },[]);
 
