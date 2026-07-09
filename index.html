@@ -353,7 +353,7 @@ function Badge({status}){
 }
 
 const SWIPE_DELETE_WIDTH=72;
-function SwipeableGigRow({g,bg,border,tc,onEdit,onDelete,onMap}){
+function SwipeableGigRow({g,bg,border,tc,onEdit,onDelete,onMap,pastUnpaid}){
   const [tx,setTx]=useState(0);
   const dragRef=useRef({startX:0,startTx:0,dragging:false,moved:false});
   const onPointerDown=ev=>{
@@ -380,21 +380,28 @@ function SwipeableGigRow({g,bg,border,tc,onEdit,onDelete,onMap}){
       onPointerDown,onPointerMove,onPointerUp,onPointerCancel:onPointerUp,
       style:{position:'relative',background:bg,padding:'12px 14px',display:'flex',alignItems:'center',gap:12,transform:`translateX(${tx}px)`,transition:dragRef.current.dragging?'none':'transform 0.2s ease',touchAction:'pan-y'}
     },
-      e('div',{style:{background:tc.bg,borderRadius:8,padding:'8px 0',width:44,flexShrink:0,textAlign:'center'}},
-        e('div',{style:{fontSize:16,fontWeight:500,color:tc.color,lineHeight:1}},g.date.slice(8)),
-        e('div',{style:{fontSize:10,color:tc.color,marginTop:2}},MONTHS[parseInt(g.date.slice(5,7))-1])
-      ),
-      e('div',{style:{flex:1,minWidth:0}},
-        e('div',{style:{fontWeight:500,fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},(g.selfPA?'🔊 ':'')+g.venue),
-        e('div',{style:{fontSize:12,color:'#6b7280',marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},scheduleShortLocation(g.location)+(g.time?' · '+g.time:'')),
-        e('div',{style:{display:'flex',gap:6,marginTop:5,flexWrap:'wrap',alignItems:'center'}},
-          e('span',{className:'badge',style:{background:tc.bg,color:tc.color}},g.type),
-          e(Badge,{status:g.status}),
-          g.location&&e('button',{onClick:ev=>{ev.stopPropagation();onMap();},
-            style:{fontSize:11,padding:'2px 8px',borderRadius:99,background:'#E0EFFE',color:'#1D4ED8',fontWeight:500,border:'none',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:3}},'📍 Map')
-        )
-      ),
-      e('button',{onClick:onEdit,style:{fontSize:12,padding:'5px 12px',flexShrink:0}},'Edit')
+      // Opacity lives on this inner wrapper, not the row above — the row
+      // itself must stay fully opaque so its solid background keeps hiding
+      // the swipe-to-delete panel underneath; fading the row directly let
+      // the red Delete panel show through faded rows.
+      e('div',{style:{display:'flex',alignItems:'center',gap:12,width:'100%',opacity:pastUnpaid?0.45:1}},
+        e('div',{style:{background:tc.bg,borderRadius:8,padding:'8px 0',width:44,flexShrink:0,textAlign:'center'}},
+          e('div',{style:{fontSize:16,fontWeight:500,color:tc.color,lineHeight:1}},g.date.slice(8)),
+          e('div',{style:{fontSize:10,color:tc.color,marginTop:2}},MONTHS[parseInt(g.date.slice(5,7))-1])
+        ),
+        e('div',{style:{flex:1,minWidth:0}},
+          e('div',{style:{fontWeight:500,fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},(g.selfPA?'🔊 ':'')+g.venue),
+          e('div',{style:{fontSize:12,color:'#6b7280',marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},scheduleShortLocation(g.location)+(g.time?' · '+g.time:'')),
+          e('div',{style:{display:'flex',gap:6,marginTop:5,flexWrap:'wrap',alignItems:'center'}},
+            e('span',{className:'badge',style:{background:tc.bg,color:tc.color}},g.type),
+            e(Badge,{status:g.status}),
+            pastUnpaid&&e('span',{style:{fontSize:10,padding:'2px 8px',borderRadius:99,fontWeight:600,background:'#FEE2E2',color:'#B91C1C',display:'inline-flex',alignItems:'center',gap:3}},'💲 Unpaid'),
+            g.location&&e('button',{onClick:ev=>{ev.stopPropagation();onMap();},
+              style:{fontSize:11,padding:'2px 8px',borderRadius:99,background:'#E0EFFE',color:'#1D4ED8',fontWeight:500,border:'none',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:3}},'📍 Map')
+          )
+        ),
+        e('button',{onClick:onEdit,style:{fontSize:12,padding:'5px 12px',flexShrink:0}},'Edit')
+      )
     )
   );
 }
@@ -2085,7 +2092,8 @@ function App(){
               border:idx<filteredUpcoming.length-1?'1px solid #e5e7eb':'none',
               onEdit:()=>openEdit(g),
               onDelete:deleteGig,
-              onMap:()=>openMaps(g.venue,g.location)
+              onMap:()=>openMaps(g.venue,g.location),
+              pastUnpaid:g.date<todayStr&&unpaidGigIds.includes(g.id)
             });
           })
         ),
