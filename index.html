@@ -1833,7 +1833,10 @@ function App(){
   // ────────────────────────────────────────────────────────────────────────
 
   const upcomingGigsAll=gigs.filter(g=>g.date>=todayStr);
-  const listGigs=settings.showPast?gigs:upcomingGigsAll;
+  // "Show past gigs" off should still surface gigs marked unpaid, even once
+  // their date has passed — otherwise a gig you're tracking as unpaid just
+  // vanishes from the Calendar/Shows tabs the moment its date passes.
+  const listGigs=settings.showPast?gigs:gigs.filter(g=>g.date>=todayStr||unpaidGigIds.includes(g.id));
   const upcomingCount=upcomingGigsAll.length;
   const confirmed=upcomingGigsAll.filter(g=>g.status==='confirmed').length;
   const weddings=upcomingGigsAll.filter(g=>g.type==='wedding').length;
@@ -1841,7 +1844,7 @@ function App(){
   const upcoming=useMemo(()=>[...listGigs].sort((a,b)=>{
     const va=a[sort.col]||'',vb=b[sort.col]||'';
     return va<vb?-sort.dir:va>vb?sort.dir:0;
-  }),[gigs,sort,settings.showPast]);
+  }),[gigs,sort,settings.showPast,unpaidGigIds]);
   const filteredUpcoming=useMemo(()=>{
     const q=showsSearch.trim().toLowerCase();
     if(!q)return upcoming;
@@ -1858,7 +1861,7 @@ function App(){
     return{month:m,count:mg.length,weddings:mg.filter(g=>g.type==='wedding').length,private:mg.filter(g=>g.type==='private event').length,regular:mg.filter(g=>g.type==='bar'||g.type==='other').length};
   }),[gigs,chartYear,chartShowPast,upcomingGigsAll]);
 
-  const gigsByDate=useMemo(()=>{const m={};(settings.showPast?gigs:upcomingGigsAll).forEach(g=>{if(!m[g.date])m[g.date]=[];m[g.date].push(g);});return m;},[gigs,settings.showPast]);
+  const gigsByDate=useMemo(()=>{const m={};(settings.showPast?gigs:gigs.filter(g=>g.date>=todayStr||unpaidGigIds.includes(g.id))).forEach(g=>{if(!m[g.date])m[g.date]=[];m[g.date].push(g);});return m;},[gigs,settings.showPast,unpaidGigIds]);
 
   const firstDay=new Date(calYear,calMonth,1).getDay();
   const daysInMonth=new Date(calYear,calMonth+1,0).getDate();
