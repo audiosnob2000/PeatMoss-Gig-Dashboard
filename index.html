@@ -1886,8 +1886,8 @@ function App(){
             const hasWedding=dg.some(g=>g.type==='wedding');
             return e('div',{key:day,className:'cal-cell',onClick:()=>{if(dg.length===1)setGigPopup(dg[0]);else if(dg.length>1)setDayPopup({date:ds,gigs:dg});else openAdd(ds);},
               style:{minHeight:56,padding:'4px 5px',borderRadius:8,cursor:'pointer',
-                background:allCancelled?'#FEE2E2':hasWedding?'#EEEDFE':hasgig?theme.pale:'#f9fafb',
-                border:isToday?`2px solid ${theme.mid}`:allCancelled?'1px solid #F87171':hasWedding?'1px solid #AFA9EC':hasgig?`1px solid ${theme.light}`:'1px solid #e5e7eb',
+                background:allCancelled?'#FEE2E2':hasWedding?'#EEEDFE':hasgig?'#E1F5EE':'#f9fafb',
+                border:isToday?`2px solid ${theme.mid}`:allCancelled?'1px solid #F87171':hasWedding?'1px solid #AFA9EC':hasgig?'1px solid #5DCAA5':'1px solid #e5e7eb',
                 overflow:'hidden'}},
               e('div',{className:'cal-day',style:{fontSize:12,fontWeight:isToday?500:400,color:isToday?theme.primary:allCancelled?'#B91C1C':hasWedding?'#534AB7':hasgig?'#085041':'#9ca3af'}},day),
               dg.map(g=>{
@@ -1903,7 +1903,7 @@ function App(){
           })
         ),
         e('div',{style:{display:'flex',gap:12,fontSize:12,color:'#6b7280',flexWrap:'wrap'}},
-          e('span',{style:{display:'flex',alignItems:'center',gap:5}},e('span',{style:{width:10,height:10,borderRadius:3,background:theme.pale,border:`1px solid ${theme.light}`,display:'inline-block'}}),' has gig'),
+          e('span',{style:{display:'flex',alignItems:'center',gap:5}},e('span',{style:{width:10,height:10,borderRadius:3,background:'#E1F5EE',border:'1px solid #5DCAA5',display:'inline-block'}}),' has gig'),
           e('span',{style:{display:'flex',alignItems:'center',gap:5}},e('span',{style:{width:10,height:10,borderRadius:3,background:'#FEE2E2',border:'1px solid #F87171',display:'inline-block'}}),' cancelled'),
           e('span',{style:{display:'flex',alignItems:'center',gap:5}},e('span',{style:{width:10,height:10,borderRadius:3,background:'#f9fafb',border:'1px solid #e5e7eb',display:'inline-block'}}),' open')
         )
