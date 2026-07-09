@@ -765,23 +765,28 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         e(HomeAddressInput,{settings,setSettings,theme})
       ),
       e(Section,{icon:'🔔',title:'Notifications'},
-        e(Row,{label:'Push notifications',
-          sub:pushEnabling?'Enabling…':pushToken?reminderSummary():'Get notified on this device when you have upcoming gigs',
-          border:pushToken&&notificationsOpen,
-          right:e('div',{style:{display:'flex',alignItems:'center',gap:10}},
-            e('button',{
-              onClick:()=>{
-                if(pushToken){disablePushNotifications();setNotificationsOpen(false);}
-                else enablePushNotifications();
-              },
-              disabled:pushEnabling,
-              style:{border:'none',background:'none',padding:0,cursor:pushEnabling?'default':'pointer',fontSize:13,fontWeight:600,color:pushToken?theme.mid:'#9ca3af'}
-            },pushEnabling?'…':pushToken?'On':'Off'),
-            pushToken&&e('button',{onClick:()=>setNotificationsOpen(o=>!o),
-              style:{border:'none',background:'none',padding:0,cursor:'pointer',fontSize:16,color:'#9ca3af'}},
-              notificationsOpen?'∨':'›')
-          )
-        }),
+        e('div',{
+          onClick:()=>{if(pushToken)setNotificationsOpen(o=>!o);},
+          style:{cursor:pushToken?'pointer':'default'}
+        },
+          e(Row,{label:'Push notifications',
+            sub:pushEnabling?'Enabling…':pushToken?reminderSummary():'Get notified on this device when you have upcoming gigs',
+            border:pushToken&&notificationsOpen,
+            right:e('div',{style:{display:'flex',alignItems:'center',gap:10}},
+              e('button',{
+                onClick:ev=>{
+                  ev.stopPropagation();
+                  if(pushToken){disablePushNotifications();setNotificationsOpen(false);}
+                  else enablePushNotifications();
+                },
+                disabled:pushEnabling,
+                style:{border:'none',background:'none',padding:0,cursor:pushEnabling?'default':'pointer',fontSize:13,fontWeight:600,color:pushToken?theme.mid:'#9ca3af'}
+              },pushEnabling?'…':pushToken?'On':'Off'),
+              pushToken&&e('span',{style:{fontSize:16,color:'#9ca3af'}},
+                notificationsOpen?'∨':'›')
+            )
+          })
+        ),
         pushError&&e('div',{style:{padding:'0 14px 12px',fontSize:12,color:'#b91c1c'}},pushError),
         pushToken&&notificationsOpen&&e(Row,{label:'Upcoming gig reminder 1',sub:'First heads-up before a show',border:true,
           right:e('select',{value:settings.gigReminder1,
