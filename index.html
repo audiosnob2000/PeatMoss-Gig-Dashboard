@@ -2057,11 +2057,16 @@ function App(){
             );
           })
         ),
-        e('div',{style:{display:'flex',gap:12,fontSize:12,color:'#6b7280',flexWrap:'wrap'}},
-          e('span',{style:{display:'flex',alignItems:'center',gap:5}},e('span',{style:{width:10,height:10,borderRadius:3,background:'#E1F5EE',border:'1px solid #5DCAA5',display:'inline-block'}}),' has gig'),
-          e('span',{style:{display:'flex',alignItems:'center',gap:5}},e('span',{style:{width:10,height:10,borderRadius:3,background:'#DC2626',display:'inline-block'}}),' unpaid'),
-          e('span',{style:{display:'flex',alignItems:'center',gap:5}},e('span',{style:{width:10,height:10,borderRadius:3,background:'#FEE2E2',border:'1px solid #F87171',display:'inline-block'}}),' cancelled'),
-          e('span',{style:{display:'flex',alignItems:'center',gap:5}},e('span',{style:{width:10,height:10,borderRadius:3,background:'#f9fafb',border:'1px solid #e5e7eb',display:'inline-block'}}),' open')
+        e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:12,color:'#6b7280',flexWrap:'wrap',gap:12}},
+          e('div',{style:{display:'flex',gap:12,flexWrap:'wrap'}},
+            e('span',{style:{display:'flex',alignItems:'center',gap:5}},e('span',{style:{width:10,height:10,borderRadius:3,background:'#E1F5EE',border:'1px solid #5DCAA5',display:'inline-block'}}),' has gig'),
+            e('span',{style:{display:'flex',alignItems:'center',gap:5}},e('span',{style:{width:10,height:10,borderRadius:3,background:'#FEE2E2',border:'1px solid #F87171',display:'inline-block'}}),' cancelled'),
+            e('span',{style:{display:'flex',alignItems:'center',gap:5}},e('span',{style:{width:10,height:10,borderRadius:3,background:'#f9fafb',border:'1px solid #e5e7eb',display:'inline-block'}}),' open')
+          ),
+          e('span',{style:{display:'flex',alignItems:'center',gap:5}},
+            e('span',{style:{background:'#DC2626',color:'#fff',fontSize:7,fontWeight:700,width:11,height:11,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}},'$'),
+            ' unpaid'
+          )
         )
       ),
       tab==='list'&&e('div',null,
