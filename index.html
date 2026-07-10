@@ -540,7 +540,11 @@ function HomeAddressInput({settings,setSettings,theme}){
     ),
     // A real link the user taps directly — window.open() can't reliably
     // hand off to Safari from inside an installed iOS home-screen app.
-    showOpenInSafari&&e('a',{href:window.location.href,target:'_blank',rel:'noopener',
+    // The x-safari- URL scheme prefix forces iOS to open Safari specifically
+    // rather than just re-navigating within this same standalone context,
+    // which is what a plain same-URL target="_blank" link was silently
+    // doing (no visible effect, since the URL never actually changed).
+    showOpenInSafari&&e('a',{href:'x-safari-'+window.location.href,target:'_blank',rel:'noopener',
       style:{display:'block',textAlign:'center',marginTop:8,fontSize:12.5,color:theme.mid,fontWeight:500,textDecoration:'underline'}},
       '↗ Open in Safari to use your location')
   );
@@ -2474,7 +2478,9 @@ function App(){
     ),
 
     // Real <a> tag, not a scripted window.open() — that doesn't reliably
-    // hand off to Safari from inside an installed iOS home-screen app.
+    // hand off to Safari from inside an installed iOS home-screen app. The
+    // x-safari- URL scheme prefix (see the matching home-address link above)
+    // forces an actual Safari hand-off instead of a same-URL no-op.
     gpsStandaloneHelp&&e('div',{style:{
       position:'fixed',bottom:20,left:'50%',transform:'translateX(-50%)',
       width:'min(380px,92vw)',background:'#fff',borderRadius:14,
@@ -2485,7 +2491,7 @@ function App(){
         'Mileage tracking needs location access, which doesn\'t work reliably in the installed app on iPhone — an Apple limitation. Open this page in Safari to track mileage there instead.'
       ),
       e('div',{style:{display:'flex',gap:8}},
-        e('a',{href:window.location.href,target:'_blank',rel:'noopener',onClick:()=>setGpsStandaloneHelp(false),
+        e('a',{href:'x-safari-'+window.location.href,target:'_blank',rel:'noopener',onClick:()=>setGpsStandaloneHelp(false),
           style:{flex:1,textAlign:'center',padding:'8px 0',borderRadius:8,background:theme.mid,color:'#fff',fontWeight:600,fontSize:13,textDecoration:'none'}},
           '↗ Open in Safari'),
         e('button',{onClick:()=>setGpsStandaloneHelp(false),
