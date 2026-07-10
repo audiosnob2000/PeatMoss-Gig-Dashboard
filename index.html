@@ -870,7 +870,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
           )
         }),
         pushToken&&notificationsOpen&&e(Row,{label:'🔊 Different time for sound gigs',
-          sub:'Override reminder 1 on gigs marked "doing sound" — those usually need more lead time',
+          sub:'Override reminder 2 on gigs marked "doing sound" — those usually need more lead time',
           border:settings.selfPaReminderEnabled,
           right:e(Toggle,{on:settings.selfPaReminderEnabled,label:'Different time for sound gigs',
             onToggle:()=>setSettings(s=>({...s,selfPaReminderEnabled:!s.selfPaReminderEnabled}))})
