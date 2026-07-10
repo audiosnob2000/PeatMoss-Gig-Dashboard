@@ -237,11 +237,13 @@ exports.sendGigReminders = onSchedule({schedule: 'every 15 minutes', timeZone: '
   for (const gig of gigs) {
     for (const doc of tokensSnap.docs) {
       const data = doc.data();
-      // A gig marked "doing sound" needs more lead time — swap reminder 1
+      // A gig marked "doing sound" needs more lead time — swap reminder 2
       // for the standalone sound-gig override when the device has one set.
-      const effectiveReminder1 = (gig.selfPA && data.selfPaReminderEnabled && data.selfPaReminderTime)
-        ? data.selfPaReminderTime : data.reminder1;
-      for (const [slotName, pref] of [['reminder1', effectiveReminder1], ['reminder2', data.reminder2]]) {
+      // Reminder 1 is left untouched so it always fires as configured,
+      // sound gig or not.
+      const effectiveReminder2 = (gig.selfPA && data.selfPaReminderEnabled && data.selfPaReminderTime)
+        ? data.selfPaReminderTime : data.reminder2;
+      for (const [slotName, pref] of [['reminder1', data.reminder1], ['reminder2', effectiveReminder2]]) {
         if (!pref || pref === 'off') continue;
         const offset = REMINDER_OFFSETS[pref];
         if (!offset) continue;
