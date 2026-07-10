@@ -1728,7 +1728,24 @@ function App(){
         // show the same gig twice forever.
         const dedupeKey=g=>g.date+'|'+(g.venue||'').trim().toLowerCase();
         const calKeys=new Set(calGigs.map(dedupeKey));
-        setGigs(prev=>[...prev.filter(g=>!g.fromCalendar&&!calKeys.has(dedupeKey(g))),...calGigs]);
+        setGigs(prev=>{
+          // A gig marked unpaid before it ever synced to the real Google
+          // Calendar gets superseded right here by its calendar-sourced
+          // counterpart, which carries Google's own event id instead of the
+          // local one — otherwise-identical gig, brand new id. Remap any
+          // unpaid mark onto that new id so it isn't silently lost the next
+          // time the app opens and this sync runs again.
+          const calByKey=new Map(calGigs.map(g=>[dedupeKey(g),g]));
+          const idRemap=new Map();
+          prev.forEach(g=>{
+            if(!g.fromCalendar&&calKeys.has(dedupeKey(g))){
+              const matched=calByKey.get(dedupeKey(g));
+              if(matched) idRemap.set(g.id,matched.id);
+            }
+          });
+          if(idRemap.size) setUnpaidGigIds(ids=>ids.map(id=>idRemap.has(id)?idRemap.get(id):id));
+          return [...prev.filter(g=>!g.fromCalendar&&!calKeys.has(dedupeKey(g))),...calGigs];
+        });
         setLastSynced(new Date().toLocaleTimeString());
       } else if(!silent){
         alert('No events found on that calendar for this year.');
