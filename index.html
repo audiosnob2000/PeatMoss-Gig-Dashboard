@@ -479,7 +479,23 @@ function Modal({gig,prefillDate,onSave,onDelete,onClose}){
   );
 }
 
-function Section({icon,title,children}){return e('div',{style:{marginBottom:20}},e('div',{style:{fontSize:11,fontWeight:500,color:'#6b7280',textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:8}},[icon,' ',title]),e('div',{style:{background:'#fff',borderRadius:12,border:'1px solid #e5e7eb',overflow:'hidden'}},children));}
+// Collapses to a one-line summary by default — Settings used to dump every
+// section open at once, which made it hard to scan. iconBg gives each
+// section a distinct colored tile so they're easy to tell apart at a glance
+// even while collapsed.
+function Section({icon,iconBg,title,summary,isOpen,onToggle,children}){
+  return e('div',{style:{background:'#fff',borderRadius:12,border:'1px solid #e5e7eb',overflow:'hidden',marginBottom:10}},
+    e('div',{onClick:onToggle,style:{display:'flex',alignItems:'center',gap:11,padding:'13px 14px',cursor:'pointer'}},
+      e('div',{style:{width:26,height:26,borderRadius:8,background:iconBg||'#f3f4f6',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flexShrink:0}},icon),
+      e('div',{style:{flex:1,minWidth:0}},
+        e('div',{style:{fontSize:14,fontWeight:600,color:'#111827'}},title),
+        summary&&e('div',{style:{fontSize:12,color:'#9ca3af',marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},summary)
+      ),
+      e('span',{style:{fontSize:16,color:'#9ca3af',flexShrink:0,transform:isOpen?'rotate(90deg)':'none',transition:'transform 0.15s'}},'›')
+    ),
+    isOpen&&e('div',{style:{borderTop:'1px solid #e5e7eb'}},children)
+  );
+}
 function Row({label,sub,right,danger,border=true}){return e('div',{style:{padding:'12px 14px',borderBottom:border?'1px solid #e5e7eb':'none',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}},e('div',null,e('div',{style:{fontSize:14,color:danger?'#b91c1c':'#111827'}},label),sub&&e('div',{style:{fontSize:12,color:'#9ca3af',marginTop:2}},sub)),right&&e('div',{style:{flexShrink:0}},right));}
 
 function HomeAddressInput({settings,setSettings,theme}){
@@ -701,17 +717,30 @@ function CustomColorSwatch({selected,customColor,onPick}){
 
 function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar,onAutoScrolled,syncFromGoogleCalendar,calSyncing,lastSynced}){
   const googleCalendarRowRef=useRef(null);
+  // All sections collapse to a one-line summary by default (see Section
+  // below) so opening Settings doesn't dump every card open at once. Auto-
+  // scrolling to the Calendar row (after a Google sign-in redirect) has to
+  // open that section first and only scroll once it's actually rendered —
+  // the ref is null while the section is collapsed.
+  const [openSections,setOpenSections]=useState(()=>new Set());
+  const toggleSection=key=>setOpenSections(prev=>{
+    const next=new Set(prev);
+    if(next.has(key))next.delete(key);else next.add(key);
+    return next;
+  });
   useEffect(()=>{
-    if(autoScrollToCalendar&&googleCalendarRowRef.current){
-      googleCalendarRowRef.current.scrollIntoView({behavior:'smooth',block:'center'});
-      onAutoScrolled();
+    if(autoScrollToCalendar){
+      setOpenSections(prev=>{const next=new Set(prev);next.add('calendar');return next;});
+      setTimeout(()=>{
+        if(googleCalendarRowRef.current) googleCalendarRowRef.current.scrollIntoView({behavior:'smooth',block:'center'});
+        onAutoScrolled();
+      },50);
     }
   },[autoScrollToCalendar]);
   const [confirmReset,setConfirmReset]=useState(false);
   const [showSchedulePreview,setShowSchedulePreview]=useState(false);
   const [editingBandName,setEditingBandName]=useState(false);
   const [bandNameValue,setBandNameValue]=useState('');
-  const [mileageOpen,setMileageOpen]=useState(false);
   const [addingTrip,setAddingTrip]=useState(false);
   const [manualDate,setManualDate]=useState(todayStr);
   const [manualMiles,setManualMiles]=useState('');
@@ -732,14 +761,13 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
     if(next.has(key))next.delete(key);else next.add(key);
     return next;
   });
-  const [notificationsOpen,setNotificationsOpen]=useState(false);
-  // Auto-expand the reminder controls the moment push notifications get
+  // Auto-expand the Notifications section the moment push notifications get
   // turned on (so there's somewhere to actually set them right away), but
   // only on that transition — not just because a token already existed
   // when Settings was reopened, which should stay collapsed by default.
   const prevPushTokenRef=useRef(pushToken);
   useEffect(()=>{
-    if(!prevPushTokenRef.current&&pushToken) setNotificationsOpen(true);
+    if(!prevPushTokenRef.current&&pushToken) setOpenSections(prev=>{const next=new Set(prev);next.add('notifications');return next;});
     prevPushTokenRef.current=pushToken;
   },[pushToken]);
   const REMINDER_SHORT={'1h':'1h before','2h':'2h before','3h':'3h before','4h':'4h before',dayof:'Day of','1d':'1d before','2d':'2d before','3d':'3d before'};
@@ -748,6 +776,14 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
     if(settings.selfPaReminderEnabled)parts.push('🔊 sound override on');
     return parts.length?parts.join(', '):'No reminders set';
   };
+  const THEME_LABEL={green:'Green',blue:'Blue',purple:'Purple',red:'Red',dark:'Dark',custom:'Custom'};
+  const appearanceSummary=(THEME_LABEL[settings.theme]||'Green')+' theme';
+  const homeSummary=settings.homeAddress
+    ?(settings.homeAddress.length>34?settings.homeAddress.slice(0,34)+'…':settings.homeAddress)
+    :'Not set';
+  const notificationsSummary=pushEnabling?'Enabling…':pushToken?reminderSummary():'Off';
+  const calendarSummary=googleAccessToken?'Google Calendar connected':'Not connected';
+  const stagePlotSummary=settings.stagePlotUrl?'Link saved':settings.stagePlotFile?'File uploaded':'Not set';
   const totalMiles=mileageLog.reduce((s,t)=>s+t.miles,0);
   const totalDeduction=(totalMiles*IRS_RATE).toFixed(2);
   // Trips are always stored in miles; mileageUnit only controls how they're
@@ -816,7 +852,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
       )
     ),
     e('div',{style:{padding:'1rem',maxWidth:520,margin:'0 auto'}},
-      e(Section,{icon:'🎨',title:'Appearance'},
+      e(Section,{icon:'🎨',iconBg:'#FEE9F0',title:'Appearance',summary:appearanceSummary,isOpen:openSections.has('appearance'),onToggle:()=>toggleSection('appearance')},
         e(Row,{label:'Band name',border:true,
           right:editingBandName
             ?e('div',{style:{display:'flex',alignItems:'center',gap:6}},
@@ -846,34 +882,24 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
           )
         })
       ),
-      e(Section,{icon:'🏠',title:'Home'},
+      e(Section,{icon:'🏠',iconBg:'#E0EFFE',title:'Home',summary:homeSummary,isOpen:openSections.has('home'),onToggle:()=>toggleSection('home')},
         e(HomeAddressInput,{settings,setSettings,theme})
       ),
-      e(Section,{icon:'🔔',title:'Notifications'},
-        e('div',{
-          onClick:()=>{if(pushToken)setNotificationsOpen(o=>!o);},
-          style:{cursor:pushToken?'pointer':'default'}
-        },
-          e(Row,{label:'Push notifications',
-            sub:pushEnabling?'Enabling…':pushToken?reminderSummary():'Get notified on this device when you have upcoming gigs',
-            border:pushToken&&notificationsOpen,
-            right:e('div',{style:{display:'flex',alignItems:'center',gap:10}},
-              e('button',{
-                onClick:ev=>{
-                  ev.stopPropagation();
-                  if(pushToken){disablePushNotifications();setNotificationsOpen(false);}
-                  else enablePushNotifications();
-                },
-                disabled:pushEnabling,
-                style:{border:'none',background:'none',padding:0,cursor:pushEnabling?'default':'pointer',fontSize:13,fontWeight:600,color:pushToken?theme.mid:'#9ca3af'}
-              },pushEnabling?'…':pushToken?'On':'Off'),
-              pushToken&&e('span',{style:{fontSize:16,color:'#9ca3af'}},
-                notificationsOpen?'∨':'›')
-            )
-          })
-        ),
+      e(Section,{icon:'🔔',iconBg:'#FEF3C7',title:'Notifications',summary:notificationsSummary,isOpen:openSections.has('notifications'),onToggle:()=>toggleSection('notifications')},
+        e(Row,{label:'Push notifications',
+          sub:pushEnabling?'Enabling…':pushToken?reminderSummary():'Get notified on this device when you have upcoming gigs',
+          border:pushToken,
+          right:e('button',{
+            onClick:()=>{
+              if(pushToken)disablePushNotifications();
+              else enablePushNotifications();
+            },
+            disabled:pushEnabling,
+            style:{border:'none',background:'none',padding:0,cursor:pushEnabling?'default':'pointer',fontSize:13,fontWeight:600,color:pushToken?theme.mid:'#9ca3af'}
+          },pushEnabling?'…':pushToken?'On':'Off')
+        }),
         pushError&&e('div',{style:{padding:'0 14px 12px',fontSize:12,color:'#b91c1c'}},pushError),
-        pushToken&&notificationsOpen&&e(Row,{label:'Upcoming gig reminder 1',sub:'First heads-up before a show',border:true,
+        pushToken&&e(Row,{label:'Upcoming gig reminder 1',sub:'First heads-up before a show',border:true,
           right:e('select',{value:settings.gigReminder1,
             onChange:ev=>setSettings(s=>({...s,gigReminder1:ev.target.value})),
             style:{padding:'5px 8px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'auto'}},
@@ -888,7 +914,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
             e('option',{value:'3d'},'3 days before')
           )
         }),
-        pushToken&&notificationsOpen&&e(Row,{label:'Upcoming gig reminder 2',sub:'Optional second reminder, closer to showtime',border:true,
+        pushToken&&e(Row,{label:'Upcoming gig reminder 2',sub:'Optional second reminder, closer to showtime',border:true,
           right:e('select',{value:settings.gigReminder2,
             onChange:ev=>setSettings(s=>({...s,gigReminder2:ev.target.value})),
             style:{padding:'5px 8px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'auto'}},
@@ -903,13 +929,13 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
             e('option',{value:'3d'},'3 days before')
           )
         }),
-        pushToken&&notificationsOpen&&e(Row,{label:'🔊 Different time for sound gigs',
+        pushToken&&e(Row,{label:'🔊 Different time for sound gigs',
           sub:'Override reminder 2 on gigs marked "doing sound" — those usually need more lead time',
           border:settings.selfPaReminderEnabled,
           right:e(Toggle,{on:settings.selfPaReminderEnabled,label:'Different time for sound gigs',
             onToggle:()=>setSettings(s=>({...s,selfPaReminderEnabled:!s.selfPaReminderEnabled}))})
         }),
-        pushToken&&notificationsOpen&&settings.selfPaReminderEnabled&&e(Row,{label:'🔊 Sound gig reminder',border:false,
+        pushToken&&settings.selfPaReminderEnabled&&e(Row,{label:'🔊 Sound gig reminder',border:false,
           right:e('select',{value:settings.selfPaReminderTime,
             onChange:ev=>{
               const v=ev.target.value;
@@ -929,7 +955,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
           )
         })
       ),
-      e(Section,{icon:'📅',title:'Calendar'},
+      e(Section,{icon:'📅',iconBg:'#EDE9FE',title:'Calendar',summary:calendarSummary,isOpen:openSections.has('calendar'),onToggle:()=>toggleSection('calendar')},
         e(Row,{label:'Default view',border:true,
           right:e('select',{value:settings.defaultTab,onChange:ev=>setSettings(s=>({...s,defaultTab:ev.target.value})),
             style:{padding:'5px 8px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'auto'}},
@@ -955,27 +981,22 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         }),
         googleAuthError&&e('div',{style:{padding:'0 14px 12px',fontSize:12,color:'#b91c1c'}},googleAuthError)
       ),
-      e(Section,{icon:'🚗',title:'Mileage report'},
-        e('div',{onClick:()=>setMileageOpen(o=>!o),style:{padding:'12px 14px',display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'pointer',borderBottom:mileageOpen?'1px solid #e5e7eb':'none'}},
-          e('div',null,
-            e('div',{style:{fontSize:14,color:'#111827',fontWeight:500}},'Mileage report'),
-            e('div',{style:{fontSize:12,color:'#9ca3af',marginTop:2}},`${toDisplayDistance(totalMiles).toFixed(1)} ${mileageUnit} · $${totalDeduction} deduction`)
-          ),
-          e('div',{style:{display:'flex',alignItems:'center',gap:10}},
-            e('div',{style:{display:'flex',background:theme.pale,borderRadius:9,padding:3,gap:2,flexShrink:0}},
-              e('button',{onClick:ev=>{ev.stopPropagation();setMileageUnit('mi');},
-                style:{border:'none',fontFamily:'inherit',fontSize:12,fontWeight:600,padding:'6px 11px',borderRadius:7,cursor:'pointer',whiteSpace:'nowrap',
-                  background:mileageUnit==='mi'?'#fff':'transparent',color:mileageUnit==='mi'?theme.primary:'#6b7280',
-                  boxShadow:mileageUnit==='mi'?'0 1px 2px rgba(0,0,0,.08)':'none'}},'Miles'),
-              e('button',{onClick:ev=>{ev.stopPropagation();setMileageUnit('km');},
-                style:{border:'none',fontFamily:'inherit',fontSize:12,fontWeight:600,padding:'6px 11px',borderRadius:7,cursor:'pointer',whiteSpace:'nowrap',
-                  background:mileageUnit==='km'?'#fff':'transparent',color:mileageUnit==='km'?theme.primary:'#6b7280',
-                  boxShadow:mileageUnit==='km'?'0 1px 2px rgba(0,0,0,.08)':'none'}},'Km')
-            ),
-            e('span',{style:{fontSize:18,color:'#9ca3af'}},mileageOpen?'∨':'›')
+      e(Section,{icon:'🚗',iconBg:'#DCFCE7',title:'Mileage',
+          summary:`${toDisplayDistance(totalMiles).toFixed(1)} ${mileageUnit} · $${totalDeduction} deduction`,
+          isOpen:openSections.has('mileage'),onToggle:()=>toggleSection('mileage')},
+        e('div',{style:{padding:'10px 14px',display:'flex',justifyContent:'flex-end',borderBottom:'1px solid #e5e7eb'}},
+          e('div',{style:{display:'flex',background:theme.pale,borderRadius:9,padding:3,gap:2,flexShrink:0}},
+            e('button',{onClick:()=>setMileageUnit('mi'),
+              style:{border:'none',fontFamily:'inherit',fontSize:12,fontWeight:600,padding:'6px 11px',borderRadius:7,cursor:'pointer',whiteSpace:'nowrap',
+                background:mileageUnit==='mi'?'#fff':'transparent',color:mileageUnit==='mi'?theme.primary:'#6b7280',
+                boxShadow:mileageUnit==='mi'?'0 1px 2px rgba(0,0,0,.08)':'none'}},'Miles'),
+            e('button',{onClick:()=>setMileageUnit('km'),
+              style:{border:'none',fontFamily:'inherit',fontSize:12,fontWeight:600,padding:'6px 11px',borderRadius:7,cursor:'pointer',whiteSpace:'nowrap',
+                background:mileageUnit==='km'?'#fff':'transparent',color:mileageUnit==='km'?theme.primary:'#6b7280',
+                boxShadow:mileageUnit==='km'?'0 1px 2px rgba(0,0,0,.08)':'none'}},'Km')
           )
         ),
-        mileageOpen&&e('div',null,
+        e('div',null,
           e('div',{style:{display:'flex',borderBottom:'1px solid #e5e7eb'}},
             e('div',{style:{flex:1,padding:'14px',textAlign:'center',borderRight:'1px solid #e5e7eb'}},
               e('div',{style:{fontSize:10,color:'#6b7280',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4}},mileageUnit==='km'?'Total km':'Total miles'),
@@ -1055,10 +1076,10 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
           )
         )
       ),
-      e(Section,{icon:'🎸',title:'Stage Plot'},
+      e(Section,{icon:'🎸',iconBg:'#FFEDD5',title:'Stage Plot',summary:stagePlotSummary,isOpen:openSections.has('stageplot'),onToggle:()=>toggleSection('stageplot')},
         e(StagePlotSection,{settings,setSettings,theme})
       ),
-      e(Section,{icon:'📤',title:'Data'},
+      e(Section,{icon:'📤',iconBg:'#F3F4F6',title:'Data',isOpen:openSections.has('data'),onToggle:()=>toggleSection('data')},
         e(Row,{label:'Share schedule',sub:'A clean, printable view of upcoming shows to send to friends, family, or fans',border:true,
           right:e('button',{onClick:()=>setShowSchedulePreview(true),style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'View')
         }),
@@ -1066,7 +1087,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
           right:e('button',{onClick:()=>setConfirmReset(true),style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #fca5a5',color:'#b91c1c',cursor:'pointer'}},'Reset')
         })
       ),
-      e(Section,{icon:'ℹ️',title:'About'},
+      e(Section,{icon:'ℹ️',iconBg:'#E5E7EB',title:'About',summary:'v1.0.0',isOpen:openSections.has('about'),onToggle:()=>toggleSection('about')},
         e(Row,{label:'Version',sub:'1.0.0',border:true,right:null}),
         e(Row,{label:'Share app',sub:'Coming soon',border:false,right:e('button',{disabled:true,style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #e5e7eb',color:'#9ca3af',cursor:'not-allowed',background:'#f9fafb'}},'Coming soon')})
       )
