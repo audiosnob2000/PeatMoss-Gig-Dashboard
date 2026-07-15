@@ -278,7 +278,11 @@ exports.sendGigReminders = onSchedule({schedule: 'every 15 minutes', timeZone: '
         // Only fire within the ~20 minute window just after the target time
         // so a single scheduled run catches it once, not on every run.
         if (sendAt <= now && sendAt > new Date(now.getTime() - 20 * 60 * 1000)) {
-          candidates.push({token: doc.id, gig, pref, sendKey: `${gig.id}_${doc.id}_${slotName}`});
+          // Including the computed send time means editing a gig's date/time
+          // (a real reschedule, or someone retesting) naturally produces a
+          // fresh dedupe key instead of getting silently blocked by a
+          // "already sent" record left over from the gig's previous time.
+          candidates.push({token: doc.id, gig, pref, sendKey: `${gig.id}_${doc.id}_${slotName}_${sendAt.getTime()}`});
         }
       }
     }
