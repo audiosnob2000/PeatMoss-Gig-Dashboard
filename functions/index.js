@@ -178,13 +178,25 @@ function parseGigStartTime(dateStr, timeStr) {
   let start = parts[0];
   const ampmMatch = (parts[parts.length - 1] || '').match(/AM|PM/i);
   if (ampmMatch && !/AM|PM/i.test(start)) start += ' ' + ampmMatch[0].toUpperCase();
-  const m = start.match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)/i);
-  if (!m) return null;
-  let hour = parseInt(m[1], 10);
-  const minute = m[2] ? parseInt(m[2], 10) : 0;
-  const isPM = /PM/i.test(m[3]);
-  if (isPM && hour !== 12) hour += 12;
-  if (!isPM && hour === 12) hour = 0;
+  let hour, minute;
+  const m12 = start.match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)/i);
+  if (m12) {
+    hour = parseInt(m12[1], 10);
+    minute = m12[2] ? parseInt(m12[2], 10) : 0;
+    const isPM = /PM/i.test(m12[3]);
+    if (isPM && hour !== 12) hour += 12;
+    if (!isPM && hour === 12) hour = 0;
+  } else {
+    // The time field is free text with no format enforcement — someone
+    // typing a plain 24-hour time (e.g. "14:05", no AM/PM) shouldn't
+    // silently get no reminder at all just because it doesn't match the
+    // 12-hour pattern above.
+    const m24 = start.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m24) return null;
+    hour = parseInt(m24[1], 10);
+    minute = parseInt(m24[2], 10);
+    if (hour > 23 || minute > 59) return null;
+  }
   const [y, mo, d] = dateStr.split('-').map(Number);
   return nyWallTimeToUtc(y, mo, d, hour, minute);
 }
