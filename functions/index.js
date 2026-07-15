@@ -145,6 +145,9 @@ exports.notifyOnNewSetlist = onDocumentCreated('setlists/{setlistId}', async (ev
 // ever needs to exist in the app to get a reminder, not on the calendar
 // too; tying reminders to Calendar sign-in was the actual bug behind gigs
 // silently never getting a reminder.
+// hour/minute here are only a fallback for gigs with no parseable time —
+// when a real start time is known, 'date'-kind offsets fire at that same
+// clock time N days earlier instead (see fixedDayBeforeSendAt below).
 const REMINDER_OFFSETS = {
   '3d': {kind: 'date', days: 3, hour: 18, minute: 0},
   '2d': {kind: 'date', days: 2, hour: 18, minute: 0},
@@ -201,6 +204,23 @@ function parseGigStartTime(dateStr, timeStr) {
   return nyWallTimeToUtc(y, mo, d, hour, minute);
 }
 
+function shiftDateStr(dateStr, days) {
+  const [y, mo, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  dt.setUTCDate(dt.getUTCDate() - days);
+  return dt.toISOString().slice(0, 10);
+}
+
+// Fallback for a "day(s) before" reminder when the gig has no parseable
+// start time — fires at a fixed hour (6 PM NY) rather than the gig's own
+// clock time, since there isn't one to go by.
+function fixedDayBeforeSendAt(dateStr, days, hour, minute) {
+  const [y, mo, d] = dateStr.split('-').map(Number);
+  const target = new Date(Date.UTC(y, mo - 1, d));
+  target.setUTCDate(target.getUTCDate() - days);
+  return nyWallTimeToUtc(target.getUTCFullYear(), target.getUTCMonth() + 1, target.getUTCDate(), hour, minute);
+}
+
 function reminderText(gig, pref) {
   const dateLabel = new Date(gig.date + 'T12:00:00').toLocaleDateString('en-US', {month: 'short', day: 'numeric'});
   if (pref === '3d') return `${gig.venue} is in 3 days (${dateLabel})`;
@@ -246,10 +266,11 @@ exports.sendGigReminders = onSchedule({schedule: 'every 15 minutes', timeZone: '
         if (!offset) continue;
         let sendAt;
         if (offset.kind === 'date') {
-          const [y, mo, d] = gig.date.split('-').map(Number);
-          const target = new Date(Date.UTC(y, mo - 1, d));
-          target.setUTCDate(target.getUTCDate() - offset.days);
-          sendAt = nyWallTimeToUtc(target.getUTCFullYear(), target.getUTCMonth() + 1, target.getUTCDate(), offset.hour, offset.minute);
+          // Prefer the gig's own start time, N days earlier, over the fixed
+          // 6 PM fallback — a "day before" reminder should land at the same
+          // time the show actually starts, not an arbitrary fixed hour.
+          sendAt = gig.time ? parseGigStartTime(shiftDateStr(gig.date, offset.days), gig.time) : null;
+          if (!sendAt) sendAt = fixedDayBeforeSendAt(gig.date, offset.days, offset.hour, offset.minute);
         } else {
           if (!gig.startDateTime) continue;
           sendAt = new Date(gig.startDateTime.getTime() - offset.hours * 60 * 60 * 1000);
