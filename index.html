@@ -712,6 +712,20 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
   const [editingBandName,setEditingBandName]=useState(false);
   const [bandNameValue,setBandNameValue]=useState('');
   const [mileageOpen,setMileageOpen]=useState(false);
+  const [addingTrip,setAddingTrip]=useState(false);
+  const [manualDate,setManualDate]=useState(todayStr);
+  const [manualMiles,setManualMiles]=useState('');
+  const [manualLabel,setManualLabel]=useState('');
+  const saveManualTrip=()=>{
+    const miles=parseFloat(manualMiles);
+    if(!manualDate||!miles||miles<=0)return;
+    const newTrip={id:'trip'+Date.now(),venue:manualLabel.trim()||'Manual entry',date:manualDate,miles:parseFloat(miles.toFixed(1)),manual:true};
+    setMileageLog(prev=>[...prev,newTrip]);
+    const{id,...tripBody}=newTrip;
+    db.collection('mileageTrips').doc(id).set({...tripBody,deviceId:getDeviceId()}).catch(()=>{});
+    setManualDate(todayStr);setManualMiles('');setManualLabel('');
+    setAddingTrip(false);
+  };
   const [openMonths,setOpenMonths]=useState(()=>new Set([todayStr.slice(0,7)]));
   const toggleMonth=key=>setOpenMonths(prev=>{
     const next=new Set(prev);
@@ -974,6 +988,34 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
               e('div',{style:{fontSize:11,color:'#9ca3af',marginTop:2}},'@ $0.67/mile')
             )
           ),
+          !addingTrip&&e('div',{onClick:()=>setAddingTrip(true),
+            style:{padding:'10px 14px',borderBottom:'1px solid #e5e7eb',display:'flex',alignItems:'center',justifyContent:'center',gap:6,cursor:'pointer',color:theme.mid,fontSize:13,fontWeight:600}},
+            '＋ Add trip manually'),
+          addingTrip&&e('div',{style:{padding:14,borderBottom:'1px solid #e5e7eb',background:'#fbfefd'}},
+            e('div',{style:{display:'flex',gap:8,marginBottom:10}},
+              e('div',{style:{flex:1}},
+                e('label',{style:{display:'block',fontSize:11,color:'#6b7280',marginBottom:4,fontWeight:500}},'Date'),
+                e('input',{type:'date',value:manualDate,onChange:ev=>setManualDate(ev.target.value),
+                  style:{width:'100%',border:'1px solid #d1d5db',borderRadius:8,padding:'8px 10px',fontSize:14,fontFamily:'inherit'}})
+              ),
+              e('div',{style:{flex:1}},
+                e('label',{style:{display:'block',fontSize:11,color:'#6b7280',marginBottom:4,fontWeight:500}},'Miles'),
+                e('input',{type:'number',placeholder:'e.g. 24.5',value:manualMiles,onChange:ev=>setManualMiles(ev.target.value),
+                  style:{width:'100%',border:'1px solid #d1d5db',borderRadius:8,padding:'8px 10px',fontSize:14,fontFamily:'inherit'}})
+              )
+            ),
+            e('div',{style:{marginBottom:10}},
+              e('label',{style:{display:'block',fontSize:11,color:'#6b7280',marginBottom:4,fontWeight:500}},'Label (optional)'),
+              e('input',{type:'text',placeholder:'e.g. The Anchor Bar',value:manualLabel,onChange:ev=>setManualLabel(ev.target.value),
+                style:{width:'100%',border:'1px solid #d1d5db',borderRadius:8,padding:'8px 10px',fontSize:14,fontFamily:'inherit'}})
+            ),
+            e('div',{style:{display:'flex',gap:8}},
+              e('button',{onClick:()=>{setAddingTrip(false);setManualDate(todayStr);setManualMiles('');setManualLabel('');},
+                style:{flex:1,padding:'9px 0',borderRadius:8,border:'1px solid #d1d5db',color:'#374151',background:'#fff',cursor:'pointer',fontSize:13,fontWeight:600}},'Cancel'),
+              e('button',{onClick:saveManualTrip,disabled:!manualDate||!parseFloat(manualMiles),
+                style:{flex:1,padding:'9px 0',borderRadius:8,border:'none',color:'#fff',background:theme.mid,cursor:'pointer',fontSize:13,fontWeight:600,opacity:(!manualDate||!parseFloat(manualMiles))?0.5:1}},'Save trip')
+            )
+          ),
           mileageLog.length===0&&e('div',{style:{padding:'1.5rem',textAlign:'center',color:'#9ca3af',fontSize:13}},'No trips logged yet — tap Map on a gig to start tracking'),
           monthGroups.map(group=>e('div',{key:group.key},
             e('div',{onClick:()=>toggleMonth(group.key),
@@ -985,7 +1027,13 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
               e('span',{style:{fontSize:14,color:'#9ca3af'}},openMonths.has(group.key)?'∨':'›')
             ),
             openMonths.has(group.key)&&group.trips.map((t,gi)=>e('div',{key:t.id||gi,style:{padding:'10px 14px',borderBottom:gi<group.trips.length-1?'1px solid #f1f1f3':'none',display:'flex',justifyContent:'space-between',alignItems:'center'}},
-              e('div',null,e('div',{style:{fontSize:13,fontWeight:500,color:'#111827'}},t.venue),e('div',{style:{fontSize:11,color:'#9ca3af'}},t.date)),
+              e('div',null,
+                e('div',{style:{fontSize:13,fontWeight:500,color:'#111827',display:'flex',alignItems:'center',gap:5}},
+                  t.venue,
+                  t.manual&&e('span',{style:{fontSize:9,background:'#eef2ff',color:'#4338ca',borderRadius:5,padding:'1px 5px',fontWeight:600}},'Manual')
+                ),
+                e('div',{style:{fontSize:11,color:'#9ca3af'}},t.date)
+              ),
               e('div',{style:{display:'flex',alignItems:'center',gap:10}},
                 e('div',{style:{fontSize:13,fontWeight:500,color:theme.primary}},toDisplayDistance(t.miles).toFixed(1)+' '+mileageUnit),
                 e('button',{onClick:()=>{
