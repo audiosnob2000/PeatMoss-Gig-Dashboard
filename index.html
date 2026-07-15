@@ -31,6 +31,13 @@ button{font-family:inherit;cursor:pointer;border-radius:8px;font-size:13px;paddi
 button:hover{background:#f3f4f6}
 .badge{font-size:11px;font-weight:500;padding:2px 10px;border-radius:99px;white-space:nowrap;display:inline-block}
 @media print{
+  /* body itself keeps its normal light-gray background even though its
+     children are hidden below (visibility:hidden only hides the elements
+     it's applied to, not body) — any page area the print content doesn't
+     physically cover shows that gray through as a smudgy, uneven-looking
+     patch. Forcing it white here is what actually fixes that, regardless
+     of how tall the print content ends up being. */
+  body{background:#fff}
   body *{visibility:hidden}
   .schedule-print-area,.schedule-print-area *{visibility:visible}
   .schedule-print-area{position:fixed;top:0;left:0;width:100%;margin:0}
@@ -39,8 +46,13 @@ button:hover{background:#f3f4f6}
      sizing to its on-screen modal width, and switches page orientation to
      match the Portrait/Landscape choice — most browsers respect the named
      @page rule below; ones that don't just fall back to default portrait. */
-  .schedule-print-cal{height:100vh;display:flex;flex-direction:column;justify-content:center;padding:0.5in!important}
-  .schedule-print-cal .sched-cal-grid{flex:1}
+  .schedule-print-cal{padding:0.5in!important}
+  /* Sized for the worst case of 6 calendar rows in a month. Landscape has
+     a shorter page (8.5in vs 11in tall), so its cells need to be smaller
+     or a 6-row month overflows the single fixed-position page and the
+     bottom row gets cut off instead of wrapping to a second page. */
+  .schedule-print-cal .sched-cal-grid>div{min-height:1.15in!important}
+  .schedule-print-cal.landscape .sched-cal-grid>div{min-height:0.85in!important}
   .schedule-print-cal.landscape{page:landscape-page}
 }
 @page landscape-page{size:landscape;margin:0.4in}
