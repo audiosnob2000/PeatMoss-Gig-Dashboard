@@ -8,9 +8,6 @@ admin.initializeApp();
 const APP_URL = 'https://audiosnob2000.github.io/PeatMoss-Gig-Dashboard/';
 const ALLOWED_ORIGIN = 'https://audiosnob2000.github.io';
 const GOOGLE_CLIENT_ID = '675499838790-l0lgct7rbkbc7u4lttqkpjta3vm9qrvi.apps.googleusercontent.com';
-// Same public API key already embedded client-side (see GOOGLE_API_KEY in
-// index.html) — read-only Calendar access, not a secret.
-const GOOGLE_API_KEY = 'AIzaSyDDfPjbqTtgXOacnkjrr9SbGVcWWVW3hYg';
 // Set via functions/.env at deploy time (written from a GitHub secret) —
 // never hardcoded, never sent to the client.
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
@@ -142,10 +139,12 @@ exports.notifyOnNewSetlist = onDocumentCreated('setlists/{setlistId}', async (ev
 });
 
 // --- Gig reminders ---
-// Gigs live in Google Calendar, not Firestore (see index.html's sync logic),
-// written as all-day events with the real time/status embedded as text in
-// the description under a [PMTF_GIG] tag. This mirrors that same parsing so
-// reminders line up with what the app itself shows.
+// Read straight from Firestore's `gigs` collection — the app's own data,
+// synced by every device regardless of whether anyone is signed into
+// Google Calendar — rather than the real Google Calendar API. A gig only
+// ever needs to exist in the app to get a reminder, not on the calendar
+// too; tying reminders to Calendar sign-in was the actual bug behind gigs
+// silently never getting a reminder.
 const REMINDER_OFFSETS = {
   '3d': {kind: 'date', days: 3, hour: 18, minute: 0},
   '2d': {kind: 'date', days: 2, hour: 18, minute: 0},
@@ -190,21 +189,6 @@ function parseGigStartTime(dateStr, timeStr) {
   return nyWallTimeToUtc(y, mo, d, hour, minute);
 }
 
-function parseGigEvent(ev) {
-  const date = (ev.start && ev.start.date) || ((ev.start && ev.start.dateTime) ? ev.start.dateTime.slice(0, 10) : '');
-  if (!date) return null;
-  const description = ev.description || '';
-  const isAppManaged = description.includes('[PMTF_GIG]');
-  if (!ev.location && !isAppManaged) return null;
-  const timeTag = description.match(/Time:\s*([^·]+)/);
-  const time = timeTag ? timeTag[1].trim() : '';
-  const statusTag = description.match(/Status:\s*([^·]+)/);
-  const status = statusTag ? statusTag[1].trim().toLowerCase() : 'confirmed';
-  const selfPA = description.includes('PA: Self');
-  const venue = ev.summary || 'Untitled';
-  return {id: ev.id, date, venue, time, status, selfPA, startDateTime: parseGigStartTime(date, time)};
-}
-
 function reminderText(gig, pref) {
   const dateLabel = new Date(gig.date + 'T12:00:00').toLocaleDateString('en-US', {month: 'short', day: 'numeric'});
   if (pref === '3d') return `${gig.venue} is in 3 days (${dateLabel})`;
@@ -216,18 +200,19 @@ function reminderText(gig, pref) {
 }
 
 exports.sendGigReminders = onSchedule({schedule: 'every 15 minutes', timeZone: 'America/New_York'}, async () => {
-  const bandDoc = await admin.firestore().collection('bandSettings').doc('global').get();
-  const calendarId = bandDoc.exists ? bandDoc.data().calendarId : null;
-  if (!calendarId) return;
-
   const now = new Date();
-  const timeMin = now.toISOString();
-  const timeMax = new Date(now.getTime() + 4 * 24 * 60 * 60 * 1000).toISOString();
-  const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?key=${GOOGLE_API_KEY}&timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime&maxResults=50`;
-  const res = await fetch(url);
-  if (!res.ok) return;
-  const data = await res.json();
-  const gigs = (data.items || []).map(parseGigEvent).filter(g => g && g.status !== 'cancelled');
+  // Cheap lower bound so this doesn't keep re-scanning every gig ever
+  // played as the collection grows over years — no reminder offset reaches
+  // back further than a few days, so anything older than yesterday can
+  // never produce a sendAt inside the window checked below.
+  const cutoffStr = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  const gigsSnap = await admin.firestore().collection('gigs').get();
+  const gigs = gigsSnap.docs.map(d => {
+    const g = d.data();
+    if (!g.date || g.date < cutoffStr || g.status === 'cancelled') return null;
+    return {id: d.id, date: g.date, venue: g.venue || 'Untitled', time: g.time || '', selfPA: !!g.selfPA, startDateTime: parseGigStartTime(g.date, g.time || '')};
+  }).filter(Boolean);
   if (!gigs.length) return;
 
   const tokensSnap = await admin.firestore().collection('fcmTokens').get();
