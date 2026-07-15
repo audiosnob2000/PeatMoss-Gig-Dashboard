@@ -468,6 +468,108 @@ function tryPrint(setStandaloneHelp){
   window.print();
 }
 
+// Draws the calendar-grid share view directly onto a canvas using only
+// plain fillRect/strokeRect/fillText calls — deliberately NOT the
+// DOM-to-SVG-to-canvas trick some libraries use, since that path has known
+// rendering gaps specifically in Safari/WebKit, which is exactly the
+// engine this needs to work reliably on.
+function drawScheduleCalendarCanvas({bandName,monthLabel,cells,gigsByDate,dateKeyFor,bw,theme}){
+  const width=900,height=1150;
+  const canvas=document.createElement('canvas');
+  canvas.width=width;canvas.height=height;
+  const ctx=canvas.getContext('2d');
+  const font='-apple-system, Helvetica, Arial, sans-serif';
+
+  ctx.fillStyle='#ffffff';
+  ctx.fillRect(0,0,width,height);
+
+  ctx.textAlign='center';
+  ctx.fillStyle='#111827';
+  ctx.font='bold 32px '+font;
+  ctx.fillText(bandName,width/2,56);
+
+  ctx.fillStyle=bw?'#111827':theme.primary;
+  ctx.font='600 18px '+font;
+  ctx.fillText(monthLabel.toUpperCase(),width/2,86);
+
+  const marginX=36,gridTop=130,gridBottom=height-60,cols=7;
+  const gridWidth=width-marginX*2;
+  const colWidth=gridWidth/cols;
+  const rows=Math.ceil(cells.length/cols);
+  const rowHeight=(gridBottom-gridTop)/rows;
+
+  ctx.font='600 13px '+font;
+  ctx.fillStyle='#9ca3af';
+  DAYS.forEach((d,i)=>ctx.fillText(d,marginX+colWidth*i+colWidth/2,gridTop-10));
+
+  cells.forEach((day,i)=>{
+    if(!day)return;
+    const col=i%7,row=Math.floor(i/7);
+    const x=marginX+col*colWidth,y=gridTop+row*rowHeight;
+    const dayGigs=gigsByDate[dateKeyFor(day)]||[];
+    const hasGig=dayGigs.length>0;
+
+    ctx.fillStyle=hasGig&&!bw?theme.pale:'#ffffff';
+    ctx.fillRect(x+2,y+2,colWidth-4,rowHeight-4);
+    ctx.lineWidth=hasGig&&bw?2:1;
+    ctx.strokeStyle=hasGig?(bw?'#111827':theme.light):(bw?'#d1d5db':'#e5e7eb');
+    ctx.strokeRect(x+2,y+2,colWidth-4,rowHeight-4);
+
+    ctx.textAlign='left';
+    ctx.font=(hasGig?'700 ':'400 ')+'14px '+font;
+    ctx.fillStyle=hasGig?(bw?'#111827':theme.primary):'#9ca3af';
+    ctx.fillText(String(day),x+10,y+22);
+
+    if(hasGig){
+      ctx.font='600 11px '+font;
+      ctx.fillStyle=bw?'#111827':theme.primary;
+      let text=scheduleShortVenue(dayGigs[0]);
+      const maxWidth=colWidth-18;
+      if(ctx.measureText(text).width>maxWidth){
+        while(text.length>1&&ctx.measureText(text+'…').width>maxWidth)text=text.slice(0,-1);
+        text+='…';
+      }
+      ctx.fillText(text,x+10,y+40);
+    }
+  });
+
+  ctx.textAlign='center';
+  ctx.font='10px '+font;
+  ctx.fillStyle='#9ca3af';
+  ctx.fillText('MADE WITH GIG DASHBOARD',width/2,height-24);
+
+  return canvas;
+}
+
+// Real fix for the Calendar-view print bug on iOS: instead of trying to
+// coax window.print() into working (it structurally can't, in a standalone
+// app, and Safari's print pipeline choked on the calendar view specifically
+// even in a browser tab), render the calendar to an image and hand it to
+// the OS share sheet, which DOES work in the installed app — AirPrint is
+// one of the built-in options there, so this reaches an actual printer
+// without ever leaving the app. Returns true if the share sheet was
+// successfully invoked (including the user cancelling it, which still
+// counts as "handled" — only a real failure falls back to old behavior).
+async function tryShareScheduleCalendarImage(args){
+  try{
+    if(!(navigator.canShare&&typeof File!=='undefined'))return false;
+    const canvas=drawScheduleCalendarCanvas(args);
+    const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+    if(!blob)return false;
+    const safeName=(args.bandName+' - '+args.monthLabel).replace(/[\/\\:*?"<>|]/g,'-');
+    const file=new File([blob],safeName+'.png',{type:'image/png'});
+    if(!navigator.canShare({files:[file]}))return false;
+    try{
+      await navigator.share({files:[file],title:args.bandName+' — '+args.monthLabel});
+    }catch(err){
+      if(!(err&&err.name==='AbortError'))return false;
+    }
+    return true;
+  }catch(err){
+    return false;
+  }
+}
+
 function Modal({gig,prefillDate,onSave,onDelete,onClose}){
   const blank={date:prefillDate||'',venue:'',location:'',type:'bar',status:'confirmed',time:'',selfPA:false,notes:''};
   const [form,setForm]=useState(gig||blank);
@@ -1192,7 +1294,19 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
       e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:460,maxHeight:'90vh',overflowY:'auto',padding:0}},
         e('div',{className:'no-print',style:{display:'flex',gap:8,padding:'14px 20px',borderBottom:'1px solid #e5e7eb'}},
           e('button',{onClick:()=>setShowSchedulePreview(false),style:{flex:1,padding:'9px 0'}},'Close'),
-          e('button',{onClick:()=>tryPrint(setPrintStandaloneHelp),style:{flex:1,padding:'9px 0',borderRadius:8,border:'0.5px solid #d1d5db',background:'#fff',color:'#374151',cursor:'pointer',fontWeight:500}},'🖨️ Print'),
+          e('button',{onClick:async()=>{
+              if(scheduleView==='calendar'){
+                const handled=await tryShareScheduleCalendarImage({
+                  bandName:settings.bandName,
+                  monthLabel:FULL_MONTHS[scheduleCalMonth]+' '+scheduleCalYear,
+                  cells:scheduleCalCells,gigsByDate:scheduleGigsByDate,
+                  dateKeyFor:day=>`${scheduleCalYear}-${String(scheduleCalMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`,
+                  bw:scheduleBW,theme
+                });
+                if(handled)return;
+              }
+              tryPrint(setPrintStandaloneHelp);
+            },style:{flex:1,padding:'9px 0',borderRadius:8,border:'0.5px solid #d1d5db',background:'#fff',color:'#374151',cursor:'pointer',fontWeight:500}},'🖨️ Print'),
           e('button',{onClick:shareSchedule,style:{flex:1,padding:'9px 0',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontWeight:500}},'📤 Share')
         ),
         e('div',{className:'no-print',style:{display:'flex',gap:6,padding:'12px 20px 0'}},
