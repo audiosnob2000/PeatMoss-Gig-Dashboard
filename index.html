@@ -418,14 +418,34 @@ function Modal({gig,prefillDate,onSave,onDelete,onClose}){
   const [form,setForm]=useState(gig||blank);
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
   const isNew=!gig?.id;
+  // AM/PM append instead of replace so a range like "7-10" + tap PM becomes
+  // "7-10 PM" — matches the existing convention (both here and in the
+  // reminder Cloud Function) of reading the AM/PM marker off the end of the
+  // string and applying it to the whole time/range.
+  const timeTrimmed=(form.time||'').trim();
+  const isAM=/AM\s*$/i.test(timeTrimmed);
+  const isPM=/PM\s*$/i.test(timeTrimmed);
+  const setAmPm=suffix=>set('time',(timeTrimmed.replace(/\s*(AM|PM)\s*$/i,'').trim()+' '+suffix).trim());
   return e('div',{className:'overlay',onClick:onClose},
     e('div',{className:'modal',onClick:ev=>ev.stopPropagation()},
       e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'1rem'}},
         e('span',{style:{fontSize:16,fontWeight:500}},isNew?'Add gig':'Edit gig'),
         e('button',{onClick:onClose,style:{border:'none',background:'none',fontSize:20,color:'#9ca3af',padding:'0 4px'}},'×')
       ),
-      [['date','Date','date'],['venue','Venue name','text'],['location','Location','text'],['time','Set time','text']].map(([k,lbl,tp])=>
+      [['date','Date','date'],['venue','Venue name','text'],['location','Location','text']].map(([k,lbl,tp])=>
         e('div',{key:k},e('label',null,lbl),e('input',{type:tp,value:form[k]||'',onChange:ev=>set(k,ev.target.value)}))
+      ),
+      e('div',{key:'time'},
+        e('label',null,'Set time'),
+        e('div',{style:{display:'flex',gap:6}},
+          e('input',{type:'text',value:form.time||'',onChange:ev=>set('time',ev.target.value),style:{flex:1}}),
+          e('button',{type:'button',onClick:()=>setAmPm('AM'),
+            style:{padding:'0 12px',fontSize:12,fontWeight:600,flexShrink:0,
+              background:isAM?'#1D9E75':'#fff',color:isAM?'#fff':'#374151',borderColor:isAM?'#1D9E75':'#d1d5db'}},'AM'),
+          e('button',{type:'button',onClick:()=>setAmPm('PM'),
+            style:{padding:'0 12px',fontSize:12,fontWeight:600,flexShrink:0,
+              background:isPM?'#1D9E75':'#fff',color:isPM?'#fff':'#374151',borderColor:isPM?'#1D9E75':'#d1d5db'}},'PM')
+        )
       ),
       e('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginTop:12}},
         [['type','Gig type',TYPES],['status','Status',STATUSES]].map(([k,lbl,opts])=>
