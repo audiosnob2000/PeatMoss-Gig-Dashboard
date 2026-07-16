@@ -527,14 +527,20 @@ function drawScheduleCalendarCanvas({bandName,monthLabel,cells,gigsByDate,dateKe
     if(hasGig){
       ctx.font='600 11px '+font;
       ctx.fillStyle=bw?'#111827':theme.primary;
-      const gigTime=scheduleShortTime(dayGigs[0].time);
-      let text=(gigTime?gigTime+' ':'')+scheduleShortVenue(dayGigs[0]);
+      let text=scheduleShortVenue(dayGigs[0]);
       const maxWidth=colWidth-18;
       if(ctx.measureText(text).width>maxWidth){
         while(text.length>1&&ctx.measureText(text+'…').width>maxWidth)text=text.slice(0,-1);
         text+='…';
       }
       ctx.fillText(text,x+10,y+40);
+
+      const gigTime=scheduleShortTime(dayGigs[0].time);
+      if(gigTime){
+        ctx.font='500 10px '+font;
+        ctx.fillStyle=bw?'#4b5563':'#6b7280';
+        ctx.fillText(gigTime,x+10,y+54);
+      }
     }
 
     if(showUnpaid&&dayGigs.some(g=>(unpaidGigIds||[]).includes(g.id))){
@@ -1421,7 +1427,10 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
                     e('div',{style:{fontSize:10,fontWeight:hasGig?700:400,color:hasGig?(scheduleBW?'#111827':theme.primary):'#9ca3af'}},day),
                     dayGigs.slice(0,1).map(g=>{
                       const t=scheduleShortTime(g.time);
-                      return e('div',{key:g.id,style:{fontSize:8,fontWeight:600,marginTop:1,color:scheduleBW?'#111827':theme.primary,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},(t?t+' ':'')+scheduleShortVenue(g));
+                      return e('div',{key:g.id},
+                        e('div',{style:{fontSize:8,fontWeight:600,marginTop:1,color:scheduleBW?'#111827':theme.primary,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},scheduleShortVenue(g)),
+                        t&&e('div',{style:{fontSize:7,color:scheduleBW?'#4b5563':'#6b7280',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},t)
+                      );
                     }),
                     hasUnpaid&&e('div',{style:{position:'absolute',top:1,right:1,width:10,height:10,borderRadius:'50%',background:'#DC2626',color:'#fff',fontSize:6,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center'}},'$')
                   );
