@@ -473,8 +473,9 @@ function tryPrint(setStandaloneHelp){
 // DOM-to-SVG-to-canvas trick some libraries use, since that path has known
 // rendering gaps specifically in Safari/WebKit, which is exactly the
 // engine this needs to work reliably on.
-function drawScheduleCalendarCanvas({bandName,monthLabel,cells,gigsByDate,dateKeyFor,bw,theme}){
-  const width=900,height=1150;
+function drawScheduleCalendarCanvas({bandName,monthLabel,cells,gigsByDate,dateKeyFor,bw,theme,orientation}){
+  const landscape=orientation==='landscape';
+  const width=landscape?1150:900,height=landscape?900:1150;
   const canvas=document.createElement('canvas');
   canvas.width=width;canvas.height=height;
   const ctx=canvas.getContext('2d');
@@ -499,7 +500,7 @@ function drawScheduleCalendarCanvas({bandName,monthLabel,cells,gigsByDate,dateKe
   const rowHeight=(gridBottom-gridTop)/rows;
 
   ctx.font='600 13px '+font;
-  ctx.fillStyle='#9ca3af';
+  ctx.fillStyle='#6b7280';
   DAYS.forEach((d,i)=>ctx.fillText(d,marginX+colWidth*i+colWidth/2,gridTop-10));
 
   cells.forEach((day,i)=>{
@@ -509,15 +510,18 @@ function drawScheduleCalendarCanvas({bandName,monthLabel,cells,gigsByDate,dateKe
     const dayGigs=gigsByDate[dateKeyFor(day)]||[];
     const hasGig=dayGigs.length>0;
 
+    // Empty-cell borders are deliberately a solid, clearly visible gray
+    // (not a faint hairline) — this is meant to be read as an actual
+    // calendar grid at a glance, booked or not, especially once printed.
     ctx.fillStyle=hasGig&&!bw?theme.pale:'#ffffff';
     ctx.fillRect(x+2,y+2,colWidth-4,rowHeight-4);
-    ctx.lineWidth=hasGig&&bw?2:1;
-    ctx.strokeStyle=hasGig?(bw?'#111827':theme.light):(bw?'#d1d5db':'#e5e7eb');
+    ctx.lineWidth=hasGig&&bw?2.5:1.5;
+    ctx.strokeStyle=hasGig?(bw?'#111827':theme.light):'#9ca3af';
     ctx.strokeRect(x+2,y+2,colWidth-4,rowHeight-4);
 
     ctx.textAlign='left';
-    ctx.font=(hasGig?'700 ':'400 ')+'14px '+font;
-    ctx.fillStyle=hasGig?(bw?'#111827':theme.primary):'#9ca3af';
+    ctx.font=(hasGig?'700 ':'600 ')+'14px '+font;
+    ctx.fillStyle=hasGig?(bw?'#111827':theme.primary):'#4b5563';
     ctx.fillText(String(day),x+10,y+22);
 
     if(hasGig){
@@ -1301,7 +1305,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
                   monthLabel:FULL_MONTHS[scheduleCalMonth]+' '+scheduleCalYear,
                   cells:scheduleCalCells,gigsByDate:scheduleGigsByDate,
                   dateKeyFor:day=>`${scheduleCalYear}-${String(scheduleCalMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`,
-                  bw:scheduleBW,theme
+                  bw:scheduleBW,theme,orientation:scheduleOrientation
                 });
                 if(handled)return;
               }
