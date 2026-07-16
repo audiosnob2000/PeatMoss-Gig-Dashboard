@@ -1008,7 +1008,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
 
   // Groups upcoming gigs by month, preserving date order, for the schedule
   // preview/print/share feature.
-  const scheduleGigs=gigs.filter(g=>g.date>=todayStr).sort((a,b)=>a.date>b.date?1:-1);
+  const scheduleGigs=gigs.filter(g=>g.date>=todayStr||(unpaidGigIds||[]).includes(g.id)).sort((a,b)=>a.date>b.date?1:-1);
   const scheduleByMonth=[];
   scheduleGigs.forEach(g=>{
     const label=new Date(g.date+'T12:00:00').toLocaleDateString('en-US',{month:'long'});
