@@ -473,7 +473,7 @@ function tryPrint(setStandaloneHelp){
 // DOM-to-SVG-to-canvas trick some libraries use, since that path has known
 // rendering gaps specifically in Safari/WebKit, which is exactly the
 // engine this needs to work reliably on.
-function drawScheduleCalendarCanvas({bandName,monthLabel,cells,gigsByDate,dateKeyFor,bw,theme,orientation}){
+function drawScheduleCalendarCanvas({bandName,monthLabel,cells,gigsByDate,dateKeyFor,bw,theme,orientation,showUnpaid,unpaidGigIds}){
   const landscape=orientation==='landscape';
   const width=landscape?1150:900,height=landscape?900:1150;
   const canvas=document.createElement('canvas');
@@ -527,13 +527,27 @@ function drawScheduleCalendarCanvas({bandName,monthLabel,cells,gigsByDate,dateKe
     if(hasGig){
       ctx.font='600 11px '+font;
       ctx.fillStyle=bw?'#111827':theme.primary;
-      let text=scheduleShortVenue(dayGigs[0]);
+      const gigTime=scheduleShortTime(dayGigs[0].time);
+      let text=(gigTime?gigTime+' ':'')+scheduleShortVenue(dayGigs[0]);
       const maxWidth=colWidth-18;
       if(ctx.measureText(text).width>maxWidth){
         while(text.length>1&&ctx.measureText(text+'…').width>maxWidth)text=text.slice(0,-1);
         text+='…';
       }
       ctx.fillText(text,x+10,y+40);
+    }
+
+    if(showUnpaid&&dayGigs.some(g=>(unpaidGigIds||[]).includes(g.id))){
+      const bx=x+colWidth-13,by=y+11,br=6;
+      ctx.beginPath();
+      ctx.arc(bx,by,br,0,Math.PI*2);
+      ctx.fillStyle='#DC2626';
+      ctx.fill();
+      ctx.textAlign='center';
+      ctx.font='bold 8px '+font;
+      ctx.fillStyle='#ffffff';
+      ctx.fillText('$',bx,by+3);
+      ctx.textAlign='left';
     }
   });
 
@@ -876,7 +890,7 @@ function CustomColorSwatch({selected,customColor,onPick}){
   );
 }
 
-function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar,onAutoScrolled,syncFromGoogleCalendar,calSyncing,lastSynced}){
+function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar,onAutoScrolled,syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds}){
   const googleCalendarRowRef=useRef(null);
   // All sections collapse to a one-line summary by default (see Section
   // below) so opening Settings doesn't dump every card open at once. Auto-
@@ -904,6 +918,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
   const [scheduleView,setScheduleView]=useState('list');
   const [scheduleBW,setScheduleBW]=useState(false);
   const [scheduleOrientation,setScheduleOrientation]=useState('portrait');
+  const [scheduleShowUnpaid,setScheduleShowUnpaid]=useState(false);
   const [scheduleCalMonth,setScheduleCalMonth]=useState(today.getMonth());
   const [scheduleCalYear,setScheduleCalYear]=useState(today.getFullYear());
   const scheduleNavMonth=dir=>{
@@ -1305,7 +1320,8 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
                   monthLabel:FULL_MONTHS[scheduleCalMonth]+' '+scheduleCalYear,
                   cells:scheduleCalCells,gigsByDate:scheduleGigsByDate,
                   dateKeyFor:day=>`${scheduleCalYear}-${String(scheduleCalMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`,
-                  bw:scheduleBW,theme,orientation:scheduleOrientation
+                  bw:scheduleBW,theme,orientation:scheduleOrientation,
+                  showUnpaid:scheduleShowUnpaid,unpaidGigIds
                 });
                 if(handled)return;
               }
@@ -1339,18 +1355,21 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
                   boxShadow:scheduleBW?'0 1px 2px rgba(0,0,0,.08)':'none'}},'B&W')
             )
           ),
-          e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between'}},
-            e('span',{style:{fontSize:10,color:'#9ca3af',fontWeight:600,textTransform:'uppercase',letterSpacing:'0.05em'}},'Orientation'),
-            e('div',{style:{display:'flex',background:'#f3f4f6',borderRadius:8,padding:2,gap:2}},
+          e('div',{style:{display:'flex',alignItems:'center',gap:6}},
+            e('div',{style:{display:'flex',background:'#f3f4f6',borderRadius:8,padding:2,gap:2,flex:1}},
               e('div',{onClick:()=>setScheduleOrientation('portrait'),
-                style:{padding:'5px 10px',borderRadius:6,fontSize:11,fontWeight:600,cursor:'pointer',
+                style:{flex:1,textAlign:'center',padding:'5px 10px',borderRadius:6,fontSize:11,fontWeight:600,cursor:'pointer',
                   background:scheduleOrientation==='portrait'?'#fff':'transparent',color:scheduleOrientation==='portrait'?theme.primary:'#6b7280',
                   boxShadow:scheduleOrientation==='portrait'?'0 1px 2px rgba(0,0,0,.08)':'none'}},'📄 Portrait'),
               e('div',{onClick:()=>setScheduleOrientation('landscape'),
-                style:{padding:'5px 10px',borderRadius:6,fontSize:11,fontWeight:600,cursor:'pointer',
+                style:{flex:1,textAlign:'center',padding:'5px 10px',borderRadius:6,fontSize:11,fontWeight:600,cursor:'pointer',
                   background:scheduleOrientation==='landscape'?'#fff':'transparent',color:scheduleOrientation==='landscape'?theme.primary:'#6b7280',
                   boxShadow:scheduleOrientation==='landscape'?'0 1px 2px rgba(0,0,0,.08)':'none'}},'📃 Landscape')
-            )
+            ),
+            e('div',{onClick:()=>setScheduleShowUnpaid(u=>!u),title:'Show unpaid gigs',
+              style:{width:30,height:30,borderRadius:7,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,cursor:'pointer',flexShrink:0,
+                background:scheduleShowUnpaid?theme.pale:'#f3f4f6',
+                boxShadow:scheduleShowUnpaid?`inset 0 0 0 1.5px ${theme.mid}`:'none'}},'💲')
           ),
           e('div',{style:{fontSize:10.5,color:'#9ca3af',lineHeight:1.3}},
             'Sizes the calendar to fit either way, but your print dialog\'s own orientation setting is what actually rotates the page — pick the matching one there too.'
@@ -1393,13 +1412,18 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
                   const ds=`${scheduleCalYear}-${String(scheduleCalMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
                   const dayGigs=scheduleGigsByDate[ds]||[];
                   const hasGig=dayGigs.length>0;
+                  const hasUnpaid=scheduleShowUnpaid&&dayGigs.some(g=>(unpaidGigIds||[]).includes(g.id));
                   return e('div',{key:day,style:{
-                      minWidth:0,minHeight:56,borderRadius:4,padding:'4px 5px',overflow:'hidden',
+                      position:'relative',minWidth:0,minHeight:56,borderRadius:4,padding:'4px 5px',overflow:'hidden',
                       border:'1px solid '+(hasGig?(scheduleBW?'#111827':theme.light):(scheduleBW?'#d1d5db':'#e5e7eb')),
                       background:hasGig&&!scheduleBW?theme.pale:'#fff'
                     }},
                     e('div',{style:{fontSize:10,fontWeight:hasGig?700:400,color:hasGig?(scheduleBW?'#111827':theme.primary):'#9ca3af'}},day),
-                    dayGigs.slice(0,1).map(g=>e('div',{key:g.id,style:{fontSize:8,fontWeight:600,marginTop:1,color:scheduleBW?'#111827':theme.primary,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},scheduleShortVenue(g)))
+                    dayGigs.slice(0,1).map(g=>{
+                      const t=scheduleShortTime(g.time);
+                      return e('div',{key:g.id,style:{fontSize:8,fontWeight:600,marginTop:1,color:scheduleBW?'#111827':theme.primary,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},(t?t+' ':'')+scheduleShortVenue(g));
+                    }),
+                    hasUnpaid&&e('div',{style:{position:'absolute',top:1,right:1,width:10,height:10,borderRadius:'50%',background:'#DC2626',color:'#fff',fontSize:6,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center'}},'$')
                   );
                 })
               ),
@@ -2365,7 +2389,7 @@ function App(){
     setViewingSetlist(null);setRenamingSetlistId(null);setReplacingSetlistId(null);
   };
 
-  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced});
+  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds});
 
   return e('div',{style:{maxWidth:720,margin:'0 auto',paddingBottom:'2rem'}},
     e('div',{style:{background:theme.primary,borderRadius:'0 0 20px 20px',padding:'1.25rem 1.25rem 1.5rem',marginBottom:'1.25rem'}},
