@@ -1406,7 +1406,12 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
               ),
               e('div',{style:{textAlign:'center',marginTop:22,paddingTop:12,borderTop:'1px solid #d1d5db',fontSize:10,letterSpacing:'0.08em',textTransform:'uppercase',color:'#9ca3af'}},'Made with Gig Dashboard')
             )
-          : e('div',{className:'schedule-print-area schedule-print-cal'+(scheduleOrientation==='landscape'?' landscape':''),style:{padding:'24px 22px',background:'#fff'}},
+          : e('div',{className:'schedule-print-area schedule-print-cal'+(scheduleOrientation==='landscape'?' landscape':''),style:{
+              // padding here is purely the on-screen preview value — print
+              // always forces its own 0.5in via the !important rule in
+              // @media print, so this never touches actual print sizing.
+              padding:(scheduleOrientation==='landscape'?'14px 22px':'24px 22px'),background:'#fff'
+            }},
               e('div',{style:{fontSize:18,fontWeight:700,textAlign:'center',color:'#111827'}},settings.bandName),
               e('div',{style:{fontSize:11,fontWeight:600,color:scheduleBW?'#111827':theme.primary,textAlign:'center',marginTop:2,marginBottom:14,letterSpacing:'0.06em',textTransform:'uppercase'}},
                 FULL_MONTHS[scheduleCalMonth]+' '+scheduleCalYear
@@ -1420,7 +1425,12 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
                   const hasGig=dayGigs.length>0;
                   const hasUnpaid=scheduleShowUnpaid&&dayGigs.some(g=>(unpaidGigIds||[]).includes(g.id));
                   return e('div',{key:day,style:{
-                      position:'relative',minWidth:0,minHeight:56,borderRadius:4,padding:'4px 5px',overflow:'hidden',
+                      // minHeight here is only the on-screen preview value —
+                      // print always forces its own inch-based min-height via
+                      // the !important rules in @media print (1.15in portrait,
+                      // 0.85in landscape), so shrinking this for the landscape
+                      // preview never touches actual print sizing.
+                      position:'relative',minWidth:0,minHeight:(scheduleOrientation==='landscape'?34:56),borderRadius:4,padding:'4px 5px',overflow:'hidden',
                       border:'1px solid '+(hasGig?(scheduleBW?'#111827':theme.light):(scheduleBW?'#d1d5db':'#e5e7eb')),
                       background:hasGig&&!scheduleBW?theme.pale:'#fff'
                     }},
