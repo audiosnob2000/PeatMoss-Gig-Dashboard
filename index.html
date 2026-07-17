@@ -511,18 +511,21 @@ function drawScheduleCalendarCanvas({bandName,monthLabel,cells,gigsByDate,dateKe
     const hasGig=dayGigs.length>0;
     const isWedding=hasGig&&dayGigs[0].type==='wedding';
 
-    // Empty-cell borders are deliberately a solid, clearly visible gray
-    // (not a faint hairline) — this is meant to be read as an actual
-    // calendar grid at a glance, booked or not, especially once printed.
+    // Gig-day borders are deliberately heavier and more saturated than
+    // empty-day borders, not just a different color — light pastel colors
+    // print thinner and fainter than their on-screen luminance suggests, so
+    // matching line weights made empty days read as bold as (or bolder
+    // than) gig days once actually printed. Empty-day borders stay a thin,
+    // light hairline so they recede instead of competing for attention.
     ctx.fillStyle=hasGig&&!bw?(isWedding?'#EEEDFE':theme.pale):'#ffffff';
     ctx.fillRect(x+2,y+2,colWidth-4,rowHeight-4);
-    ctx.lineWidth=hasGig&&bw?2.5:1.5;
-    ctx.strokeStyle=hasGig?(bw?'#111827':(isWedding?'#AFA9EC':theme.light)):'#9ca3af';
+    ctx.lineWidth=hasGig?(bw?2.5:2):1.25;
+    ctx.strokeStyle=hasGig?(bw?'#111827':(isWedding?'#7F77DD':theme.mid)):'#cbd0d5';
     ctx.strokeRect(x+2,y+2,colWidth-4,rowHeight-4);
 
     ctx.textAlign='left';
     ctx.font=(hasGig?'700 ':'600 ')+'14px '+font;
-    ctx.fillStyle=hasGig?(bw?'#111827':(isWedding?'#534AB7':theme.primary)):'#4b5563';
+    ctx.fillStyle=hasGig?(bw?'#111827':(isWedding?'#534AB7':theme.primary)):'#6b7280';
     ctx.fillText(String(day),x+10,y+22);
 
     if(hasGig){
@@ -1433,7 +1436,10 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
                       // 0.85in landscape), so shrinking this for the landscape
                       // preview never touches actual print sizing.
                       position:'relative',minWidth:0,minHeight:(scheduleOrientation==='landscape'?34:56),borderRadius:4,padding:'4px 5px',overflow:'hidden',
-                      border:'1px solid '+(hasGig?(scheduleBW?'#111827':(isWedding?'#AFA9EC':theme.light)):(scheduleBW?'#d1d5db':'#e5e7eb')),
+                      // Gig-day borders are heavier and more saturated than
+                      // empty-day borders so booked dates pop instead of
+                      // blending in once printed — see drawScheduleCalendarCanvas.
+                      border:(hasGig?'2px':'1.25px')+' solid '+(hasGig?(scheduleBW?'#111827':(isWedding?'#7F77DD':theme.mid)):(scheduleBW?'#d1d5db':'#cbd0d5')),
                       background:hasGig&&!scheduleBW?(isWedding?'#EEEDFE':theme.pale):'#fff'
                     }},
                     e('div',{style:{fontSize:10,fontWeight:hasGig?700:400,color:hasGig?(scheduleBW?'#111827':(isWedding?'#534AB7':theme.primary)):'#9ca3af'}},day),
