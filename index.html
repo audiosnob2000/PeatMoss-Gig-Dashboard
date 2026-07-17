@@ -1089,6 +1089,13 @@ function CustomColorSwatch({selected,customColor,onPick}){
 
 function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar,onAutoScrolled,syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,bandMessage,onEditBandMessage,showBandMessageModal,onCloseBandMessageModal,postBandMessage,clearBandMessage}){
   const googleCalendarRowRef=useRef(null);
+  const notificationsSectionRef=useRef(null);
+  const jumpToNotifications=()=>{
+    setOpenSections(prev=>{const next=new Set(prev);next.add('notifications');return next;});
+    setTimeout(()=>{
+      if(notificationsSectionRef.current) notificationsSectionRef.current.scrollIntoView({behavior:'smooth',block:'start'});
+    },50);
+  };
   // All sections collapse to a one-line summary by default (see Section
   // below) so opening Settings doesn't dump every card open at once. Auto-
   // scrolling to the Calendar row (after a Google sign-in redirect) has to
@@ -1304,6 +1311,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
       e(Section,{icon:'🏠',iconBg:'#E0EFFE',title:'Home',summary:homeSummary,isOpen:openSections.has('home'),onToggle:()=>toggleSection('home')},
         e(HomeAddressInput,{settings,setSettings,theme})
       ),
+      e('div',{ref:notificationsSectionRef},
       e(Section,{icon:'🔔',iconBg:'#FEF3C7',title:'Notifications',summary:notificationsSummary,isOpen:openSections.has('notifications'),onToggle:()=>toggleSection('notifications')},
         e(Row,{label:'Push notifications',
           sub:pushEnabling?'Enabling…':pushToken?reminderSummary():'Get notified on this device when you have upcoming gigs',
@@ -1314,10 +1322,16 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
               else enablePushNotifications();
             },
             disabled:pushEnabling,
-            style:{border:'none',background:'none',padding:0,cursor:pushEnabling?'default':'pointer',fontSize:13,fontWeight:600,color:pushToken?theme.mid:'#9ca3af'}
-          },pushEnabling?'…':pushToken?'On':'Off')
+            style:{border:'none',background:'none',padding:0,cursor:pushEnabling?'default':'pointer',fontSize:pushEnabling?13:17,fontWeight:800,color:pushToken?theme.mid:'#9ca3af'}
+          },pushEnabling?'…':pushToken?'ON':'OFF')
         }),
         pushError&&e('div',{style:{padding:'0 14px 12px',fontSize:12,color:'#b91c1c'}},pushError),
+        pushToken&&e(Row,{label:'📣 Band message notifications',
+          sub:'Get pinged when someone posts a band-wide message',
+          border:true,
+          right:e(Toggle,{on:settings.bandMessageNotifs,label:'Band message notifications',
+            onToggle:()=>setSettings(s=>({...s,bandMessageNotifs:!s.bandMessageNotifs}))})
+        }),
         pushToken&&e(Row,{label:'Upcoming gig reminder 1',sub:'First heads-up before a show',border:true,
           right:e('select',{value:settings.gigReminder1,
             onChange:ev=>setSettings(s=>({...s,gigReminder1:ev.target.value})),
@@ -1350,11 +1364,11 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         }),
         pushToken&&e(Row,{label:'🔊 Different time for sound gigs',
           sub:'Override reminder 2 on gigs marked "doing sound" — those usually need more lead time',
-          border:true,
+          border:settings.selfPaReminderEnabled,
           right:e(Toggle,{on:settings.selfPaReminderEnabled,label:'Different time for sound gigs',
             onToggle:()=>setSettings(s=>({...s,selfPaReminderEnabled:!s.selfPaReminderEnabled}))})
         }),
-        pushToken&&settings.selfPaReminderEnabled&&e(Row,{label:'🔊 Sound gig reminder',border:true,
+        pushToken&&settings.selfPaReminderEnabled&&e(Row,{label:'🔊 Sound gig reminder',border:false,
           right:e('select',{value:settings.selfPaReminderTime,
             onChange:ev=>{
               const v=ev.target.value;
@@ -1372,13 +1386,8 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
             e('option',{value:'2d'},'2 days before'),
             e('option',{value:'3d'},'3 days before')
           )
-        }),
-        pushToken&&e(Row,{label:'📣 Band message notifications',
-          sub:'Get pinged when someone posts a band-wide message',
-          border:false,
-          right:e(Toggle,{on:settings.bandMessageNotifs,label:'Band message notifications',
-            onToggle:()=>setSettings(s=>({...s,bandMessageNotifs:!s.bandMessageNotifs}))})
         })
+      )
       ),
       e(Section,{icon:'📅',iconBg:'#EDE9FE',title:'Calendar',summary:calendarSummary,isOpen:openSections.has('calendar'),onToggle:()=>toggleSection('calendar')},
         e(Row,{label:'Show past gigs',sub:'Applies to both Calendar and Shows tabs',border:true,right:e(Toggle,{on:settings.showPast,onToggle:()=>setSettings(s=>({...s,showPast:!s.showPast}))})}),
@@ -1506,9 +1515,18 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
       e(Section,{icon:'📣',iconBg:'#FFEDD5',title:'Band Message',summary:bandMessage&&bandMessage.text?'"'+bandMessage.text+'"':'Not set',isOpen:openSections.has('bandmessage'),onToggle:()=>toggleSection('bandmessage')},
         e(Row,{label:bandMessage&&bandMessage.text?'"'+bandMessage.text+'"':'No message posted',
           sub:bandMessage&&bandMessage.text?timeAgo(bandMessage.postedAt)+' · visible to the whole band':'Post something everyone will see when they open the app',
-          border:false,
+          border:true,
           right:e('button',{onClick:onEditBandMessage,style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},bandMessage&&bandMessage.text?'Edit':'Post')
-        })
+        }),
+        e('div',{onClick:jumpToNotifications,
+          style:{margin:'0 14px 14px',padding:'9px 11px',borderRadius:10,cursor:'pointer',
+            background:(pushToken&&settings.bandMessageNotifs)?'#F0FDF9':'#F9FAFB',
+            border:'1px solid '+((pushToken&&settings.bandMessageNotifs)?'#A7E8D4':'#E5E7EB'),
+            display:'flex',alignItems:'center',justifyContent:'space-between'}},
+          e('span',{style:{fontSize:12,color:'#374151'}},'Notifications for this device'),
+          e('span',{style:{fontSize:12.5,fontWeight:700,color:(pushToken&&settings.bandMessageNotifs)?theme.mid:'#9ca3af'}},
+            (pushToken&&settings.bandMessageNotifs)?'ON ›':'OFF ›')
+        )
       ),
       e(Section,{icon:'ℹ️',iconBg:'#E5E7EB',title:'About',summary:'v1.0.0',isOpen:openSections.has('about'),onToggle:()=>toggleSection('about')},
         e(Row,{label:'Version',sub:'1.0.0',border:true,right:null}),
