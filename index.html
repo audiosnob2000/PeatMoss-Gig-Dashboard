@@ -377,6 +377,62 @@ function Badge({status}){
   return e('span',{className:'badge',style:{background:s.bg,color:s.color}},s.label);
 }
 
+// Module-level (not per-component) so reopening the same gig's popup during
+// this session doesn't re-fetch — venue+date forecasts don't change minute
+// to minute anyway.
+const WEATHER_CACHE={};
+function weatherIconFor(code){
+  if(code===0)return '☀️';
+  if(code===1||code===2)return '🌤️';
+  if(code===3)return '☁️';
+  if(code===45||code===48)return '🌫️';
+  if(code>=51&&code<=67)return '🌧️';
+  if(code>=71&&code<=77)return '❄️';
+  if(code>=80&&code<=82)return '🌦️';
+  if(code>=95)return '⛈️';
+  return '⛅';
+}
+// Forecast row for the gig popup — Open-Meteo only covers a useful range a
+// bit over a week out, so gigs further away (or missing a location) simply
+// render nothing here, same as a failed fetch. No loading placeholder or
+// error state, to avoid a flash of "Weather —" on every popup open.
+function GigWeatherRow({gig}){
+  const [weather,setWeather]=useState(null);
+  useEffect(()=>{
+    setWeather(null);
+    if(!gig.location||!gig.date)return;
+    const days=Math.floor((new Date(gig.date+'T00:00:00')-new Date(new Date().toDateString()))/86400000);
+    if(days<0||days>10)return;
+    const cacheKey=gig.location+'|'+gig.date;
+    if(WEATHER_CACHE[cacheKey]){setWeather(WEATHER_CACHE[cacheKey]);return;}
+    let cancelled=false;
+    (async()=>{
+      try{
+        const geoRes=await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(gig.location)}&format=json&limit=1`);
+        const geoData=await geoRes.json();
+        if(cancelled||!geoData||!geoData[0])return;
+        const {lat,lon}=geoData[0];
+        const wRes=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode&temperature_unit=fahrenheit&timezone=auto&start_date=${gig.date}&end_date=${gig.date}`);
+        const wData=await wRes.json();
+        const d=wData&&wData.daily;
+        if(cancelled||!d||!d.time||!d.time.length)return;
+        const result={hi:Math.round(d.temperature_2m_max[0]),lo:Math.round(d.temperature_2m_min[0]),rain:Math.round(d.precipitation_probability_max[0]),code:d.weathercode[0]};
+        WEATHER_CACHE[cacheKey]=result;
+        setWeather(result);
+      }catch(err){}
+    })();
+    return ()=>{cancelled=true;};
+  },[gig.location,gig.date]);
+  if(!weather)return null;
+  return e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
+    e('span',{style:{fontSize:13,color:'#6b7280'}},'Weather'),
+    e('span',{style:{fontSize:13,fontWeight:500,display:'flex',alignItems:'center',gap:6}},
+      e('span',{style:{fontSize:16}},weatherIconFor(weather.code)),
+      `${weather.hi}° / ${weather.lo}° · ${weather.rain}% rain`
+    )
+  );
+}
+
 const SWIPE_DELETE_WIDTH=72;
 function SwipeableGigRow({g,bg,border,tc,onEdit,onDelete,onMap,pastUnpaid}){
   const [tx,setTx]=useState(0);
@@ -2829,6 +2885,7 @@ function App(){
               e('span',{style:{fontSize:13,fontWeight:500}},val)
             )
           ),
+          e(GigWeatherRow,{key:gigPopup.id,gig:gigPopup}),
           e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
             e('span',{style:{fontSize:13,color:'#6b7280'}},'Status'),
             e(Badge,{status:gigPopup.status})
