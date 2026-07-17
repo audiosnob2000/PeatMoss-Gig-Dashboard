@@ -514,15 +514,17 @@ function drawScheduleCalendarCanvas({bandName,monthLabel,cells,gigsByDate,dateKe
     // Empty-cell borders are deliberately a solid, clearly visible gray
     // (not a faint hairline) — this is meant to be read as an actual
     // calendar grid at a glance, booked or not, especially once printed.
+    // Gig-cell styling is untouched here; only the empty-day gray itself
+    // was darkened a step so the grid reads less washed out on paper.
     ctx.fillStyle=hasGig&&!bw?(isWedding?'#EEEDFE':theme.pale):'#ffffff';
     ctx.fillRect(x+2,y+2,colWidth-4,rowHeight-4);
     ctx.lineWidth=hasGig&&bw?2.5:1.5;
-    ctx.strokeStyle=hasGig?(bw?'#111827':(isWedding?'#AFA9EC':theme.light)):'#9ca3af';
+    ctx.strokeStyle=hasGig?(bw?'#111827':(isWedding?'#AFA9EC':theme.light)):'#6b7280';
     ctx.strokeRect(x+2,y+2,colWidth-4,rowHeight-4);
 
     ctx.textAlign='left';
     ctx.font=(hasGig?'700 ':'600 ')+'14px '+font;
-    ctx.fillStyle=hasGig?(bw?'#111827':(isWedding?'#534AB7':theme.primary)):'#4b5563';
+    ctx.fillStyle=hasGig?(bw?'#111827':(isWedding?'#534AB7':theme.primary)):'#374151';
     ctx.fillText(String(day),x+10,y+22);
 
     if(hasGig){
