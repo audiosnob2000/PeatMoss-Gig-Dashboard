@@ -113,7 +113,7 @@ const FUNCTIONS_BASE_URL='https://us-central1-peatmoss-gig-dashboard-4f41b.cloud
 const IRS_RATE=0.67;
 const KM_PER_MILE=1.60934;
 const TYPES=["bar","wedding","private event","other"];
-const STATUSES=["confirmed","pending","hold","cancelled"];
+const STATUSES=["confirmed","hold","cancelled"];
 const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const FULL_MONTHS=["January","February","March","April","May","June","July","August","September","October","November","December"];
 const DAYS=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
@@ -203,7 +203,6 @@ const US_STATE_ABBR={
 };
 const STATUS_STYLE={
   confirmed:{bg:"#d1fae5",color:"#065f46",label:"Confirmed"},
-  pending: {bg:"#fef9c3",color:"#854d0e",label:"Pending"},
   hold: {bg:"#f1f5f9",color:"#475569",label:"Hold"},
   cancelled:{bg:"#fee2e2",color:"#b91c1c",label:"Cancelled"},
 };
@@ -373,7 +372,14 @@ function processUploadedFile(file,onSuccess,onError){
 }
 
 function Badge({status}){
-  const s=STATUS_STYLE[status];
+  // Confirmed is the default, common-case status — showing a badge for it
+  // on every gig was just noise. The badge is more useful as a flag for the
+  // exception: something ISN'T confirmed yet, or got cancelled.
+  if(status==='confirmed')return null;
+  // 'pending' was folded into 'hold' (they meant the same thing in
+  // practice) — old gigs saved with status:'pending' still render sensibly
+  // instead of crashing on a removed STATUS_STYLE key.
+  const s=STATUS_STYLE[status]||STATUS_STYLE.hold;
   return e('span',{className:'badge',style:{background:s.bg,color:s.color}},s.label);
 }
 
@@ -2913,7 +2919,9 @@ function App(){
             )
           ),
           e(GigWeatherRow,{key:gigPopup.id,gig:gigPopup}),
-          e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
+          // Row itself is hidden when confirmed, not just the badge inside
+          // it — a "Status" label with nothing next to it would look broken.
+          gigPopup.status!=='confirmed'&&e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
             e('span',{style:{fontSize:13,color:'#6b7280'}},'Status'),
             e(Badge,{status:gigPopup.status})
           ),
