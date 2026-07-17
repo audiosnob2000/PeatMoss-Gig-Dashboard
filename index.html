@@ -509,24 +509,25 @@ function drawScheduleCalendarCanvas({bandName,monthLabel,cells,gigsByDate,dateKe
     const x=marginX+col*colWidth,y=gridTop+row*rowHeight;
     const dayGigs=gigsByDate[dateKeyFor(day)]||[];
     const hasGig=dayGigs.length>0;
+    const isWedding=hasGig&&dayGigs[0].type==='wedding';
 
     // Empty-cell borders are deliberately a solid, clearly visible gray
     // (not a faint hairline) — this is meant to be read as an actual
     // calendar grid at a glance, booked or not, especially once printed.
-    ctx.fillStyle=hasGig&&!bw?theme.pale:'#ffffff';
+    ctx.fillStyle=hasGig&&!bw?(isWedding?'#EEEDFE':theme.pale):'#ffffff';
     ctx.fillRect(x+2,y+2,colWidth-4,rowHeight-4);
     ctx.lineWidth=hasGig&&bw?2.5:1.5;
-    ctx.strokeStyle=hasGig?(bw?'#111827':theme.light):'#9ca3af';
+    ctx.strokeStyle=hasGig?(bw?'#111827':(isWedding?'#AFA9EC':theme.light)):'#9ca3af';
     ctx.strokeRect(x+2,y+2,colWidth-4,rowHeight-4);
 
     ctx.textAlign='left';
     ctx.font=(hasGig?'700 ':'600 ')+'14px '+font;
-    ctx.fillStyle=hasGig?(bw?'#111827':theme.primary):'#4b5563';
+    ctx.fillStyle=hasGig?(bw?'#111827':(isWedding?'#534AB7':theme.primary)):'#4b5563';
     ctx.fillText(String(day),x+10,y+22);
 
     if(hasGig){
       ctx.font='600 11px '+font;
-      ctx.fillStyle=bw?'#111827':theme.primary;
+      ctx.fillStyle=bw?'#111827':(isWedding?'#534AB7':theme.primary);
       let text=scheduleShortVenue(dayGigs[0]);
       const maxWidth=colWidth-18;
       if(ctx.measureText(text).width>maxWidth){
@@ -1423,6 +1424,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
                   const ds=`${scheduleCalYear}-${String(scheduleCalMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
                   const dayGigs=scheduleGigsByDate[ds]||[];
                   const hasGig=dayGigs.length>0;
+                  const isWedding=hasGig&&dayGigs[0].type==='wedding';
                   const hasUnpaid=scheduleShowUnpaid&&dayGigs.some(g=>(unpaidGigIds||[]).includes(g.id));
                   return e('div',{key:day,style:{
                       // minHeight here is only the on-screen preview value —
@@ -1431,14 +1433,14 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
                       // 0.85in landscape), so shrinking this for the landscape
                       // preview never touches actual print sizing.
                       position:'relative',minWidth:0,minHeight:(scheduleOrientation==='landscape'?34:56),borderRadius:4,padding:'4px 5px',overflow:'hidden',
-                      border:'1px solid '+(hasGig?(scheduleBW?'#111827':theme.light):(scheduleBW?'#d1d5db':'#e5e7eb')),
-                      background:hasGig&&!scheduleBW?theme.pale:'#fff'
+                      border:'1px solid '+(hasGig?(scheduleBW?'#111827':(isWedding?'#AFA9EC':theme.light)):(scheduleBW?'#d1d5db':'#e5e7eb')),
+                      background:hasGig&&!scheduleBW?(isWedding?'#EEEDFE':theme.pale):'#fff'
                     }},
-                    e('div',{style:{fontSize:10,fontWeight:hasGig?700:400,color:hasGig?(scheduleBW?'#111827':theme.primary):'#9ca3af'}},day),
+                    e('div',{style:{fontSize:10,fontWeight:hasGig?700:400,color:hasGig?(scheduleBW?'#111827':(isWedding?'#534AB7':theme.primary)):'#9ca3af'}},day),
                     dayGigs.slice(0,1).map(g=>{
                       const t=scheduleShortTime(g.time);
                       return e('div',{key:g.id},
-                        e('div',{style:{fontSize:8,fontWeight:600,marginTop:1,color:scheduleBW?'#111827':theme.primary,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},scheduleShortVenue(g)),
+                        e('div',{style:{fontSize:8,fontWeight:600,marginTop:1,color:scheduleBW?'#111827':(isWedding?'#534AB7':theme.primary),overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},scheduleShortVenue(g)),
                         t&&e('div',{style:{fontSize:7,color:scheduleBW?'#4b5563':'#6b7280',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},t)
                       );
                     }),
