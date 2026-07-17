@@ -413,9 +413,7 @@ function GigWeatherRow({gig}){
     const cacheKey=gig.location+'|'+gig.date;
     if(WEATHER_CACHE[cacheKey]){setWeather(WEATHER_CACHE[cacheKey]);return;}
     // Location is often typed as "Venue Name, Town, ST" rather than just
-    // "Town, ST" — Open-Meteo's geocoder is a place-name lookup, not a full
-    // address/POI search like Nominatim, so a leading venue name makes it
-    // return nothing. scheduleShortLocation already knows how to find the
+    // "Town, ST" — scheduleShortLocation already knows how to find the
     // state-abbreviation segment and keep only the town right before it,
     // discarding whatever's in front of it (venue name or not).
     const geoQuery=scheduleShortLocation(gig.location)||gig.location;
@@ -424,20 +422,28 @@ function GigWeatherRow({gig}){
       try{
         let coords=GEOCODE_CACHE[geoQuery];
         if(!coords){
-          // Open-Meteo's own geocoding endpoint, not Nominatim — Nominatim's
-          // usage policy caps client-side use at 1 request/second with no
-          // retry, so checking a few gigs back to back was enough to get
-          // silently rate-limited (the fetch just fails and the row never
-          // renders, since there's no error state to surface it). This
-          // endpoint is meant to pair with the weather API and doesn't have
-          // that restriction.
+          // Open-Meteo's geocoder first — fast, generous rate limit, meant
+          // to pair with the weather API — but it only covers a curated
+          // list of larger/well-known places, so it misses a lot of small
+          // towns real venues are actually in. Nominatim (OpenStreetMap)
+          // has far more complete small-town coverage, so it's the fallback
+          // when Open-Meteo comes up empty, even though its usage policy
+          // caps client-side use at 1 request/second — that's fine here
+          // since it's only hit on a miss, not on every lookup.
           const geoRes=await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(geoQuery)}&count=1`);
-          if(!geoRes.ok){if(!cancelled)setFailReason(`geocode HTTP ${geoRes.status}`);return;}
-          const geoData=await geoRes.json();
+          const geoData=geoRes.ok?await geoRes.json():null;
           const r=geoData&&geoData.results&&geoData.results[0];
-          if(!r){if(!cancelled)setFailReason(`no geocode match for "${geoQuery}"`);return;}
+          if(r){
+            coords={lat:r.latitude,lon:r.longitude};
+          }else{
+            const nomRes=await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(geoQuery)}&format=json&limit=1`);
+            if(!nomRes.ok){if(!cancelled)setFailReason(`geocode HTTP ${nomRes.status}`);return;}
+            const nomData=await nomRes.json();
+            const nr=nomData&&nomData[0];
+            if(!nr){if(!cancelled)setFailReason(`no geocode match for "${geoQuery}"`);return;}
+            coords={lat:nr.lat,lon:nr.lon};
+          }
           if(cancelled)return;
-          coords={lat:r.latitude,lon:r.longitude};
           GEOCODE_CACHE[geoQuery]=coords;
         }
         const {lat,lon}=coords;
