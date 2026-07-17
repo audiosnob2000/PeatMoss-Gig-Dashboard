@@ -400,8 +400,13 @@ function weatherIconFor(code){
 // error state, to avoid a flash of "Weather —" on every popup open.
 function GigWeatherRow({gig}){
   const [weather,setWeather]=useState(null);
+  // Surfaced on screen (not just console) since this is a client-side-only
+  // app with no server logs to check — a short reason code here is the only
+  // way to diagnose a real-device failure without guessing blind again.
+  const [failReason,setFailReason]=useState(null);
   useEffect(()=>{
     setWeather(null);
+    setFailReason(null);
     if(!gig.location||!gig.date)return;
     const days=Math.floor((new Date(gig.date+'T00:00:00')-new Date(new Date().toDateString()))/86400000);
     if(days<0||days>10)return;
@@ -427,25 +432,34 @@ function GigWeatherRow({gig}){
           // endpoint is meant to pair with the weather API and doesn't have
           // that restriction.
           const geoRes=await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(geoQuery)}&count=1`);
+          if(!geoRes.ok){if(!cancelled)setFailReason(`geocode HTTP ${geoRes.status}`);return;}
           const geoData=await geoRes.json();
           const r=geoData&&geoData.results&&geoData.results[0];
-          if(cancelled||!r)return;
+          if(!r){if(!cancelled)setFailReason(`no geocode match for "${geoQuery}"`);return;}
+          if(cancelled)return;
           coords={lat:r.latitude,lon:r.longitude};
           GEOCODE_CACHE[geoQuery]=coords;
         }
         const {lat,lon}=coords;
         const wRes=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode&temperature_unit=fahrenheit&timezone=auto&start_date=${gig.date}&end_date=${gig.date}`);
+        if(!wRes.ok){if(!cancelled)setFailReason(`forecast HTTP ${wRes.status}`);return;}
         const wData=await wRes.json();
         const d=wData&&wData.daily;
-        if(cancelled||!d||!d.time||!d.time.length)return;
+        if(!d||!d.time||!d.time.length){if(!cancelled)setFailReason('forecast returned no data for this date');return;}
         const result={hi:Math.round(d.temperature_2m_max[0]),lo:Math.round(d.temperature_2m_min[0]),rain:Math.round(d.precipitation_probability_max[0]),code:d.weathercode[0]};
         WEATHER_CACHE[cacheKey]=result;
-        setWeather(result);
-      }catch(err){}
+        if(!cancelled)setWeather(result);
+      }catch(err){
+        if(!cancelled)setFailReason('fetch failed: '+(err&&err.message||'unknown error'));
+      }
     })();
     return ()=>{cancelled=true;};
   },[gig.location,gig.date]);
-  if(!weather)return null;
+  if(!weather&&!failReason)return null;
+  if(failReason)return e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
+    e('span',{style:{fontSize:13,color:'#6b7280'}},'Weather'),
+    e('span',{style:{fontSize:11,color:'#9ca3af',textAlign:'right',maxWidth:200}},'Unavailable — '+failReason)
+  );
   return e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
     e('span',{style:{fontSize:13,color:'#6b7280'}},'Weather'),
     e('span',{style:{fontSize:13,fontWeight:500,display:'flex',alignItems:'center',gap:6}},
