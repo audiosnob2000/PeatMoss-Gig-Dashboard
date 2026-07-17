@@ -1020,7 +1020,6 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
     }
   },[autoScrollToCalendar]);
   const [printStandaloneHelp,setPrintStandaloneHelp]=useState(false);
-  const [confirmReset,setConfirmReset]=useState(false);
   const [showSchedulePreview,setShowSchedulePreview]=useState(false);
   const [scheduleView,setScheduleView]=useState('list');
   const [scheduleBW,setScheduleBW]=useState(false);
@@ -1403,12 +1402,9 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
       e(Section,{icon:'🎸',iconBg:'#FFEDD5',title:'Stage Plot',summary:stagePlotSummary,isOpen:openSections.has('stageplot'),onToggle:()=>toggleSection('stageplot')},
         e(StagePlotSection,{settings,setSettings,theme})
       ),
-      e(Section,{icon:'📤',iconBg:'#F3F4F6',title:'Data',isOpen:openSections.has('data'),onToggle:()=>toggleSection('data')},
-        e(Row,{label:'Share schedule',sub:'A clean, printable view of upcoming shows to send to friends, family, or fans',border:true,
+      e(Section,{icon:'📤',iconBg:'#F3F4F6',title:'Share Schedule',isOpen:openSections.has('data'),onToggle:()=>toggleSection('data')},
+        e(Row,{label:'Share schedule',sub:'A clean, printable view of upcoming shows to send to friends, family, or fans',border:false,
           right:e('button',{onClick:()=>setShowSchedulePreview(true),style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'View')
-        }),
-        e(Row,{label:'Reset all data',sub:'Clears all gigs and returns to defaults',danger:true,border:false,
-          right:e('button',{onClick:()=>setConfirmReset(true),style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #fca5a5',color:'#b91c1c',cursor:'pointer'}},'Reset')
         })
       ),
       e(Section,{icon:'ℹ️',iconBg:'#E5E7EB',title:'About',summary:'v1.0.0',isOpen:openSections.has('about'),onToggle:()=>toggleSection('about')},
@@ -1552,18 +1548,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
             )
       )
     ),
-    e(PrintStandaloneBanner,{show:printStandaloneHelp,onDismiss:()=>setPrintStandaloneHelp(false),theme}),
-    confirmReset&&e('div',{onClick:()=>setConfirmReset(false),className:'overlay'},
-      e('div',{onClick:ev=>ev.stopPropagation(),className:'modal'},
-        e('div',{style:{fontSize:16,fontWeight:600,marginBottom:8}},'Reset all data?'),
-        e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:20}},'This will delete all gigs and reset the app to its defaults. This cannot be undone.'),
-        e('div',{style:{display:'flex',gap:8,justifyContent:'flex-end'}},
-          e('button',{onClick:()=>setConfirmReset(false)},'Cancel'),
-          e('button',{onClick:()=>{setGigs(SAMPLE);setSettings({bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',stagePlotFile:null,calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com'});localStorage.removeItem('pmtf_gigs');localStorage.removeItem('pmtf_settings');localStorage.removeItem('pmtf_members');localStorage.removeItem('pmtf_mileage');localStorage.removeItem('pmtf_setlists');setConfirmReset(false);onClose();},
-            style:{background:'#dc2626',color:'#fff',border:'none',borderRadius:8,padding:'6px 16px',cursor:'pointer',fontWeight:500}},'Reset')
-        )
-      )
-    )
+    e(PrintStandaloneBanner,{show:printStandaloneHelp,onDismiss:()=>setPrintStandaloneHelp(false),theme})
   );
 }
 
