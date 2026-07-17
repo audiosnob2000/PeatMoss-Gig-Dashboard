@@ -379,8 +379,10 @@ function Badge({status}){
 
 // Module-level (not per-component) so reopening the same gig's popup during
 // this session doesn't re-fetch — venue+date forecasts don't change minute
-// to minute anyway.
+// to minute anyway. Geocoding is cached separately by location alone, since
+// multiple gigs often share the same venue across different dates.
 const WEATHER_CACHE={};
+const GEOCODE_CACHE={};
 function weatherIconFor(code){
   if(code===0)return '☀️';
   if(code===1||code===2)return '🌤️';
@@ -408,10 +410,23 @@ function GigWeatherRow({gig}){
     let cancelled=false;
     (async()=>{
       try{
-        const geoRes=await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(gig.location)}&format=json&limit=1`);
-        const geoData=await geoRes.json();
-        if(cancelled||!geoData||!geoData[0])return;
-        const {lat,lon}=geoData[0];
+        let coords=GEOCODE_CACHE[gig.location];
+        if(!coords){
+          // Open-Meteo's own geocoding endpoint, not Nominatim — Nominatim's
+          // usage policy caps client-side use at 1 request/second with no
+          // retry, so checking a few gigs back to back was enough to get
+          // silently rate-limited (the fetch just fails and the row never
+          // renders, since there's no error state to surface it). This
+          // endpoint is meant to pair with the weather API and doesn't have
+          // that restriction.
+          const geoRes=await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(gig.location)}&count=1`);
+          const geoData=await geoRes.json();
+          const r=geoData&&geoData.results&&geoData.results[0];
+          if(cancelled||!r)return;
+          coords={lat:r.latitude,lon:r.longitude};
+          GEOCODE_CACHE[gig.location]=coords;
+        }
+        const {lat,lon}=coords;
         const wRes=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode&temperature_unit=fahrenheit&timezone=auto&start_date=${gig.date}&end_date=${gig.date}`);
         const wData=await wRes.json();
         const d=wData&&wData.daily;
