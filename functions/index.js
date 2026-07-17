@@ -299,13 +299,16 @@ exports.sendGigReminders = onSchedule({schedule: 'every 15 minutes', timeZone: '
   for (const gig of gigs) {
     for (const doc of tokensSnap.docs) {
       const data = doc.data();
-      // A gig marked "doing sound" needs more lead time — swap reminder 2
-      // for the standalone sound-gig override when the device has one set.
-      // Reminder 1 is left untouched so it always fires as configured,
-      // sound gig or not.
-      const effectiveReminder2 = (gig.selfPA && data.selfPaReminderEnabled && data.selfPaReminderTime)
-        ? data.selfPaReminderTime : data.reminder2;
-      for (const [slotName, pref] of [['reminder1', data.reminder1], ['reminder2', effectiveReminder2]]) {
+      // A gig marked "doing sound" needs more lead time — swap whichever
+      // reminder slot the device chose (selfPaReminderTarget; defaults to
+      // reminder2 for tokens saved before this choice existed) for the
+      // standalone sound-gig override time. The other slot is left
+      // untouched so it always fires as configured, sound gig or not.
+      const selfPaOverrideActive = gig.selfPA && data.selfPaReminderEnabled && data.selfPaReminderTime;
+      const selfPaTarget = data.selfPaReminderTarget === 'reminder1' ? 'reminder1' : 'reminder2';
+      const effectiveReminder1 = (selfPaOverrideActive && selfPaTarget === 'reminder1') ? data.selfPaReminderTime : data.reminder1;
+      const effectiveReminder2 = (selfPaOverrideActive && selfPaTarget === 'reminder2') ? data.selfPaReminderTime : data.reminder2;
+      for (const [slotName, pref] of [['reminder1', effectiveReminder1], ['reminder2', effectiveReminder2]]) {
         if (!pref || pref === 'off') continue;
         const offset = REMINDER_OFFSETS[pref];
         if (!offset) continue;
