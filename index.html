@@ -528,7 +528,7 @@ function drawScheduleCalendarCanvas({bandName,monthLabel,cells,gigsByDate,dateKe
     if(hasGig){
       ctx.font='600 11px '+font;
       ctx.fillStyle=bw?'#111827':(isWedding?'#534AB7':theme.primary);
-      let text=scheduleShortVenue(dayGigs[0]);
+      let text=(dayGigs[0].selfPA?'🔊 ':'')+scheduleShortVenue(dayGigs[0]);
       const maxWidth=colWidth-18;
       if(ctx.measureText(text).width>maxWidth){
         while(text.length>1&&ctx.measureText(text+'…').width>maxWidth)text=text.slice(0,-1);
@@ -1440,7 +1440,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
                     dayGigs.slice(0,1).map(g=>{
                       const t=scheduleShortTime(g.time);
                       return e('div',{key:g.id},
-                        e('div',{style:{fontSize:8,fontWeight:600,marginTop:1,color:scheduleBW?'#111827':(isWedding?'#534AB7':theme.primary),overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},scheduleShortVenue(g)),
+                        e('div',{style:{fontSize:8,fontWeight:600,marginTop:1,color:scheduleBW?'#111827':(isWedding?'#534AB7':theme.primary),overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},(g.selfPA?'🔊 ':'')+scheduleShortVenue(g)),
                         t&&e('div',{style:{fontSize:7,color:scheduleBW?'#4b5563':'#6b7280',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},t)
                       );
                     }),
