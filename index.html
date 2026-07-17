@@ -407,10 +407,17 @@ function GigWeatherRow({gig}){
     if(days<0||days>10)return;
     const cacheKey=gig.location+'|'+gig.date;
     if(WEATHER_CACHE[cacheKey]){setWeather(WEATHER_CACHE[cacheKey]);return;}
+    // Location is often typed as "Venue Name, Town, ST" rather than just
+    // "Town, ST" — Open-Meteo's geocoder is a place-name lookup, not a full
+    // address/POI search like Nominatim, so a leading venue name makes it
+    // return nothing. scheduleShortLocation already knows how to find the
+    // state-abbreviation segment and keep only the town right before it,
+    // discarding whatever's in front of it (venue name or not).
+    const geoQuery=scheduleShortLocation(gig.location)||gig.location;
     let cancelled=false;
     (async()=>{
       try{
-        let coords=GEOCODE_CACHE[gig.location];
+        let coords=GEOCODE_CACHE[geoQuery];
         if(!coords){
           // Open-Meteo's own geocoding endpoint, not Nominatim — Nominatim's
           // usage policy caps client-side use at 1 request/second with no
@@ -419,12 +426,12 @@ function GigWeatherRow({gig}){
           // renders, since there's no error state to surface it). This
           // endpoint is meant to pair with the weather API and doesn't have
           // that restriction.
-          const geoRes=await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(gig.location)}&count=1`);
+          const geoRes=await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(geoQuery)}&count=1`);
           const geoData=await geoRes.json();
           const r=geoData&&geoData.results&&geoData.results[0];
           if(cancelled||!r)return;
           coords={lat:r.latitude,lon:r.longitude};
-          GEOCODE_CACHE[gig.location]=coords;
+          GEOCODE_CACHE[geoQuery]=coords;
         }
         const {lat,lon}=coords;
         const wRes=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode&temperature_unit=fahrenheit&timezone=auto&start_date=${gig.date}&end_date=${gig.date}`);
