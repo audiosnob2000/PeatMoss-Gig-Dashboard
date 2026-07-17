@@ -606,7 +606,24 @@ function BandMessageBanner({message,onEdit,onDismiss}){
 // whoever edits it last just overwrites the value.
 function BandMessageModal({message,onSave,onClear,onClose}){
   const [text,setText]=useState(message&&message.text||'');
+  const [saving,setSaving]=useState(false);
+  const [error,setError]=useState('');
+  const [slow,setSlow]=useState(false);
+  useEffect(()=>{
+    if(!saving){setSlow(false);return;}
+    const t=setTimeout(()=>setSlow(true),5000);
+    return ()=>clearTimeout(t);
+  },[saving]);
   const hasExisting=!!(message&&message.text);
+  const submit=()=>{
+    if(!text.trim())return;
+    setSaving(true);setError('');
+    onSave(text.trim()).then(onClose).catch(err=>{setSaving(false);setError((err&&err.message)||'Could not post — check your connection and try again.');});
+  };
+  const submitClear=()=>{
+    setSaving(true);setError('');
+    onClear().then(onClose).catch(err=>{setSaving(false);setError((err&&err.message)||'Could not clear — check your connection and try again.');});
+  };
   return e('div',{onClick:onClose,className:'overlay'},
     e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:360}},
       e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}},
@@ -621,12 +638,14 @@ function BandMessageModal({message,onSave,onClear,onClose}){
       e('div',{style:{fontSize:10.5,color:'#9ca3af',marginTop:5}},
         text.length+'/100'+(hasExisting?' · posted '+timeAgo(message.postedAt):' · visible to everyone until cleared')
       ),
+      error&&e('div',{style:{fontSize:11.5,color:'#B91C1C',marginTop:8}},'⚠ '+error),
+      slow&&!error&&e('div',{style:{fontSize:11.5,color:'#9ca3af',marginTop:8}},'Still trying — this can take a moment on a slow connection.'),
       e('div',{style:{display:'flex',gap:8,marginTop:14}},
-        e('button',{onClick:()=>{if(text.trim())onSave(text.trim());},disabled:!text.trim(),
-          style:{flex:1,padding:'9px 0',borderRadius:9,border:'none',background:text.trim()?'#1D9E75':'#a7d9c6',color:'#fff',fontWeight:600,fontSize:13,cursor:text.trim()?'pointer':'default'}},
-          hasExisting?'Update':'Post to band'),
-        hasExisting&&e('button',{onClick:onClear,
-          style:{flex:'0 0 auto',padding:'9px 14px',borderRadius:9,border:'none',background:'#FEE2E2',color:'#B91C1C',fontWeight:600,fontSize:13,cursor:'pointer'}},
+        e('button',{onClick:submit,disabled:!text.trim()||saving,
+          style:{flex:1,padding:'9px 0',borderRadius:9,border:'none',background:(text.trim()&&!saving)?'#1D9E75':'#a7d9c6',color:'#fff',fontWeight:600,fontSize:13,cursor:(text.trim()&&!saving)?'pointer':'default'}},
+          saving?'Saving…':(hasExisting?'Update':'Post to band')),
+        hasExisting&&e('button',{onClick:submitClear,disabled:saving,
+          style:{flex:'0 0 auto',padding:'9px 14px',borderRadius:9,border:'none',background:'#FEE2E2',color:'#B91C1C',fontWeight:600,fontSize:13,cursor:saving?'default':'pointer'}},
           'Clear')
       )
     )
@@ -1769,15 +1788,14 @@ function App(){
     });
     return unsub;
   },[]);
+  // Returns the write promise (rather than firing-and-forgetting) so the
+  // modal can show a real error instead of optimistically closing and
+  // silently losing the message if the write never reaches the server.
   const postBandMessage=text=>{
     const body={text,postedAt:new Date().toISOString()};
-    db.collection('bandSettings').doc('bandMessage').set(body).catch(()=>alert('Could not post — check your connection and try again.'));
-    setShowBandMessageModal(false);
+    return db.collection('bandSettings').doc('bandMessage').set(body);
   };
-  const clearBandMessage=()=>{
-    db.collection('bandSettings').doc('bandMessage').delete().catch(()=>{});
-    setShowBandMessageModal(false);
-  };
+  const clearBandMessage=()=>db.collection('bandSettings').doc('bandMessage').delete();
   const dismissBandMessage=()=>{
     if(!bandMessage)return;
     try{localStorage.setItem('pmtf_dismissed_message_at',bandMessage.postedAt);}catch{}
