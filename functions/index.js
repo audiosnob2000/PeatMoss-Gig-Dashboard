@@ -1,4 +1,4 @@
-const {onDocumentCreated} = require('firebase-functions/v2/firestore');
+const {onDocumentCreated, onDocumentWritten} = require('firebase-functions/v2/firestore');
 const {onRequest} = require('firebase-functions/v2/https');
 const {onSchedule} = require('firebase-functions/v2/scheduler');
 const admin = require('firebase-admin');
@@ -122,6 +122,51 @@ exports.notifyOnNewSetlist = onDocumentCreated('setlists/{setlistId}', async (ev
   // Devices that uninstalled, revoked permission, or otherwise expired
   // their token come back as a specific error code — clean those out so
   // the token list doesn't grow unbounded with dead entries.
+  const staleTokens = [];
+  response.responses.forEach((res, i) => {
+    if (!res.success) {
+      const code = res.error && res.error.code;
+      if (code === 'messaging/registration-token-not-registered' || code === 'messaging/invalid-registration-token') {
+        staleTokens.push(tokens[i]);
+      }
+    }
+  });
+  if (staleTokens.length) {
+    const batch = admin.firestore().batch();
+    staleTokens.forEach(t => batch.delete(admin.firestore().collection('fcmTokens').doc(t)));
+    await batch.commit();
+  }
+});
+
+// bandSettings/bandMessage is a single shared doc (set(), not create-per-post)
+// that gets overwritten on every post/edit and removed on clear — so this
+// needs the before/after diff onDocumentWritten gives, not onDocumentCreated,
+// and skips the clear case (after doesn't exist) and no-op writes where the
+// text didn't actually change.
+exports.notifyOnBandMessage = onDocumentWritten('bandSettings/bandMessage', async (event) => {
+  const after = event.data.after.exists ? event.data.after.data() : null;
+  if (!after || !after.text) return;
+  const before = event.data.before.exists ? event.data.before.data() : null;
+  if (before && before.text === after.text) return;
+
+  const tokensSnap = await admin.firestore().collection('fcmTokens').get();
+  if (tokensSnap.empty) return;
+
+  // bandMessageNotifs is opt-out, not opt-in — tokens registered before this
+  // setting existed have no such field and should still get pinged.
+  const tokenDocs = tokensSnap.docs.filter(d => d.data().bandMessageNotifs !== false);
+  if (!tokenDocs.length) return;
+  const tokens = tokenDocs.map(d => d.id);
+
+  const response = await admin.messaging().sendEachForMulticast({
+    notification: {
+      title: 'Band message',
+      body: after.text
+    },
+    data: { url: APP_URL },
+    tokens
+  });
+
   const staleTokens = [];
   response.responses.forEach((res, i) => {
     if (!res.success) {
