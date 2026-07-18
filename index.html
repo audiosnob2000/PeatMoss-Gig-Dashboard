@@ -59,6 +59,11 @@ button:hover{background:#f3f4f6}
      bottom row gets cut off instead of wrapping to a second page. */
   .schedule-print-cal .sched-cal-grid>div{min-height:1.15in!important}
   .schedule-print-cal.landscape .sched-cal-grid>div{min-height:0.85in!important}
+  /* The song viewer's "stage mode" is dark on screen, but that's a screen
+     reading aid, not a print choice — printing it as-is would waste ink and
+     make the chords hard to read against a black page. Force it back to
+     plain ink-on-paper regardless of the on-screen theme. */
+  .song-viewer-print,.song-viewer-print *{background:#fff!important;color:#000!important}
 }
 @page{margin:0.4in}
 .tab-bar{display:flex;gap:6px;background:#e9ecef;border-radius:12px;padding:4px;margin-bottom:1.25rem}
@@ -1885,6 +1890,9 @@ function App(){
   const [newSongContent,setNewSongContent]=useState('');
   const [newSongFileName,setNewSongFileName]=useState('');
   const [newSongShared,setNewSongShared]=useState(true);
+  const [newSongKey,setNewSongKey]=useState('');
+  const [newSongTempo,setNewSongTempo]=useState('');
+  const [newSongTag,setNewSongTag]=useState('');
   const [newSongProcessing,setNewSongProcessing]=useState(false);
   const [viewingSong,setViewingSong]=useState(null);
   const [renamingSongId,setRenamingSongId]=useState(null);
@@ -2838,7 +2846,8 @@ function App(){
     );
   };
   const resetSongForm=()=>{
-    setNewSongName('');setNewSongMode('upload');setNewSongContentType('');setNewSongContent('');setNewSongFileName('');setNewSongShared(true);setNewSongProcessing(false);setAddingSong(false);
+    setNewSongName('');setNewSongMode('upload');setNewSongContentType('');setNewSongContent('');setNewSongFileName('');setNewSongShared(true);
+    setNewSongKey('');setNewSongTempo('');setNewSongTag('');setNewSongProcessing(false);setAddingSong(false);
   };
   const handleReplaceSongFile=file=>{
     if(!replacingSongId)return;
@@ -2899,7 +2908,8 @@ function App(){
     const type=newSongMode==='link'?'link':newSongMode==='manual'?'text':newSongContentType;
     db.collection('songs').doc('sg'+Date.now()).set({
       name:newSongName.trim(),type,content:newSongContent,fileName:newSongFileName||null,
-      updatedAt:todayStr,shared:newSongShared,deviceId:getDeviceId()
+      updatedAt:todayStr,shared:newSongShared,deviceId:getDeviceId(),
+      key:newSongKey.trim()||null,tempo:newSongTempo.trim()||null,tag:newSongTag.trim()||null,rotated:false
     }).catch(()=>alert('Could not save — check your connection and try again.'));
     resetSongForm();
   };
@@ -2907,6 +2917,22 @@ function App(){
     db.collection('songs').doc(id).delete().catch(()=>alert('Could not delete — check your connection and try again.'));
     setViewingSong(null);setRenamingSongId(null);setReplacingSongId(null);
   };
+  // Rotation is stored per-song (not per-device) since it's fixing an
+  // inherent property of the uploaded photo — once someone straightens it,
+  // everyone should see it right-side-up without re-doing the same fix.
+  const toggleSongRotation=sg=>{
+    db.collection('songs').doc(sg.id).update({rotated:!sg.rotated})
+      .catch(()=>alert('Could not save — check your connection and try again.'));
+  };
+  const songMatchesSearch=sg=>{
+    const q=songSearch.trim().toLowerCase();
+    if(!q)return true;
+    return sg.name.toLowerCase().includes(q)||(sg.key||'').toLowerCase().includes(q)||(sg.tag||'').toLowerCase().includes(q);
+  };
+  // viewingSong is a snapshot taken at the moment "View" was clicked, so it
+  // doesn't pick up later Firestore updates (like a rotate) on its own —
+  // re-resolve it against the live synced list every render instead.
+  const liveViewingSong=viewingSong&&(songs.find(s=>s.id===viewingSong.id)||viewingSong);
 
   if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,bandMessages,onNewBandMessage:()=>setBandMessageModal('new'),onEditBandMessage:msg=>setBandMessageModal(msg),onDeleteBandMessage:deleteBandMessageById,bandMessageModal,bandMessageModalTarget,onCloseBandMessageModal:()=>setBandMessageModal(null),saveBandMessageModal,deleteBandMessageModal,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData});
 
@@ -3043,13 +3069,13 @@ function App(){
       tab==='songs'&&e('div',null,
         e('input',{ref:replaceSongFileInputRef,type:'file',accept:'image/*,.html,.htm,text/html,.pdf,.txt',style:{display:'none'},
           onChange:ev=>{const f=ev.target.files&&ev.target.files[0];if(f)handleReplaceSongFile(f);ev.target.value='';}}),
-        e('input',{value:songSearch,onChange:ev=>setSongSearch(ev.target.value),placeholder:'🔍 Search songs…',
+        e('input',{value:songSearch,onChange:ev=>setSongSearch(ev.target.value),placeholder:'🔍 Search title, key, or vibe…',
           style:{width:'100%',padding:'9px 12px',border:'1px solid #d1d5db',borderRadius:10,fontSize:14,marginBottom:14,fontFamily:'inherit',outline:'none'}}),
         e('div',{style:{borderRadius:12,border:'1px solid #e5e7eb',overflow:'hidden',marginBottom:14}},
           songs.length===0&&e('div',{style:{padding:'2rem',textAlign:'center',color:'#6b7280',fontSize:13}},'No song charts yet — add one below'),
-          songs.length>0&&songs.filter(sg=>sg.name.toLowerCase().includes(songSearch.trim().toLowerCase())).length===0&&
+          songs.length>0&&songs.filter(songMatchesSearch).length===0&&
             e('div',{style:{padding:'2rem',textAlign:'center',color:'#6b7280',fontSize:13}},'No songs match "'+songSearch+'"'),
-          songs.filter(sg=>sg.name.toLowerCase().includes(songSearch.trim().toLowerCase())).map((sg,idx,arr)=>{
+          songs.filter(songMatchesSearch).map((sg,idx,arr)=>{
             const icon=sg.type==='image'?'🎼':sg.type==='html'?'🌐':sg.type==='link'?'🔗':sg.type==='file'?'📎':'🎵';
             const border=idx<arr.length-1?'1px solid #e5e7eb':'none';
             if(renamingSongId===sg.id){
@@ -3081,7 +3107,8 @@ function App(){
               e('div',{onClick:()=>startRenameSong(sg),style:{flex:1,minWidth:0,cursor:'pointer'}},
                 e('div',{style:{fontSize:13.5,fontWeight:500,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},sg.name),
                 e('div',{style:{fontSize:11,color:'#9ca3af'}},
-                  ({image:'Photo',html:'HTML file',link:'Link',file:'File',text:'Text'}[sg.type]||'Text')+' · updated '+formatSetlistDate(sg.updatedAt)+(sg.shared===false?' · 🔒 Private':'')
+                  sg.key&&e('span',{style:{color:theme.primary,fontWeight:600}},sg.key+' · '),
+                  [sg.tempo?sg.tempo+' bpm':null,sg.tag,({image:'Photo',html:'HTML file',link:'Link',file:'File',text:'Text'}[sg.type]||'Text'),'updated '+formatSetlistDate(sg.updatedAt),sg.shared===false?'🔒 Private':null].filter(Boolean).join(' · ')
                 )
               ),
               e('button',{onClick:()=>setReplacingSongId(sg.id),style:{fontSize:12,padding:'5px 8px',flexShrink:0}},'⬆️'),
@@ -3094,6 +3121,18 @@ function App(){
         addingSong&&e('div',{style:{background:'#fff',border:'1px solid #e5e7eb',borderRadius:12,padding:14}},
           e('label',null,'Song name'),
           e('input',{autoFocus:true,value:newSongName,onChange:ev=>setNewSongName(ev.target.value),placeholder:'e.g. Mustang Sally'}),
+          e('div',{style:{display:'flex',gap:8}},
+            e('div',{style:{flex:1}},
+              e('label',null,'Key (optional)'),
+              e('input',{value:newSongKey,onChange:ev=>setNewSongKey(ev.target.value),placeholder:'e.g. G'})
+            ),
+            e('div',{style:{flex:1}},
+              e('label',null,'Tempo (optional)'),
+              e('input',{value:newSongTempo,onChange:ev=>setNewSongTempo(ev.target.value),placeholder:'e.g. 118 bpm'})
+            )
+          ),
+          e('label',null,'Vibe / tag (optional)'),
+          e('input',{value:newSongTag,onChange:ev=>setNewSongTag(ev.target.value),placeholder:'e.g. dance floor, first set opener'}),
           e('label',null,'Add from'),
           e('select',{value:newSongMode,onChange:ev=>{setNewSongMode(ev.target.value);setNewSongContentType('');setNewSongContent('');setNewSongFileName('');}},
             e('option',{value:'upload'},'Upload (photo or file)'),
@@ -3332,27 +3371,41 @@ function App(){
         )
       )
     ),
-    viewingSong&&e('div',{onClick:()=>setViewingSong(null),className:'overlay'},
-      e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:420,maxHeight:'85vh',overflowY:'auto',padding:0}},
-        e('div',{className:'no-print',style:{display:'flex',gap:8,padding:'14px 20px',borderBottom:'1px solid #e5e7eb'}},
-          e('button',{onClick:()=>setViewingSong(null),style:{flex:1,padding:'9px 0'}},'Close'),
-          e('button',{onClick:()=>tryPrint(setSongPrintStandaloneHelp),style:{flex:1,padding:'9px 0',borderRadius:8,border:'0.5px solid #d1d5db',background:'#fff',color:'#374151',cursor:'pointer',fontWeight:500}},'🖨️ Print'),
-          e('button',{onClick:()=>shareSong(viewingSong),style:{flex:1,padding:'9px 0',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontWeight:500}},'📤 Share')
+    // Songs viewer runs "stage mode" — dark background, amber accent —
+    // unlike every other modal in the app, which follows the band's chosen
+    // theme. This is the one screen actually read off a stand in a dark
+    // room, so it earns breaking from the theme; nothing else does.
+    viewingSong&&e('div',{onClick:()=>setViewingSong(null),className:'overlay',style:{background:'rgba(0,0,0,0.7)'}},
+      e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:440,maxHeight:'85vh',overflowY:'auto',padding:0,background:'#141311'}},
+        e('div',{className:'no-print',style:{display:'flex',gap:8,padding:'14px 20px',borderBottom:'1px solid #302C24'}},
+          e('button',{onClick:()=>setViewingSong(null),style:{flex:1,padding:'9px 0',background:'#1D1B17',color:'#F1EDE3',border:'1px solid #302C24'}},'Close'),
+          liveViewingSong.type==='image'&&e('button',{onClick:()=>toggleSongRotation(liveViewingSong),title:'Rotate',
+            style:{padding:'9px 14px',borderRadius:8,border:'1px solid #302C24',background:'#1D1B17',color:'#FFB020',fontWeight:700,fontSize:15}},'⟳'),
+          e('button',{onClick:()=>tryPrint(setSongPrintStandaloneHelp),style:{flex:1,padding:'9px 0',borderRadius:8,border:'1px solid #302C24',background:'#1D1B17',color:'#F1EDE3',cursor:'pointer',fontWeight:500}},'🖨️ Print'),
+          e('button',{onClick:()=>shareSong(liveViewingSong),style:{flex:1,padding:'9px 0',borderRadius:8,border:'none',background:'#FFB020',color:'#141311',cursor:'pointer',fontWeight:700}},'📤 Share')
         ),
-        e('div',{className:'schedule-print-area',style:{padding:'20px'}},
-          e('div',{style:{fontSize:16,fontWeight:600,marginBottom:14}},viewingSong.name),
-          viewingSong.type==='text'&&e('div',{style:{fontSize:14,color:'#111827',whiteSpace:'pre-wrap',lineHeight:1.6,fontFamily:'monospace'}},viewingSong.content),
-          viewingSong.type==='image'&&e('img',{src:viewingSong.content,style:{maxWidth:'100%',borderRadius:8}}),
-          viewingSong.type==='html'&&e('iframe',{srcDoc:viewingSong.content,style:{width:'100%',height:400,border:'1px solid #e5e7eb',borderRadius:8}}),
-          viewingSong.type==='file'&&e('div',{style:{textAlign:'center',padding:'1.5rem 0'}},
-            e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:12}},'This file type can\'t be previewed here.'),
-            e('a',{href:viewingSong.content,download:viewingSong.fileName||viewingSong.name,
-              style:{display:'inline-block',padding:'9px 18px',borderRadius:10,background:theme.mid,color:'#fff',fontWeight:500,textDecoration:'none',fontSize:14}},'⬇️ Download '+(viewingSong.fileName||''))
+        e('div',{className:'schedule-print-area song-viewer-print',style:{padding:'20px'}},
+          e('div',{style:{fontSize:16,fontWeight:600,marginBottom:4,color:'#F1EDE3'}},liveViewingSong.name),
+          (liveViewingSong.key||liveViewingSong.tempo||liveViewingSong.tag)&&e('div',{style:{fontSize:12,color:'#FFB020',marginBottom:14,display:'flex',gap:8,flexWrap:'wrap'}},
+            [liveViewingSong.key,liveViewingSong.tempo?liveViewingSong.tempo+' bpm':null,liveViewingSong.tag].filter(Boolean).join('  ·  ')
           ),
-          viewingSong.type==='link'&&e('div',{style:{textAlign:'center',padding:'1.5rem 0'}},
-            e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:12,wordBreak:'break-all'}},viewingSong.content),
-            e('a',{href:viewingSong.content,target:'_blank',rel:'noopener noreferrer',className:'no-print',
-              style:{display:'inline-block',padding:'9px 18px',borderRadius:10,background:theme.mid,color:'#fff',fontWeight:500,textDecoration:'none',fontSize:14}},'🔗 Open link')
+          liveViewingSong.type==='text'&&e('div',{style:{fontSize:14,color:'#F1EDE3',whiteSpace:'pre-wrap',lineHeight:1.6,fontFamily:'monospace'}},liveViewingSong.content),
+          liveViewingSong.type==='image'&&e('div',{style:{display:'flex',justifyContent:'center'}},
+            e('img',{src:liveViewingSong.content,style:{
+              maxWidth:liveViewingSong.rotated?340:'100%',maxHeight:liveViewingSong.rotated?340:'none',
+              transform:liveViewingSong.rotated?'rotate(90deg)':'none',transition:'transform .2s',borderRadius:8,display:'block'
+            }})
+          ),
+          liveViewingSong.type==='html'&&e('iframe',{srcDoc:liveViewingSong.content,style:{width:'100%',height:400,border:'1px solid #302C24',borderRadius:8,background:'#fff'}}),
+          liveViewingSong.type==='file'&&e('div',{style:{textAlign:'center',padding:'1.5rem 0'}},
+            e('div',{style:{fontSize:13,color:'#9C9483',marginBottom:12}},'This file type can\'t be previewed here.'),
+            e('a',{href:liveViewingSong.content,download:liveViewingSong.fileName||liveViewingSong.name,
+              style:{display:'inline-block',padding:'9px 18px',borderRadius:10,background:'#FFB020',color:'#141311',fontWeight:700,textDecoration:'none',fontSize:14}},'⬇️ Download '+(liveViewingSong.fileName||''))
+          ),
+          liveViewingSong.type==='link'&&e('div',{style:{textAlign:'center',padding:'1.5rem 0'}},
+            e('div',{style:{fontSize:13,color:'#9C9483',marginBottom:12,wordBreak:'break-all'}},liveViewingSong.content),
+            e('a',{href:liveViewingSong.content,target:'_blank',rel:'noopener noreferrer',className:'no-print',
+              style:{display:'inline-block',padding:'9px 18px',borderRadius:10,background:'#FFB020',color:'#141311',fontWeight:700,textDecoration:'none',fontSize:14}},'🔗 Open link')
           )
         )
       )
