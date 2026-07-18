@@ -660,6 +660,72 @@ function BandMessageModal({message,onSave,onDelete,onClose}){
     )
   );
 }
+// Same gigs-by-month chart that used to live in its own tab — moved into
+// Settings (reached via a "View" button) since it's checked far less often
+// than the calendar/setlists/songs, freeing up a tab-bar slot. All state
+// (year, chart type, show-past toggle) still lives in App so it's preserved
+// across opens.
+function BandStatsModal({chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,theme,onClose}){
+  return e('div',{onClick:onClose,className:'overlay'},
+    e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:480,maxHeight:'85vh',overflowY:'auto'}},
+      e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}},
+        e('div',{style:{fontSize:16,fontWeight:700}},'Band Stats'),
+        e('button',{onClick:onClose,style:{border:'none',background:'none',fontSize:18,color:'#9ca3af',cursor:'pointer',padding:'0 4px'}},'×')
+      ),
+      e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'1rem',flexWrap:'wrap',gap:8}},
+        e('div',{style:{display:'flex',alignItems:'center',gap:10}},
+          e('button',{onClick:()=>setChartYear(y=>y-1),style:{padding:'4px 12px'}},'‹'),
+          e('span',{style:{fontWeight:500,minWidth:40,textAlign:'center'}},chartYear),
+          e('button',{onClick:()=>setChartYear(y=>y+1),style:{padding:'4px 12px'}},'›')
+        ),
+        e('div',{style:{display:'flex',alignItems:'center',gap:10}},
+          e('button',{onClick:()=>setChartShowPast(p=>!p),
+            style:{fontSize:12,padding:'5px 12px',borderRadius:99,border:`1px solid ${chartShowPast?theme.mid:'#d1d5db'}`,cursor:'pointer',
+              background:chartShowPast?theme.pale:'#fff',color:chartShowPast?theme.primary:'#6b7280',fontWeight:500}},
+            (chartShowPast?'✓ ':'')+'Show past gigs'),
+          e('div',{style:{display:'flex',gap:4,background:'#e9ecef',borderRadius:8,padding:3}},
+            ['bar','line'].map(t=>e('button',{key:t,onClick:()=>setChartType(t),
+              style:{fontSize:12,padding:'5px 14px',borderRadius:6,border:'none',cursor:'pointer',
+                background:chartType===t?'#fff':'transparent',fontWeight:chartType===t?500:400,
+                color:chartType===t?theme.primary:'#6b7280'}},t==='bar'?'Bar':'Line'))
+          )
+        )
+      ),
+      e('div',{style:{height:260}},
+        e(ResponsiveContainer,{width:'100%',height:'100%'},
+          chartType==='bar'
+            ?e(BarChart,{data:chartData,margin:{top:8,right:8,bottom:0,left:-20}},
+                e(XAxis,{dataKey:'month',tick:{fontSize:11,fill:'#6b7280'},axisLine:false,tickLine:false}),
+                e(YAxis,{allowDecimals:false,tick:{fontSize:11,fill:'#6b7280'},axisLine:false,tickLine:false}),
+                e(Tooltip,{contentStyle:{fontSize:12,borderRadius:10}}),
+                e(Legend,{wrapperStyle:{fontSize:12,paddingTop:8}}),
+                e(Bar,{dataKey:'regular',name:'Bar / Other',stackId:'a',fill:'#1D9E75'}),
+                e(Bar,{dataKey:'private',name:'Private events',stackId:'a',fill:'#D85A30'}),
+                e(Bar,{dataKey:'weddings',name:'Weddings',stackId:'a',fill:'#7F77DD',radius:[4,4,0,0]})
+              )
+            :e(LineChart,{data:chartData,margin:{top:8,right:8,bottom:0,left:-20}},
+                e(XAxis,{dataKey:'month',tick:{fontSize:11,fill:'#6b7280'},axisLine:false,tickLine:false}),
+                e(YAxis,{allowDecimals:false,tick:{fontSize:11,fill:'#6b7280'},axisLine:false,tickLine:false}),
+                e(Tooltip,{contentStyle:{fontSize:12,borderRadius:10}}),
+                e(Legend,{wrapperStyle:{fontSize:12,paddingTop:8}}),
+                e(Line,{type:'monotone',dataKey:'regular',name:'Bar / Other',stroke:'#1D9E75',strokeWidth:2,dot:{r:3},activeDot:{r:5}}),
+                e(Line,{type:'monotone',dataKey:'weddings',name:'Weddings',stroke:'#7F77DD',strokeWidth:2,dot:{r:3},activeDot:{r:5}}),
+                e(Line,{type:'monotone',dataKey:'private',name:'Private events',stroke:'#D85A30',strokeWidth:2,dot:{r:3},activeDot:{r:5}})
+              )
+        )
+      ),
+      e('div',{style:{marginTop:12,display:'flex',gap:12,flexWrap:'wrap'}},
+        [{label:'Total gigs',value:chartData.reduce((s,d)=>s+d.count,0),color:'#085041',bg:'#E1F5EE'},
+         {label:'Busiest month',value:MONTHS[chartData.indexOf(chartData.reduce((a,b)=>b.count>a.count?b:a))],color:'#085041',bg:'#E1F5EE'},
+         {label:'Weddings',value:chartData.reduce((s,d)=>s+d.weddings,0),color:'#534AB7',bg:'#EEEDFE'}
+        ].map(c=>e('div',{key:c.label,style:{background:c.bg,borderRadius:8,padding:'8px 14px',border:`1px solid ${c.color}33`}},
+          e('div',{style:{fontSize:10,color:c.color,fontWeight:500,textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:2}},c.label),
+          e('div',{style:{fontSize:20,fontWeight:500,color:c.color}},c.value)
+        ))
+      )
+    )
+  );
+}
 function tryPrint(setStandaloneHelp){
   if(window.navigator.standalone===true){setStandaloneHelp(true);return;}
   window.print();
@@ -1096,9 +1162,10 @@ function CustomColorSwatch({selected,customColor,onPick}){
   );
 }
 
-function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar,onAutoScrolled,syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,bandMessages,onNewBandMessage,onEditBandMessage,onDeleteBandMessage,bandMessageModal,bandMessageModalTarget,onCloseBandMessageModal,saveBandMessageModal,deleteBandMessageModal}){
+function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar,onAutoScrolled,syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,bandMessages,onNewBandMessage,onEditBandMessage,onDeleteBandMessage,bandMessageModal,bandMessageModalTarget,onCloseBandMessageModal,saveBandMessageModal,deleteBandMessageModal,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData}){
   const googleCalendarRowRef=useRef(null);
   const [confirmDeleteMsgId,setConfirmDeleteMsgId]=useState(null);
+  const [showBandStatsModal,setShowBandStatsModal]=useState(false);
   const notificationsSectionRef=useRef(null);
   const jumpToNotifications=()=>{
     setOpenSections(prev=>{const next=new Set(prev);next.add('notifications');return next;});
@@ -1286,7 +1353,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         e(Row,{label:'Default view',border:true,
           right:e('select',{value:settings.defaultTab,onChange:ev=>setSettings(s=>({...s,defaultTab:ev.target.value})),
             style:{padding:'5px 8px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'auto'}},
-            e('option',{value:'calendar'},'Calendar'),e('option',{value:'list'},'Shows'),e('option',{value:'chart'},'Chart'),e('option',{value:'checklist'},'Lists')
+            e('option',{value:'calendar'},'Calendar'),e('option',{value:'list'},'Shows'),e('option',{value:'songs'},'Songs'),e('option',{value:'checklist'},'Lists')
           )
         }),
         e(Row,{label:'Band name',border:true,
@@ -1575,6 +1642,11 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
             (pushToken&&settings.bandMessageNotifs)?'ON ›':'OFF ›')
         )
       ),
+      e(Section,{icon:'📊',iconBg:'#E1F5EE',title:'Band Stats',isOpen:openSections.has('bandstats'),onToggle:()=>toggleSection('bandstats')},
+        e(Row,{label:'Gigs by month',sub:'Bar/line chart, weddings, private events',border:false,
+          right:e('button',{onClick:()=>setShowBandStatsModal(true),style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'View')
+        })
+      ),
       e(Section,{icon:'ℹ️',iconBg:'#E5E7EB',title:'About',summary:'v1.0.0',isOpen:openSections.has('about'),onToggle:()=>toggleSection('about')},
         e(Row,{label:'Version',sub:'1.0.0',border:true,right:null}),
         e(Row,{label:'Share app',sub:'Coming soon',border:false,right:e('button',{disabled:true,style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #e5e7eb',color:'#9ca3af',cursor:'not-allowed',background:'#f9fafb'}},'Coming soon')})
@@ -1583,6 +1655,10 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
     bandMessageModal&&e(BandMessageModal,{
       message:bandMessageModalTarget,onClose:onCloseBandMessageModal,
       onSave:saveBandMessageModal,onDelete:deleteBandMessageModal
+    }),
+    showBandStatsModal&&e(BandStatsModal,{
+      chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,theme,
+      onClose:()=>setShowBandStatsModal(false)
     }),
     showSchedulePreview&&e('div',{onClick:()=>setShowSchedulePreview(false),className:'overlay'},
       e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:460,maxHeight:'90vh',overflowY:'auto',padding:0}},
@@ -1795,7 +1871,28 @@ function App(){
   const [renameSetlistValue,setRenameSetlistValue]=useState('');
   const [replacingSetlistId,setReplacingSetlistId]=useState(null);
   const [replacingProcessing,setReplacingProcessing]=useState(false);
-  const [tab,setTab]=useState(()=>{try{const s=localStorage.getItem('pmtf_settings');return s?JSON.parse(s).defaultTab||'calendar':'calendar';}catch{return 'calendar';}});
+  // Songs (chord charts) — same shared-via-Firestore pattern as setlists,
+  // plus a shared/private choice per song. Private ones still live in
+  // Firestore (tagged with this device's id) rather than local-only
+  // storage, so they survive losing the device — just filtered client-side
+  // to only show to their owner instead of the whole band.
+  const [songs,setSongs]=useState([]);
+  const [songSearch,setSongSearch]=useState('');
+  const [addingSong,setAddingSong]=useState(false);
+  const [newSongName,setNewSongName]=useState('');
+  const [newSongMode,setNewSongMode]=useState('upload');
+  const [newSongContentType,setNewSongContentType]=useState('');
+  const [newSongContent,setNewSongContent]=useState('');
+  const [newSongFileName,setNewSongFileName]=useState('');
+  const [newSongShared,setNewSongShared]=useState(true);
+  const [newSongProcessing,setNewSongProcessing]=useState(false);
+  const [viewingSong,setViewingSong]=useState(null);
+  const [renamingSongId,setRenamingSongId]=useState(null);
+  const [renameSongValue,setRenameSongValue]=useState('');
+  const [replacingSongId,setReplacingSongId]=useState(null);
+  const [replacingSongProcessing,setReplacingSongProcessing]=useState(false);
+  const [songPrintStandaloneHelp,setSongPrintStandaloneHelp]=useState(false);
+  const [tab,setTab]=useState(()=>{try{const s=localStorage.getItem('pmtf_settings');if(!s)return 'calendar';const d=JSON.parse(s).defaultTab;return d==='chart'?'songs':d||'calendar';}catch{return 'calendar';}});
   const [calMonth,setCalMonth]=useState(today.getMonth());
   const [calYear,setCalYear]=useState(today.getFullYear());
   const [chartYear,setChartYear]=useState(today.getFullYear());
@@ -1835,6 +1932,8 @@ function App(){
   const watchIdRef=useRef(null);
   const setlistFileInputRef=useRef(null);
   const replaceSetlistFileInputRef=useRef(null);
+  const songFileInputRef=useRef(null);
+  const replaceSongFileInputRef=useRef(null);
   const firestoreGigIdsRef=useRef(new Set());
   // Guards the checklist Firestore write-effect from firing on mount, before
   // the sync effect below has had a chance to read (or migrate) this
@@ -2021,6 +2120,20 @@ function App(){
         return;
       }
       setSetlists(snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>a.id<b.id?-1:1));
+    },()=>{});
+    return unsub;
+  },[]);
+  // Live-sync songs (chord charts) from Firestore — a fresh feature, no
+  // legacy local data to migrate. Shared songs show for everyone; private
+  // ones are still stored here (not local-only) but filtered to only show
+  // for the device that posted them, so they're not lost if that device's
+  // local storage ever gets cleared.
+  useEffect(()=>{
+    const unsub=db.collection('songs').onSnapshot(snap=>{
+      const myDeviceId=getDeviceId();
+      setSongs(snap.docs.map(d=>({id:d.id,...d.data()}))
+        .filter(s=>s.shared||s.deviceId===myDeviceId)
+        .sort((a,b)=>a.name.localeCompare(b.name)));
     },()=>{});
     return unsub;
   },[]);
@@ -2716,8 +2829,86 @@ function App(){
     db.collection('setlists').doc(id).delete().catch(()=>alert('Could not delete — check your connection and try again.'));
     setViewingSetlist(null);setRenamingSetlistId(null);setReplacingSetlistId(null);
   };
+  const handleSongFileUpload=file=>{
+    setNewSongFileName(file.name);
+    setNewSongProcessing(true);
+    processUploadedFile(file,
+      ({type,content})=>{setNewSongContentType(type);setNewSongContent(content);setNewSongProcessing(false);},
+      msg=>{setNewSongProcessing(false);alert(msg);}
+    );
+  };
+  const resetSongForm=()=>{
+    setNewSongName('');setNewSongMode('upload');setNewSongContentType('');setNewSongContent('');setNewSongFileName('');setNewSongShared(true);setNewSongProcessing(false);setAddingSong(false);
+  };
+  const handleReplaceSongFile=file=>{
+    if(!replacingSongId)return;
+    setReplacingSongProcessing(true);
+    processUploadedFile(file,
+      ({type,content,fileName})=>{
+        db.collection('songs').doc(replacingSongId).update({type,content,fileName,updatedAt:todayStr})
+          .catch(()=>alert('Could not save — check your connection and try again.'));
+        setReplacingSongProcessing(false);
+        setReplacingSongId(null);
+      },
+      msg=>{setReplacingSongProcessing(false);alert(msg);}
+    );
+  };
+  const startRenameSong=sg=>{setRenamingSongId(sg.id);setRenameSongValue(sg.name);};
+  const shareSong=async sg=>{
+    try{
+      if(sg.type==='link'){
+        if(navigator.share) await navigator.share({title:sg.name,url:sg.content});
+        else {await navigator.clipboard.writeText(sg.content);alert('Link copied to clipboard!');}
+        return;
+      }
+      if(sg.type==='text'||sg.type==='html'){
+        if(navigator.share) await navigator.share({title:sg.name,text:sg.content});
+        else {await navigator.clipboard.writeText(sg.content);alert('Copied to clipboard!');}
+        return;
+      }
+      const res=await fetch(sg.content);
+      const blob=await res.blob();
+      const filename=sg.fileName||sg.name+(sg.type==='image'?'.jpg':'');
+      const file=new File([blob],filename,{type:blob.type});
+      if(navigator.canShare&&navigator.canShare({files:[file]})){
+        await navigator.share({title:sg.name,files:[file]});
+      } else {
+        const a=document.createElement('a');
+        a.href=sg.content;a.download=filename;a.click();
+      }
+    }catch(err){
+      if(err.name!=='AbortError') alert('Could not share this chart.');
+    }
+  };
+  const saveRenameSong=()=>{
+    if(!renameSongValue.trim()){setRenamingSongId(null);return;}
+    db.collection('songs').doc(renamingSongId).update({name:renameSongValue.trim()})
+      .catch(()=>alert('Could not save — check your connection and try again.'));
+    setRenamingSongId(null);
+  };
+  const addSong=()=>{
+    if(newSongProcessing)return;
+    if(!newSongContent){
+      alert(newSongMode==='upload'?'Choose a photo or file first.':newSongMode==='link'?'Paste a link first.':'Type something in first.');
+      return;
+    }
+    if(!newSongName.trim()){
+      alert('Give the song a name first.');
+      return;
+    }
+    const type=newSongMode==='link'?'link':newSongMode==='manual'?'text':newSongContentType;
+    db.collection('songs').doc('sg'+Date.now()).set({
+      name:newSongName.trim(),type,content:newSongContent,fileName:newSongFileName||null,
+      updatedAt:todayStr,shared:newSongShared,deviceId:getDeviceId()
+    }).catch(()=>alert('Could not save — check your connection and try again.'));
+    resetSongForm();
+  };
+  const deleteSong=id=>{
+    db.collection('songs').doc(id).delete().catch(()=>alert('Could not delete — check your connection and try again.'));
+    setViewingSong(null);setRenamingSongId(null);setReplacingSongId(null);
+  };
 
-  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,bandMessages,onNewBandMessage:()=>setBandMessageModal('new'),onEditBandMessage:msg=>setBandMessageModal(msg),onDeleteBandMessage:deleteBandMessageById,bandMessageModal,bandMessageModalTarget,onCloseBandMessageModal:()=>setBandMessageModal(null),saveBandMessageModal,deleteBandMessageModal});
+  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,bandMessages,onNewBandMessage:()=>setBandMessageModal('new'),onEditBandMessage:msg=>setBandMessageModal(msg),onDeleteBandMessage:deleteBandMessageById,bandMessageModal,bandMessageModalTarget,onCloseBandMessageModal:()=>setBandMessageModal(null),saveBandMessageModal,deleteBandMessageModal,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData});
 
   return e('div',{style:{maxWidth:720,margin:'0 auto',paddingBottom:'2rem'}},
     e('div',{style:{background:theme.primary,borderRadius:'0 0 20px 20px',padding:'1.25rem 1.25rem 1.5rem',marginBottom:'1.25rem'}},
@@ -2766,7 +2957,7 @@ function App(){
         onEdit:msg=>setBandMessageModal(msg),onDismiss:dismissBandMessage
       }),
       e('div',{className:'tab-bar'},
-        [{id:'calendar',label:'Calendar'},{id:'list',label:'Shows'},{id:'chart',label:'Chart'},{id:'checklist',label:'Lists'}].map(t=>
+        [{id:'calendar',label:'Calendar'},{id:'list',label:'Shows'},{id:'songs',label:'Songs'},{id:'checklist',label:'Lists'}].map(t=>
           e('button',{key:t.id,className:'tab-btn'+(tab===t.id?' active':''),style:{color:tab===t.id?theme.primary:'#6b7280'},onClick:()=>setTab(t.id)},t.label)
         )
       ),
@@ -2849,57 +3040,102 @@ function App(){
         ),
         e('div',{style:{marginTop:10,fontSize:13,color:'#6b7280'}},filteredUpcoming.length+' upcoming gig'+(filteredUpcoming.length!==1?'s':''))
       ),
-      tab==='chart'&&e('div',null,
-        e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'1rem',flexWrap:'wrap',gap:8}},
-          e('div',{style:{display:'flex',alignItems:'center',gap:10}},
-            e('button',{onClick:()=>setChartYear(y=>y-1),style:{padding:'4px 12px'}},'‹'),
-            e('span',{style:{fontWeight:500,minWidth:40,textAlign:'center'}},chartYear),
-            e('button',{onClick:()=>setChartYear(y=>y+1),style:{padding:'4px 12px'}},'›')
+      tab==='songs'&&e('div',null,
+        e('input',{ref:replaceSongFileInputRef,type:'file',accept:'image/*,.html,.htm,text/html,.pdf,.txt',style:{display:'none'},
+          onChange:ev=>{const f=ev.target.files&&ev.target.files[0];if(f)handleReplaceSongFile(f);ev.target.value='';}}),
+        e('input',{value:songSearch,onChange:ev=>setSongSearch(ev.target.value),placeholder:'🔍 Search songs…',
+          style:{width:'100%',padding:'9px 12px',border:'1px solid #d1d5db',borderRadius:10,fontSize:14,marginBottom:14,fontFamily:'inherit',outline:'none'}}),
+        e('div',{style:{borderRadius:12,border:'1px solid #e5e7eb',overflow:'hidden',marginBottom:14}},
+          songs.length===0&&e('div',{style:{padding:'2rem',textAlign:'center',color:'#6b7280',fontSize:13}},'No song charts yet — add one below'),
+          songs.length>0&&songs.filter(sg=>sg.name.toLowerCase().includes(songSearch.trim().toLowerCase())).length===0&&
+            e('div',{style:{padding:'2rem',textAlign:'center',color:'#6b7280',fontSize:13}},'No songs match "'+songSearch+'"'),
+          songs.filter(sg=>sg.name.toLowerCase().includes(songSearch.trim().toLowerCase())).map((sg,idx,arr)=>{
+            const icon=sg.type==='image'?'🎼':sg.type==='html'?'🌐':sg.type==='link'?'🔗':sg.type==='file'?'📎':'🎵';
+            const border=idx<arr.length-1?'1px solid #e5e7eb':'none';
+            if(renamingSongId===sg.id){
+              return e('div',{key:sg.id,style:{padding:'10px 14px',borderBottom:border,display:'flex',alignItems:'center',gap:10}},
+                e('div',{style:{width:30,height:30,borderRadius:8,background:theme.pale,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}},icon),
+                e('input',{autoFocus:true,value:renameSongValue,onChange:ev=>setRenameSongValue(ev.target.value),
+                  onKeyDown:ev=>{if(ev.key==='Enter')saveRenameSong();if(ev.key==='Escape')setRenamingSongId(null);},
+                  style:{flex:1,minWidth:0}}),
+                e('button',{onClick:saveRenameSong,style:{background:theme.mid,color:'#fff',border:'none',fontWeight:500,flexShrink:0}},'Save'),
+                e('button',{onClick:()=>setRenamingSongId(null),style:{flexShrink:0}},'Cancel')
+              );
+            }
+            if(replacingSongId===sg.id){
+              return e('div',{key:sg.id,style:{padding:'10px 14px',borderBottom:border}},
+                e('div',{style:{fontSize:12,color:'#6b7280',marginBottom:8}},
+                  replacingSongProcessing?'Processing…':'Replacing chart for ',!replacingSongProcessing&&e('b',null,sg.name)
+                ),
+                !replacingSongProcessing&&e('div',{style:{display:'flex',gap:8}},
+                  e('button',{onClick:()=>replaceSongFileInputRef.current&&replaceSongFileInputRef.current.click(),
+                    style:{flex:1,padding:'11px 0',borderRadius:10,border:'none',background:theme.mid,color:'#fff',fontWeight:600,cursor:'pointer',fontSize:13.5}},
+                    '📤 Choose Photo or File'
+                  ),
+                  e('button',{onClick:()=>setReplacingSongId(null)},'Cancel')
+                )
+              );
+            }
+            return e('div',{key:sg.id,style:{padding:'10px 14px',borderBottom:border,display:'flex',alignItems:'center',gap:10}},
+              e('div',{style:{width:30,height:30,borderRadius:8,background:theme.pale,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}},icon),
+              e('div',{onClick:()=>startRenameSong(sg),style:{flex:1,minWidth:0,cursor:'pointer'}},
+                e('div',{style:{fontSize:13.5,fontWeight:500,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},sg.name),
+                e('div',{style:{fontSize:11,color:'#9ca3af'}},
+                  ({image:'Photo',html:'HTML file',link:'Link',file:'File',text:'Text'}[sg.type]||'Text')+' · updated '+formatSetlistDate(sg.updatedAt)+(sg.shared===false?' · 🔒 Private':'')
+                )
+              ),
+              e('button',{onClick:()=>setReplacingSongId(sg.id),style:{fontSize:12,padding:'5px 8px',flexShrink:0}},'⬆️'),
+              e('button',{onClick:()=>setViewingSong(sg),style:{fontSize:12,padding:'5px 12px',flexShrink:0}},'View'),
+              e('button',{onClick:()=>{if(window.confirm('Remove "'+sg.name+'"?'))deleteSong(sg.id);},style:{border:'none',background:'none',color:'#d1d5db',fontSize:16,cursor:'pointer',padding:'0 4px',flexShrink:0}},'×')
+            );
+          })
+        ),
+        !addingSong&&e('button',{onClick:()=>setAddingSong(true),style:{width:'100%',padding:'9px 0',borderRadius:10,border:'none',background:theme.mid,color:'#fff',fontWeight:500,cursor:'pointer',fontSize:14}},'+ Add song'),
+        addingSong&&e('div',{style:{background:'#fff',border:'1px solid #e5e7eb',borderRadius:12,padding:14}},
+          e('label',null,'Song name'),
+          e('input',{autoFocus:true,value:newSongName,onChange:ev=>setNewSongName(ev.target.value),placeholder:'e.g. Mustang Sally'}),
+          e('label',null,'Add from'),
+          e('select',{value:newSongMode,onChange:ev=>{setNewSongMode(ev.target.value);setNewSongContentType('');setNewSongContent('');setNewSongFileName('');}},
+            e('option',{value:'upload'},'Upload (photo or file)'),
+            e('option',{value:'link'},'Link (Google Drive, website, etc.)'),
+            e('option',{value:'manual'},'Type it in manually')
           ),
-          e('div',{style:{display:'flex',alignItems:'center',gap:10}},
-            e('button',{onClick:()=>setChartShowPast(p=>!p),
-              style:{fontSize:12,padding:'5px 12px',borderRadius:99,border:`1px solid ${chartShowPast?theme.mid:'#d1d5db'}`,cursor:'pointer',
-                background:chartShowPast?theme.pale:'#fff',color:chartShowPast?theme.primary:'#6b7280',fontWeight:500}},
-              (chartShowPast?'✓ ':'')+'Show past gigs'),
-            e('div',{style:{display:'flex',gap:4,background:'#e9ecef',borderRadius:8,padding:3}},
-              ['bar','line'].map(t=>e('button',{key:t,onClick:()=>setChartType(t),
-                style:{fontSize:12,padding:'5px 14px',borderRadius:6,border:'none',cursor:'pointer',
-                  background:chartType===t?'#fff':'transparent',fontWeight:chartType===t?500:400,
-                  color:chartType===t?theme.primary:'#6b7280'}},t==='bar'?'Bar':'Line'))
-            )
+          newSongMode==='upload'&&e('div',null,
+            e('label',null,'Photo or file'),
+            e('input',{ref:songFileInputRef,type:'file',accept:'image/*,.html,.htm,text/html,.pdf,.txt',style:{display:'none'},
+              onChange:ev=>{const f=ev.target.files&&ev.target.files[0];if(f)handleSongFileUpload(f);}}),
+            e('button',{onClick:()=>songFileInputRef.current&&songFileInputRef.current.click(),
+              style:{width:'100%',padding:'13px 0',borderRadius:12,border:'none',background:theme.mid,color:'#fff',fontWeight:600,fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:8}},
+              '📤 Choose Photo or File'
+            ),
+            e('div',{style:{textAlign:'center',fontSize:11,color:'#9ca3af',marginTop:6}},'Opens your photo library or files'),
+            newSongProcessing&&e('div',{style:{fontSize:12,color:'#6b7280',marginTop:8,textAlign:'center'}},'Processing…'),
+            newSongContentType==='image'&&newSongContent&&e('img',{src:newSongContent,style:{maxWidth:'100%',borderRadius:8,marginTop:8}}),
+            newSongContentType==='html'&&e('div',{style:{fontSize:12,color:theme.primary,marginTop:8,textAlign:'center'}},'✓ '+newSongFileName+' loaded'),
+            newSongContentType==='file'&&e('div',{style:{fontSize:12,color:theme.primary,marginTop:8,textAlign:'center'}},'✓ '+newSongFileName+' saved (preview not available for this file type)')
+          ),
+          newSongMode==='link'&&e('div',null,
+            e('label',null,'Link'),
+            e('input',{value:newSongContent,onChange:ev=>setNewSongContent(ev.target.value),placeholder:'https://drive.google.com/file/d/...'})
+          ),
+          newSongMode==='manual'&&e('div',null,
+            e('label',null,'Chords / lyrics'),
+            e('textarea',{rows:6,value:newSongContent,onChange:ev=>setNewSongContent(ev.target.value),placeholder:'G          C          D\nSome lyric line here...',
+              style:{fontFamily:'monospace',fontSize:13,padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,width:'100%',outline:'none',background:'#fff',resize:'none'}})
+          ),
+          e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:12,padding:'10px 12px',background:'#f9fafb',borderRadius:9}},
+            e('div',null,
+              e('div',{style:{fontSize:12.5,fontWeight:500,color:'#111827'}},newSongShared?'Share with the whole band':'Keep private (just this device)'),
+              e('div',{style:{fontSize:10.5,color:'#9ca3af'}},newSongShared?'Everyone in the band can see this chart':'Only visible on this device')
+            ),
+            e(Toggle,{on:newSongShared,onToggle:()=>setNewSongShared(v=>!v)})
+          ),
+          e('div',{style:{display:'flex',gap:8,justifyContent:'flex-end',marginTop:14}},
+            e('button',{onClick:resetSongForm},'Cancel'),
+            e('button',{onClick:addSong,disabled:newSongProcessing,
+              style:{background:newSongProcessing?'#9ca3af':theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:newSongProcessing?'not-allowed':'pointer'}},
+              newSongProcessing?'Processing…':'Add song')
           )
-        ),
-        e('div',{style:{height:260}},
-          e(ResponsiveContainer,{width:'100%',height:'100%'},
-            chartType==='bar'
-              ?e(BarChart,{data:chartData,margin:{top:8,right:8,bottom:0,left:-20}},
-                  e(XAxis,{dataKey:'month',tick:{fontSize:11,fill:'#6b7280'},axisLine:false,tickLine:false}),
-                  e(YAxis,{allowDecimals:false,tick:{fontSize:11,fill:'#6b7280'},axisLine:false,tickLine:false}),
-                  e(Tooltip,{contentStyle:{fontSize:12,borderRadius:10}}),
-                  e(Legend,{wrapperStyle:{fontSize:12,paddingTop:8}}),
-                  e(Bar,{dataKey:'regular',name:'Bar / Other',stackId:'a',fill:'#1D9E75'}),
-                  e(Bar,{dataKey:'private',name:'Private events',stackId:'a',fill:'#D85A30'}),
-                  e(Bar,{dataKey:'weddings',name:'Weddings',stackId:'a',fill:'#7F77DD',radius:[4,4,0,0]})
-                )
-              :e(LineChart,{data:chartData,margin:{top:8,right:8,bottom:0,left:-20}},
-                  e(XAxis,{dataKey:'month',tick:{fontSize:11,fill:'#6b7280'},axisLine:false,tickLine:false}),
-                  e(YAxis,{allowDecimals:false,tick:{fontSize:11,fill:'#6b7280'},axisLine:false,tickLine:false}),
-                  e(Tooltip,{contentStyle:{fontSize:12,borderRadius:10}}),
-                  e(Legend,{wrapperStyle:{fontSize:12,paddingTop:8}}),
-                  e(Line,{type:'monotone',dataKey:'regular',name:'Bar / Other',stroke:'#1D9E75',strokeWidth:2,dot:{r:3},activeDot:{r:5}}),
-                  e(Line,{type:'monotone',dataKey:'weddings',name:'Weddings',stroke:'#7F77DD',strokeWidth:2,dot:{r:3},activeDot:{r:5}}),
-                  e(Line,{type:'monotone',dataKey:'private',name:'Private events',stroke:'#D85A30',strokeWidth:2,dot:{r:3},activeDot:{r:5}})
-                )
-          )
-        ),
-        e('div',{style:{marginTop:12,display:'flex',gap:12,flexWrap:'wrap'}},
-          [{label:'Total gigs',value:chartData.reduce((s,d)=>s+d.count,0),color:'#085041',bg:'#E1F5EE'},
-           {label:'Busiest month',value:MONTHS[chartData.indexOf(chartData.reduce((a,b)=>b.count>a.count?b:a))],color:'#085041',bg:'#E1F5EE'},
-           {label:'Weddings',value:chartData.reduce((s,d)=>s+d.weddings,0),color:'#534AB7',bg:'#EEEDFE'}
-          ].map(c=>e('div',{key:c.label,style:{background:c.bg,borderRadius:8,padding:'8px 14px',border:`1px solid ${c.color}33`}},
-            e('div',{style:{fontSize:10,color:c.color,fontWeight:500,textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:2}},c.label),
-            e('div',{style:{fontSize:20,fontWeight:500,color:c.color}},c.value)
-          ))
         )
       ),
       tab==='checklist'&&e('div',null,
@@ -3096,6 +3332,31 @@ function App(){
         )
       )
     ),
+    viewingSong&&e('div',{onClick:()=>setViewingSong(null),className:'overlay'},
+      e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:420,maxHeight:'85vh',overflowY:'auto',padding:0}},
+        e('div',{className:'no-print',style:{display:'flex',gap:8,padding:'14px 20px',borderBottom:'1px solid #e5e7eb'}},
+          e('button',{onClick:()=>setViewingSong(null),style:{flex:1,padding:'9px 0'}},'Close'),
+          e('button',{onClick:()=>tryPrint(setSongPrintStandaloneHelp),style:{flex:1,padding:'9px 0',borderRadius:8,border:'0.5px solid #d1d5db',background:'#fff',color:'#374151',cursor:'pointer',fontWeight:500}},'🖨️ Print'),
+          e('button',{onClick:()=>shareSong(viewingSong),style:{flex:1,padding:'9px 0',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontWeight:500}},'📤 Share')
+        ),
+        e('div',{className:'schedule-print-area',style:{padding:'20px'}},
+          e('div',{style:{fontSize:16,fontWeight:600,marginBottom:14}},viewingSong.name),
+          viewingSong.type==='text'&&e('div',{style:{fontSize:14,color:'#111827',whiteSpace:'pre-wrap',lineHeight:1.6,fontFamily:'monospace'}},viewingSong.content),
+          viewingSong.type==='image'&&e('img',{src:viewingSong.content,style:{maxWidth:'100%',borderRadius:8}}),
+          viewingSong.type==='html'&&e('iframe',{srcDoc:viewingSong.content,style:{width:'100%',height:400,border:'1px solid #e5e7eb',borderRadius:8}}),
+          viewingSong.type==='file'&&e('div',{style:{textAlign:'center',padding:'1.5rem 0'}},
+            e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:12}},'This file type can\'t be previewed here.'),
+            e('a',{href:viewingSong.content,download:viewingSong.fileName||viewingSong.name,
+              style:{display:'inline-block',padding:'9px 18px',borderRadius:10,background:theme.mid,color:'#fff',fontWeight:500,textDecoration:'none',fontSize:14}},'⬇️ Download '+(viewingSong.fileName||''))
+          ),
+          viewingSong.type==='link'&&e('div',{style:{textAlign:'center',padding:'1.5rem 0'}},
+            e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:12,wordBreak:'break-all'}},viewingSong.content),
+            e('a',{href:viewingSong.content,target:'_blank',rel:'noopener noreferrer',className:'no-print',
+              style:{display:'inline-block',padding:'9px 18px',borderRadius:10,background:theme.mid,color:'#fff',fontWeight:500,textDecoration:'none',fontSize:14}},'🔗 Open link')
+          )
+        )
+      )
+    ),
     modal&&e(Modal,{gig:modal.mode==='edit'?modal.gig:null,prefillDate:modal.prefillDate,onSave:saveGig,onDelete:deleteGig,onClose:closeModal}),
 
     dayPopup&&e('div',{onClick:()=>setDayPopup(null),className:'overlay'},
@@ -3249,6 +3510,7 @@ function App(){
       )
     ),
     e(PrintStandaloneBanner,{show:setlistPrintStandaloneHelp,onDismiss:()=>setSetlistPrintStandaloneHelp(false),theme}),
+    e(PrintStandaloneBanner,{show:songPrintStandaloneHelp,onDismiss:()=>setSongPrintStandaloneHelp(false),theme}),
 
     bandMessageModal&&e(BandMessageModal,{
       message:bandMessageModalTarget,onClose:()=>setBandMessageModal(null),
