@@ -1,4 +1,4 @@
-const {onDocumentCreated, onDocumentWritten} = require('firebase-functions/v2/firestore');
+const {onDocumentCreated} = require('firebase-functions/v2/firestore');
 const {onRequest} = require('firebase-functions/v2/https');
 const {onSchedule} = require('firebase-functions/v2/scheduler');
 const admin = require('firebase-admin');
@@ -138,16 +138,15 @@ exports.notifyOnNewSetlist = onDocumentCreated('setlists/{setlistId}', async (ev
   }
 });
 
-// bandSettings/bandMessage is a single shared doc (set(), not create-per-post)
-// that gets overwritten on every post/edit and removed on clear — so this
-// needs the before/after diff onDocumentWritten gives, not onDocumentCreated,
-// and skips the clear case (after doesn't exist) and no-op writes where the
-// text didn't actually change.
-exports.notifyOnBandMessage = onDocumentWritten('bandSettings/bandMessage', async (event) => {
-  const after = event.data.after.exists ? event.data.after.data() : null;
-  if (!after || !after.text) return;
-  const before = event.data.before.exists ? event.data.before.data() : null;
-  if (before && before.text === after.text) return;
+// Each band message post is its own doc in bandMessages (up to
+// BAND_MESSAGE_CAP active at once, client-side) — onDocumentCreated fires
+// exactly once per post, giving each message its own independent
+// notification. Editing an existing message (an update, not a create)
+// intentionally does NOT re-notify, since that's a correction, not a new
+// announcement.
+exports.notifyOnBandMessage = onDocumentCreated('bandMessages/{messageId}', async (event) => {
+  const msg = event.data.data();
+  if (!msg || !msg.text) return;
 
   const tokensSnap = await admin.firestore().collection('fcmTokens').get();
   if (tokensSnap.empty) return;
@@ -161,7 +160,7 @@ exports.notifyOnBandMessage = onDocumentWritten('bandSettings/bandMessage', asyn
   const response = await admin.messaging().sendEachForMulticast({
     notification: {
       title: 'Band message',
-      body: after.text
+      body: msg.text
     },
     data: { url: APP_URL },
     tokens
