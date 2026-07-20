@@ -217,6 +217,45 @@ const RSVP_STYLE={
   no:   {bg:"#FEE2E2",color:"#DC2626",label:"❌ No"},
   pending:{bg:"#F3F4F6",color:"#9ca3af",label:"Waiting"},
 };
+// Chord transposition for typed/text charts. Chart text is free-form (no
+// ChordPro-style markup), so there's no structural way to tell a chord
+// token from a lyric word on its own — "A" is both a valid chord and a
+// common word. The heuristic: only transpose a line where EVERY token on
+// it looks like a chord (or a bar separator like "|"); a real lyric line
+// almost never has that property, since actual words essentially never
+// all start with A–G. This matches the chords-on-their-own-line
+// convention the app's own "add song" placeholder already teaches.
+const NOTE_SHARP=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const NOTE_FLAT=['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
+const NOTE_TO_INDEX={C:0,'C#':1,Db:1,D:2,'D#':3,Eb:3,E:4,F:5,'F#':6,Gb:6,G:7,'G#':8,Ab:8,A:9,'A#':10,Bb:10,B:11};
+const CHORD_TOKEN_RE=/^([A-G][#b]?)([a-z0-9()+\-]*)(?:\/([A-G][#b]?)([a-z0-9()+\-]*))?$/;
+const BAR_SEPARATOR_RE=/^[|/%.\-–—]+$/;
+function transposeChordToken(token,steps){
+  const m=token.match(CHORD_TOKEN_RE);
+  if(!m)return token;
+  const [,root,suffix,slashRoot,slashSuffix]=m;
+  const preferFlat=root.includes('b')||(slashRoot&&slashRoot.includes('b'));
+  const shiftNote=note=>{
+    const idx=NOTE_TO_INDEX[note];
+    if(idx===undefined)return note;
+    const shifted=((idx+steps)%12+12)%12;
+    return (preferFlat?NOTE_FLAT:NOTE_SHARP)[shifted];
+  };
+  let out=shiftNote(root)+suffix;
+  if(slashRoot)out+='/'+shiftNote(slashRoot)+(slashSuffix||'');
+  return out;
+}
+function lineIsChordLine(line){
+  const tokens=line.trim().split(/\s+/).filter(Boolean);
+  if(!tokens.length)return false;
+  return tokens.every(t=>CHORD_TOKEN_RE.test(t)||BAR_SEPARATOR_RE.test(t));
+}
+function transposeChart(text,steps){
+  if(!steps||!text)return text;
+  return text.split('\n').map(line=>
+    lineIsChordLine(line)?line.replace(/\S+/g,tok=>transposeChordToken(tok,steps)):line
+  ).join('\n');
+}
 const today=new Date();
 const todayStr=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
 const yr=today.getFullYear();
@@ -1912,6 +1951,27 @@ function App(){
   const [replacingSongId,setReplacingSongId]=useState(null);
   const [replacingSongProcessing,setReplacingSongProcessing]=useState(false);
   const [songPrintStandaloneHelp,setSongPrintStandaloneHelp]=useState(false);
+  // Transpose is deliberately local-only, not synced — which key a song
+  // gets played in is often situational (different singer, no capo handy),
+  // not a band-wide setting worth persisting like the photo rotation is.
+  const [transposeSteps,setTransposeSteps]=useState(0);
+  const [autoScrollOn,setAutoScrollOn]=useState(false);
+  const [autoScrollSpeed,setAutoScrollSpeed]=useState(1);
+  const songViewerScrollRef=useRef(null);
+  useEffect(()=>{
+    setTransposeSteps(0);
+    setAutoScrollOn(false);
+  },[viewingSong&&viewingSong.id]);
+  useEffect(()=>{
+    if(!autoScrollOn)return;
+    const el=songViewerScrollRef.current;
+    if(!el)return;
+    const id=setInterval(()=>{
+      el.scrollTop+=autoScrollSpeed*0.6;
+      if(el.scrollTop+el.clientHeight>=el.scrollHeight-2)setAutoScrollOn(false);
+    },50);
+    return ()=>clearInterval(id);
+  },[autoScrollOn,autoScrollSpeed]);
   const [tab,setTab]=useState(()=>{try{const s=localStorage.getItem('pmtf_settings');if(!s)return 'calendar';const d=JSON.parse(s).defaultTab;return d==='chart'?'songs':d||'calendar';}catch{return 'calendar';}});
   const [calMonth,setCalMonth]=useState(today.getMonth());
   const [calYear,setCalYear]=useState(today.getFullYear());
@@ -3447,7 +3507,7 @@ function App(){
     // theme. This is the one screen actually read off a stand in a dark
     // room, so it earns breaking from the theme; nothing else does.
     viewingSong&&e('div',{onClick:()=>setViewingSong(null),className:'overlay',style:{background:'rgba(0,0,0,0.7)'}},
-      e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:440,maxHeight:'85vh',overflowY:'auto',padding:0,background:'#141311'}},
+      e('div',{ref:songViewerScrollRef,onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:440,maxHeight:'85vh',overflowY:'auto',padding:0,background:'#141311'}},
         e('div',{className:'no-print',style:{display:'flex',gap:8,padding:'14px 20px',borderBottom:'1px solid #302C24'}},
           e('button',{onClick:()=>setViewingSong(null),style:{flex:1,padding:'9px 0',background:'#1D1B17',color:'#F1EDE3',border:'1px solid #302C24'}},'Close'),
           liveViewingSong.type==='image'&&e('button',{onClick:()=>toggleSongRotation(liveViewingSong),title:'Rotate',
@@ -3455,12 +3515,28 @@ function App(){
           e('button',{onClick:()=>tryPrint(setSongPrintStandaloneHelp),style:{flex:1,padding:'9px 0',borderRadius:8,border:'1px solid #302C24',background:'#1D1B17',color:'#F1EDE3',cursor:'pointer',fontWeight:500}},'🖨️ Print'),
           e('button',{onClick:()=>shareSong(liveViewingSong),style:{flex:1,padding:'9px 0',borderRadius:8,border:'none',background:'#FFB020',color:'#141311',cursor:'pointer',fontWeight:700}},'📤 Share')
         ),
+        liveViewingSong.type==='text'&&e('div',{className:'no-print',style:{display:'flex',gap:7,padding:'0 20px 12px',alignItems:'center'}},
+          e('div',{style:{display:'flex',alignItems:'center',gap:2,background:'#1D1B17',border:'1px solid #302C24',borderRadius:8,padding:'2px 2px'}},
+            e('button',{onClick:()=>setTransposeSteps(s=>s-1),title:'Transpose down',
+              style:{background:'none',border:'none',color:'#FFB020',fontSize:15,fontWeight:700,cursor:'pointer',padding:'6px 9px'}},'−'),
+            e('span',{style:{fontSize:11,color:'#F1EDE3',minWidth:40,textAlign:'center',fontWeight:600}},transposeSteps===0?'Key':(transposeSteps>0?'+':'')+transposeSteps),
+            e('button',{onClick:()=>setTransposeSteps(s=>s+1),title:'Transpose up',
+              style:{background:'none',border:'none',color:'#FFB020',fontSize:15,fontWeight:700,cursor:'pointer',padding:'6px 9px'}},'+')
+          ),
+          e('button',{onClick:()=>setAutoScrollOn(v=>!v),
+            style:{flex:1,padding:'8px 0',borderRadius:8,border:'1px solid #302C24',background:autoScrollOn?'#FFB020':'#1D1B17',color:autoScrollOn?'#141311':'#FFB020',fontWeight:700,fontSize:12,cursor:'pointer'}},
+            autoScrollOn?'⏸ Pause':'▶ Auto-scroll'),
+          e('select',{value:autoScrollSpeed,onChange:ev=>setAutoScrollSpeed(Number(ev.target.value)),
+            style:{background:'#1D1B17',border:'1px solid #302C24',color:'#F1EDE3',borderRadius:8,fontSize:11,padding:'8px 4px'}},
+            e('option',{value:0.5},'Slow'),e('option',{value:1},'Normal'),e('option',{value:1.75},'Fast')
+          )
+        ),
         e('div',{className:'schedule-print-area song-viewer-print',style:{padding:'20px'}},
           e('div',{style:{fontSize:16,fontWeight:600,marginBottom:4,color:'#F1EDE3'}},liveViewingSong.name),
           (liveViewingSong.key||liveViewingSong.tempo||liveViewingSong.tag)&&e('div',{style:{fontSize:12,color:'#FFB020',marginBottom:14,display:'flex',gap:8,flexWrap:'wrap'}},
             [liveViewingSong.key,liveViewingSong.tempo?liveViewingSong.tempo+' bpm':null,liveViewingSong.tag].filter(Boolean).join('  ·  ')
           ),
-          liveViewingSong.type==='text'&&e('div',{style:{fontSize:14,color:'#F1EDE3',whiteSpace:'pre-wrap',lineHeight:1.6,fontFamily:'monospace'}},liveViewingSong.content),
+          liveViewingSong.type==='text'&&e('div',{style:{fontSize:14,color:'#F1EDE3',whiteSpace:'pre-wrap',lineHeight:1.6,fontFamily:'monospace'}},transposeChart(liveViewingSong.content,transposeSteps)),
           liveViewingSong.type==='image'&&e('div',{style:{display:'flex',justifyContent:'center'}},
             e('img',{src:liveViewingSong.content,style:{
               maxWidth:liveViewingSong.rotated?340:'100%',maxHeight:liveViewingSong.rotated?340:'none',
