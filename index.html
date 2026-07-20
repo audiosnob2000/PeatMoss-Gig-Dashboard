@@ -1420,6 +1420,12 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
           right:e(Toggle,{on:settings.bandMessageNotifs,label:'Band message notifications',
             onToggle:()=>setSettings(s=>({...s,bandMessageNotifs:!s.bandMessageNotifs}))})
         }),
+        pushToken&&e(Row,{label:'🙋 Gig response notifications',
+          sub:'Get pinged when someone responds Yes/Maybe/No on "Who\'s in?"',
+          border:true,
+          right:e(Toggle,{on:settings.gigResponseNotifs,label:'Gig response notifications',
+            onToggle:()=>setSettings(s=>({...s,gigResponseNotifs:!s.gigResponseNotifs}))})
+        }),
         pushToken&&e(Row,{label:'Upcoming gig reminder 1',sub:'First heads-up before a show',border:true,
           right:e('select',{value:settings.gigReminder1,
             onChange:ev=>setSettings(s=>({...s,gigReminder1:ev.target.value})),
@@ -1841,7 +1847,7 @@ function getDeviceId(){
 
 function App(){
   const [settings,setSettings]=useState(()=>{
-    const defaults={bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',stagePlotFile:null,calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com',gigReminder1:'off',gigReminder2:'off',selfPaReminderEnabled:false,selfPaReminderTime:'4h',selfPaReminderTarget:'reminder2',bandMessageNotifs:true,memberName:''};
+    const defaults={bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',stagePlotFile:null,calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com',gigReminder1:'off',gigReminder2:'off',selfPaReminderEnabled:false,selfPaReminderTime:'4h',selfPaReminderTarget:'reminder2',bandMessageNotifs:true,gigResponseNotifs:true,memberName:''};
     try{
       const s=localStorage.getItem('pmtf_settings');
       if(!s) return defaults;
@@ -2069,7 +2075,7 @@ function App(){
         firebase.messaging().getToken({vapidKey:FCM_VAPID_KEY,serviceWorkerRegistration:registration})
       ).then(token=>{
         if(!token) throw new Error('No token returned.');
-        return db.collection('fcmTokens').doc(token).set({token,createdAt:todayStr,ua:navigator.userAgent,reminder1:settings.gigReminder1,reminder2:settings.gigReminder2,selfPaReminderEnabled:settings.selfPaReminderEnabled,selfPaReminderTime:settings.selfPaReminderTime,selfPaReminderTarget:settings.selfPaReminderTarget,bandMessageNotifs:settings.bandMessageNotifs}).then(()=>token);
+        return db.collection('fcmTokens').doc(token).set({token,createdAt:todayStr,ua:navigator.userAgent,reminder1:settings.gigReminder1,reminder2:settings.gigReminder2,selfPaReminderEnabled:settings.selfPaReminderEnabled,selfPaReminderTime:settings.selfPaReminderTime,selfPaReminderTarget:settings.selfPaReminderTarget,bandMessageNotifs:settings.bandMessageNotifs,gigResponseNotifs:settings.gigResponseNotifs}).then(()=>token);
       }).then(token=>{
         setPushToken(token);setPushEnabling(false);
       }).catch(err=>{
@@ -2091,9 +2097,10 @@ function App(){
       reminder1:settings.gigReminder1,reminder2:settings.gigReminder2,
       selfPaReminderEnabled:settings.selfPaReminderEnabled,selfPaReminderTime:settings.selfPaReminderTime,
       selfPaReminderTarget:settings.selfPaReminderTarget,
-      bandMessageNotifs:settings.bandMessageNotifs
+      bandMessageNotifs:settings.bandMessageNotifs,
+      gigResponseNotifs:settings.gigResponseNotifs
     }).catch(()=>{});
-  },[pushToken,settings.gigReminder1,settings.gigReminder2,settings.selfPaReminderEnabled,settings.selfPaReminderTime,settings.selfPaReminderTarget,settings.bandMessageNotifs]);
+  },[pushToken,settings.gigReminder1,settings.gigReminder2,settings.selfPaReminderEnabled,settings.selfPaReminderTime,settings.selfPaReminderTarget,settings.bandMessageNotifs,settings.gigResponseNotifs]);
   // The reminder Cloud Function can't read localStorage, so the calendar ID
   // needs a shared copy it can actually reach.
   useEffect(()=>{
