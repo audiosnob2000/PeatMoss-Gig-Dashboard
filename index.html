@@ -3542,8 +3542,11 @@ function App(){
           e('button',{onClick:()=>tryPrint(setSongPrintStandaloneHelp),style:{flex:1,padding:'9px 0',borderRadius:8,border:'1px solid #302C24',background:'#1D1B17',color:'#F1EDE3',cursor:'pointer',fontWeight:500}},'🖨️ Print'),
           e('button',{onClick:()=>shareSong(liveViewingSong),style:{flex:1,padding:'9px 0',borderRadius:8,border:'none',background:'#FFB020',color:'#141311',cursor:'pointer',fontWeight:700}},'📤 Share')
         ),
-        liveViewingSong.type==='text'&&e('div',{className:'no-print',style:{display:'flex',gap:7,padding:'0 20px 12px',alignItems:'center'}},
-          e('div',{style:{display:'flex',alignItems:'center',gap:2,background:'#1D1B17',border:'1px solid #302C24',borderRadius:8,padding:'2px 2px'}},
+        (liveViewingSong.type==='text'||liveViewingSong.type==='image')&&e('div',{className:'no-print',style:{display:'flex',gap:7,padding:'0 20px 12px',alignItems:'center'}},
+          // Transposition needs actual chord text to shift, which a photo
+          // doesn't have — auto-scroll has no such requirement, it just
+          // scrolls the screen, so it works on a photo chart too.
+          liveViewingSong.type==='text'&&e('div',{style:{display:'flex',alignItems:'center',gap:2,background:'#1D1B17',border:'1px solid #302C24',borderRadius:8,padding:'2px 2px'}},
             e('button',{onClick:()=>setTransposeSteps(s=>s-1),title:'Transpose down',
               style:{background:'none',border:'none',color:'#FFB020',fontSize:15,fontWeight:700,cursor:'pointer',padding:'6px 9px'}},'−'),
             e('span',{style:{fontSize:11,color:'#F1EDE3',minWidth:40,textAlign:'center',fontWeight:600}},transposeSteps===0?'Key':(transposeSteps>0?'+':'')+transposeSteps),
