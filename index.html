@@ -211,6 +211,12 @@ const STATUS_STYLE={
   hold: {bg:"#f1f5f9",color:"#475569",label:"Hold"},
   cancelled:{bg:"#fee2e2",color:"#b91c1c",label:"Cancelled"},
 };
+const RSVP_STYLE={
+  yes:  {bg:"#E4F6EA",color:"#0F8A4B",label:"✅ Yes"},
+  maybe:{bg:"#FEF3C7",color:"#B45309",label:"❓ Maybe"},
+  no:   {bg:"#FEE2E2",color:"#DC2626",label:"❌ No"},
+  pending:{bg:"#F3F4F6",color:"#9ca3af",label:"Waiting"},
+};
 const today=new Date();
 const todayStr=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
 const yr=today.getFullYear();
@@ -1835,7 +1841,7 @@ function getDeviceId(){
 
 function App(){
   const [settings,setSettings]=useState(()=>{
-    const defaults={bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',stagePlotFile:null,calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com',gigReminder1:'off',gigReminder2:'off',selfPaReminderEnabled:false,selfPaReminderTime:'4h',selfPaReminderTarget:'reminder2',bandMessageNotifs:true};
+    const defaults={bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',stagePlotFile:null,calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com',gigReminder1:'off',gigReminder2:'off',selfPaReminderEnabled:false,selfPaReminderTime:'4h',selfPaReminderTarget:'reminder2',bandMessageNotifs:true,memberName:''};
     try{
       const s=localStorage.getItem('pmtf_settings');
       if(!s) return defaults;
@@ -1920,6 +1926,17 @@ function App(){
   const [editItemValue,setEditItemValue]=useState('');
   const [gigPopup,setGigPopup]=useState(null);
   const [dayPopup,setDayPopup]=useState(null);
+  // "Who's in?" availability polling — roster and responses both live as
+  // sub-docs of bandSettings (same one-doc-per-thing pattern as stagePlot),
+  // deliberately NOT written onto the gig doc itself: a gig synced in from
+  // Google Calendar (or added offline) may not have a corresponding
+  // Firestore doc in the gigs collection yet, and merging fields onto a
+  // doc that doesn't fully exist there would create a partial doc that
+  // clobbers the real gig data for everyone once it syncs back down.
+  const [roster,setRoster]=useState([]);
+  const [gigResponsesMap,setGigResponsesMap]=useState({});
+  const [whosInOpen,setWhosInOpen]=useState(false);
+  const [memberNameDraft,setMemberNameDraft]=useState('');
   const [googleAccessToken,setGoogleAccessToken]=useState(()=>loadStoredGoogleAuth().token);
   const [googleTokenExpiresAt,setGoogleTokenExpiresAt]=useState(()=>loadStoredGoogleAuth().expiresAt);
   const [googleAuthError,setGoogleAuthError]=useState('');
@@ -2108,6 +2125,29 @@ function App(){
     },()=>{stagePlotHydratedRef.current=true;});
     return unsub;
   },[]);
+  // Roster for "Who's in?" — one shared list of names, same single-doc
+  // pattern as the stage plot above. No migration step needed since this
+  // is new data with nothing local to backfill from.
+  useEffect(()=>{
+    const unsub=db.collection('bandSettings').doc('roster').onSnapshot(doc=>{
+      if(doc.exists)setRoster(doc.data().names||[]);
+    },()=>{});
+    return unsub;
+  },[]);
+  // Poll responses, keyed by gig id, all in one doc alongside roster —
+  // see the comment on gigResponsesMap's declaration for why this isn't
+  // stored on the gig docs themselves.
+  useEffect(()=>{
+    const unsub=db.collection('bandSettings').doc('gigResponses').onSnapshot(doc=>{
+      if(doc.exists)setGigResponsesMap(doc.data()||{});
+    },()=>{});
+    return unsub;
+  },[]);
+  // Collapsed by default every time a different gig's popup opens, so the
+  // full roster isn't dumped on screen unless someone actually wants it.
+  useEffect(()=>{
+    setWhosInOpen(false);
+  },[gigPopup&&gigPopup.id]);
   useEffect(()=>{
     if(!stagePlotHydratedRef.current)return;
     db.collection('bandSettings').doc('stagePlot').set({stagePlotUrl:settings.stagePlotUrl||'',stagePlotFile:settings.stagePlotFile||null}).catch(()=>{});
@@ -2933,6 +2973,30 @@ function App(){
   // doesn't pick up later Firestore updates (like a rotate) on its own —
   // re-resolve it against the live synced list every render instead.
   const liveViewingSong=viewingSong&&(songs.find(s=>s.id===viewingSong.id)||viewingSong);
+  const addRosterName=()=>{
+    const name=window.prompt('Add a band member to the roster:');
+    if(!name||!name.trim())return;
+    const trimmed=name.trim();
+    if(roster.includes(trimmed))return;
+    db.collection('bandSettings').doc('roster').set({names:[...roster,trimmed]})
+      .catch(()=>alert('Could not save — check your connection and try again.'));
+  };
+  const saveMemberName=()=>{
+    const trimmed=memberNameDraft.trim();
+    if(!trimmed)return;
+    setSettings(s=>({...s,memberName:trimmed}));
+    setMemberNameDraft('');
+    if(!roster.includes(trimmed)){
+      db.collection('bandSettings').doc('roster').set({names:[...roster,trimmed]}).catch(()=>{});
+    }
+  };
+  const respondToGig=(gigId,status)=>{
+    if(!settings.memberName)return;
+    db.collection('bandSettings').doc('gigResponses').set({[gigId]:{[settings.memberName]:status}},{merge:true})
+      .catch(()=>alert('Could not save — check your connection and try again.'));
+  };
+  const gigResponses=(gigPopup&&gigResponsesMap[gigPopup.id])||{};
+  const gigRespondedCount=roster.filter(n=>gigResponses[n]).length;
 
   if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,bandMessages,onNewBandMessage:()=>setBandMessageModal('new'),onEditBandMessage:msg=>setBandMessageModal(msg),onDeleteBandMessage:deleteBandMessageById,bandMessageModal,bandMessageModalTarget,onCloseBandMessageModal:()=>setBandMessageModal(null),saveBandMessageModal,deleteBandMessageModal,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData});
 
@@ -3462,6 +3526,52 @@ function App(){
           gigPopup.notes&&e('div',null,
             e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:2}},'Notes'),
             e('div',{style:{fontSize:13,fontWeight:500,whiteSpace:'pre-wrap'}},gigPopup.notes)
+          )
+        ),
+        e('div',{style:{borderTop:'1px solid #e5e7eb',paddingTop:12,marginBottom:16}},
+          e('div',{onClick:()=>setWhosInOpen(v=>!v),style:{display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}},
+            e('span',{style:{fontSize:13,color:'#6b7280'}},"Who's in?"),
+            e('span',{style:{fontSize:11.5,fontWeight:600,color:theme.primary,display:'flex',alignItems:'center',gap:4}},
+              roster.length?gigRespondedCount+' of '+roster.length+' responded':'No members yet',
+              e('span',{style:{fontSize:9,transform:whosInOpen?'rotate(180deg)':'none',transition:'transform .15s',display:'inline-block'}},'▾')
+            )
+          ),
+          whosInOpen&&e('div',{style:{marginTop:10}},
+            e('div',{style:{display:'flex',flexDirection:'column',gap:6,marginBottom:8}},
+              roster.map(name=>{
+                const status=gigResponses[name]||'pending';
+                const s=RSVP_STYLE[status];
+                return e('div',{key:name,style:{display:'flex',alignItems:'center',gap:9,padding:'6px 8px',borderRadius:9,background:'#f9fafb'}},
+                  e('span',{style:{flex:1,fontSize:12.5,fontWeight:500}},name),
+                  e('span',{className:'badge',style:{background:s.bg,color:s.color}},s.label)
+                );
+              })
+            ),
+            e('div',{onClick:addRosterName,style:{fontSize:11.5,color:theme.primary,cursor:'pointer',fontWeight:500}},'+ Add someone to the roster'),
+            e('div',{style:{marginTop:10,padding:10,borderRadius:10,background:theme.pale}},
+              !settings.memberName
+                ? e('div',null,
+                    e('div',{style:{fontSize:11.5,color:theme.primary,fontWeight:600,marginBottom:6}},"What's your name?"),
+                    e('div',{style:{display:'flex',gap:6}},
+                      e('input',{value:memberNameDraft,onChange:ev=>setMemberNameDraft(ev.target.value),placeholder:'Your name',
+                        onKeyDown:ev=>{if(ev.key==='Enter')saveMemberName();},style:{flex:1}}),
+                      e('button',{onClick:saveMemberName,style:{background:theme.mid,color:'#fff',border:'none',fontWeight:500,flexShrink:0}},'Save')
+                    )
+                  )
+                : e('div',null,
+                    e('div',{style:{fontSize:11.5,color:theme.primary,fontWeight:600,marginBottom:7}},'Your response'),
+                    e('div',{style:{display:'flex',gap:6}},
+                      ['yes','maybe','no'].map(v=>{
+                        const mine=gigResponses[settings.memberName]===v;
+                        const s=RSVP_STYLE[v];
+                        return e('button',{key:v,onClick:()=>respondToGig(gigPopup.id,v),
+                          style:{flex:1,padding:'7px 0',borderRadius:8,border:'1.5px solid '+(mine?s.color:'#e5e7eb'),
+                            background:mine?s.bg:'#fff',color:mine?s.color:'#6b7280',fontWeight:600,fontSize:12,cursor:'pointer'}
+                        },s.label);
+                      })
+                    )
+                  )
+            )
           )
         ),
         e('div',{style:{display:'flex',gap:8,flexDirection:'column'}},
