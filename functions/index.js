@@ -206,10 +206,11 @@ exports.notifyOnGigResponse = onDocumentWritten('bandSettings/gigResponses', asy
   const tokensSnap = await admin.firestore().collection('fcmTokens').get();
   if (tokensSnap.empty) return;
 
-  // gigResponseNotifs is opt-out, not opt-in — same reasoning as
-  // bandMessageNotifs above, so tokens saved before this setting existed
-  // still get pinged rather than silently missing every response.
-  const tokenDocs = tokensSnap.docs.filter(d => d.data().gigResponseNotifs !== false);
+  // Unlike bandMessageNotifs, this one defaults OFF — a routine "Yes" on
+  // every gig adds up to a lot more pings than the occasional band-wide
+  // message, so this is opt-in: only tokens that explicitly turned it on
+  // get notified, not just anything that isn't explicitly false.
+  const tokenDocs = tokensSnap.docs.filter(d => d.data().gigResponseNotifs === true);
   if (!tokenDocs.length) return;
   const tokens = tokenDocs.map(d => d.id);
 

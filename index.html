@@ -1847,7 +1847,7 @@ function getDeviceId(){
 
 function App(){
   const [settings,setSettings]=useState(()=>{
-    const defaults={bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',stagePlotFile:null,calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com',gigReminder1:'off',gigReminder2:'off',selfPaReminderEnabled:false,selfPaReminderTime:'4h',selfPaReminderTarget:'reminder2',bandMessageNotifs:true,gigResponseNotifs:true,memberName:''};
+    const defaults={bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',stagePlotFile:null,calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com',gigReminder1:'off',gigReminder2:'off',selfPaReminderEnabled:false,selfPaReminderTime:'4h',selfPaReminderTarget:'reminder2',bandMessageNotifs:true,gigResponseNotifs:false,memberName:''};
     try{
       const s=localStorage.getItem('pmtf_settings');
       if(!s) return defaults;
