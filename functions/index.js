@@ -1,4 +1,4 @@
-const {onDocumentCreated} = require('firebase-functions/v2/firestore');
+const {onDocumentCreated, onDocumentWritten} = require('firebase-functions/v2/firestore');
 const {onRequest} = require('firebase-functions/v2/https');
 const {onSchedule} = require('firebase-functions/v2/scheduler');
 const admin = require('firebase-admin');
@@ -176,6 +176,74 @@ exports.notifyOnBandMessage = onDocumentCreated('bandMessages/{messageId}', asyn
     }
   });
   if (staleTokens.length) {
+    const batch = admin.firestore().batch();
+    staleTokens.forEach(t => batch.delete(admin.firestore().collection('fcmTokens').doc(t)));
+    await batch.commit();
+  }
+});
+
+// Roster + responses for "Who's in?" live in one shared doc
+// (bandSettings/gigResponses), not per-gig docs — see the comment on the
+// client's gigResponsesMap state for why. onDocumentWritten (not
+// onDocumentCreated) is needed here since the very first response ever
+// recorded is itself a create, but every one after that is an update to
+// the same doc; before/after are diffed to find exactly which gig+person
+// actually changed, since a single write only ever touches one of them.
+exports.notifyOnGigResponse = onDocumentWritten('bandSettings/gigResponses', async (event) => {
+  const before = (event.data.before.exists) ? event.data.before.data() : {};
+  const after = (event.data.after.exists) ? event.data.after.data() : {};
+
+  const changes = [];
+  for (const gigId of Object.keys(after)) {
+    const beforeGig = before[gigId] || {};
+    const afterGig = after[gigId] || {};
+    for (const name of Object.keys(afterGig)) {
+      if (beforeGig[name] !== afterGig[name]) changes.push({gigId, name, status: afterGig[name]});
+    }
+  }
+  if (!changes.length) return;
+
+  const tokensSnap = await admin.firestore().collection('fcmTokens').get();
+  if (tokensSnap.empty) return;
+
+  // Unlike bandMessageNotifs, this one defaults OFF — a routine "Yes" on
+  // every gig adds up to a lot more pings than the occasional band-wide
+  // message, so this is opt-in: only tokens that explicitly turned it on
+  // get notified, not just anything that isn't explicitly false.
+  const tokenDocs = tokensSnap.docs.filter(d => d.data().gigResponseNotifs === true);
+  if (!tokenDocs.length) return;
+  const tokens = tokenDocs.map(d => d.id);
+
+  const gigIds = [...new Set(changes.map(c => c.gigId))];
+  const gigSnaps = await admin.firestore().getAll(...gigIds.map(id => admin.firestore().collection('gigs').doc(id)));
+  const gigById = {};
+  gigSnaps.forEach((snap, i) => { if (snap.exists) gigById[gigIds[i]] = snap.data(); });
+
+  const STATUS_LABEL = {yes: 'Yes', maybe: 'Maybe', no: 'No'};
+  const staleTokens = new Set();
+  for (const c of changes) {
+    const gig = gigById[c.gigId];
+    const venue = gig ? (gig.venue || 'a gig') : 'a gig';
+    const dateLabel = gig && gig.date ? new Date(gig.date + 'T12:00:00').toLocaleDateString('en-US', {month: 'short', day: 'numeric'}) : '';
+    const label = STATUS_LABEL[c.status] || c.status;
+    const response = await admin.messaging().sendEachForMulticast({
+      notification: {
+        title: "Who's in?",
+        body: `${c.name} marked ${label} for ${venue}${dateLabel ? ' — ' + dateLabel : ''}`
+      },
+      data: { url: APP_URL },
+      tokens
+    });
+    response.responses.forEach((res, i) => {
+      if (!res.success) {
+        const code = res.error && res.error.code;
+        if (code === 'messaging/registration-token-not-registered' || code === 'messaging/invalid-registration-token') {
+          staleTokens.add(tokens[i]);
+        }
+      }
+    });
+  }
+  if (staleTokens.size) {
     const batch = admin.firestore().batch();
     staleTokens.forEach(t => batch.delete(admin.firestore().collection('fcmTokens').doc(t)));
     await batch.commit();
