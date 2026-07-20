@@ -1923,8 +1923,9 @@ function App(){
   const [newSetlistFileName,setNewSetlistFileName]=useState('');
   const [newSetlistProcessing,setNewSetlistProcessing]=useState(false);
   const [viewingSetlist,setViewingSetlist]=useState(null);
-  const [renamingSetlistId,setRenamingSetlistId]=useState(null);
-  const [renameSetlistValue,setRenameSetlistValue]=useState('');
+  const [editingSetlistId,setEditingSetlistId]=useState(null);
+  const [editSetlistName,setEditSetlistName]=useState('');
+  const [editSetlistContent,setEditSetlistContent]=useState('');
   const [replacingSetlistId,setReplacingSetlistId]=useState(null);
   const [replacingProcessing,setReplacingProcessing]=useState(false);
   // Songs (chord charts) — same shared-via-Firestore pattern as setlists,
@@ -1946,8 +1947,9 @@ function App(){
   const [newSongTag,setNewSongTag]=useState('');
   const [newSongProcessing,setNewSongProcessing]=useState(false);
   const [viewingSong,setViewingSong]=useState(null);
-  const [renamingSongId,setRenamingSongId]=useState(null);
-  const [renameSongValue,setRenameSongValue]=useState('');
+  const [editingSongId,setEditingSongId]=useState(null);
+  const [editSongName,setEditSongName]=useState('');
+  const [editSongContent,setEditSongContent]=useState('');
   const [replacingSongId,setReplacingSongId]=useState(null);
   const [replacingSongProcessing,setReplacingSongProcessing]=useState(false);
   const [songPrintStandaloneHelp,setSongPrintStandaloneHelp]=useState(false);
@@ -2879,15 +2881,22 @@ function App(){
     setReplacingProcessing(true);
     processUploadedFile(file,
       ({type,content,fileName})=>{
-        db.collection('setlists').doc(replacingSetlistId).update({type,content,fileName,updatedAt:todayStr})
+        const updates={type,content,fileName,updatedAt:todayStr};
+        if(editSetlistName.trim())updates.name=editSetlistName.trim();
+        db.collection('setlists').doc(replacingSetlistId).update(updates)
           .catch(()=>alert('Could not save — check your connection and try again.'));
         setReplacingProcessing(false);
         setReplacingSetlistId(null);
+        setEditingSetlistId(null);
       },
       msg=>{setReplacingProcessing(false);alert(msg);}
     );
   };
-  const startRenameSetlist=sl=>{setRenamingSetlistId(sl.id);setRenameSetlistValue(sl.name);};
+  const startEditSetlist=sl=>{
+    setEditingSetlistId(sl.id);
+    setEditSetlistName(sl.name);
+    setEditSetlistContent(sl.type==='text'||sl.type==='link'?sl.content:'');
+  };
   const formatSetlistDate=dateStr=>{
     const [y,m,d]=dateStr.split('-').map(Number);
     return MONTHS[m-1]+' '+d+', '+y;
@@ -2919,11 +2928,13 @@ function App(){
       if(err.name!=='AbortError') alert('Could not share this setlist.');
     }
   };
-  const saveRenameSetlist=()=>{
-    if(!renameSetlistValue.trim()){setRenamingSetlistId(null);return;}
-    db.collection('setlists').doc(renamingSetlistId).update({name:renameSetlistValue.trim()})
+  const saveSetlistEdit=sl=>{
+    if(!editSetlistName.trim()){setEditingSetlistId(null);return;}
+    const updates={name:editSetlistName.trim(),updatedAt:todayStr};
+    if(sl.type==='text'||sl.type==='link')updates.content=editSetlistContent;
+    db.collection('setlists').doc(sl.id).update(updates)
       .catch(()=>alert('Could not save — check your connection and try again.'));
-    setRenamingSetlistId(null);
+    setEditingSetlistId(null);
   };
   const addSetlist=()=>{
     if(newSetlistProcessing)return;
@@ -2942,7 +2953,7 @@ function App(){
   };
   const deleteSetlist=id=>{
     db.collection('setlists').doc(id).delete().catch(()=>alert('Could not delete — check your connection and try again.'));
-    setViewingSetlist(null);setRenamingSetlistId(null);setReplacingSetlistId(null);
+    setViewingSetlist(null);setEditingSetlistId(null);setReplacingSetlistId(null);
   };
   const handleSongFileUpload=file=>{
     setNewSongFileName(file.name);
@@ -2961,15 +2972,27 @@ function App(){
     setReplacingSongProcessing(true);
     processUploadedFile(file,
       ({type,content,fileName})=>{
-        db.collection('songs').doc(replacingSongId).update({type,content,fileName,updatedAt:todayStr})
+        const updates={type,content,fileName,updatedAt:todayStr};
+        // Replacing the file happens from inside the same edit form as the
+        // name field, so a name change made just before hitting "Replace"
+        // needs to ride along here too, rather than only saving on the
+        // Save button — otherwise picking a file mid-edit would silently
+        // drop whatever name was typed.
+        if(editSongName.trim())updates.name=editSongName.trim();
+        db.collection('songs').doc(replacingSongId).update(updates)
           .catch(()=>alert('Could not save — check your connection and try again.'));
         setReplacingSongProcessing(false);
         setReplacingSongId(null);
+        setEditingSongId(null);
       },
       msg=>{setReplacingSongProcessing(false);alert(msg);}
     );
   };
-  const startRenameSong=sg=>{setRenamingSongId(sg.id);setRenameSongValue(sg.name);};
+  const startEditSong=sg=>{
+    setEditingSongId(sg.id);
+    setEditSongName(sg.name);
+    setEditSongContent(sg.type==='text'||sg.type==='link'?sg.content:'');
+  };
   const shareSong=async sg=>{
     try{
       if(sg.type==='link'){
@@ -2996,11 +3019,13 @@ function App(){
       if(err.name!=='AbortError') alert('Could not share this chart.');
     }
   };
-  const saveRenameSong=()=>{
-    if(!renameSongValue.trim()){setRenamingSongId(null);return;}
-    db.collection('songs').doc(renamingSongId).update({name:renameSongValue.trim()})
+  const saveSongEdit=sg=>{
+    if(!editSongName.trim()){setEditingSongId(null);return;}
+    const updates={name:editSongName.trim(),updatedAt:todayStr};
+    if(sg.type==='text'||sg.type==='link')updates.content=editSongContent;
+    db.collection('songs').doc(sg.id).update(updates)
       .catch(()=>alert('Could not save — check your connection and try again.'));
-    setRenamingSongId(null);
+    setEditingSongId(null);
   };
   const addSong=()=>{
     if(newSongProcessing)return;
@@ -3022,7 +3047,7 @@ function App(){
   };
   const deleteSong=id=>{
     db.collection('songs').doc(id).delete().catch(()=>alert('Could not delete — check your connection and try again.'));
-    setViewingSong(null);setRenamingSongId(null);setReplacingSongId(null);
+    setViewingSong(null);setEditingSongId(null);setReplacingSongId(null);
   };
   // Rotation is stored per-song (not per-device) since it's fixing an
   // inherent property of the uploaded photo — once someone straightens it,
@@ -3209,41 +3234,42 @@ function App(){
           songs.filter(songMatchesSearch).map((sg,idx,arr)=>{
             const icon=sg.type==='image'?'🎼':sg.type==='html'?'🌐':sg.type==='link'?'🔗':sg.type==='file'?'📎':'🎵';
             const border=idx<arr.length-1?'1px solid #e5e7eb':'none';
-            if(renamingSongId===sg.id){
-              return e('div',{key:sg.id,style:{padding:'10px 14px',borderBottom:border,display:'flex',alignItems:'center',gap:10}},
-                e('div',{style:{width:30,height:30,borderRadius:8,background:theme.pale,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}},icon),
-                e('input',{autoFocus:true,value:renameSongValue,onChange:ev=>setRenameSongValue(ev.target.value),
-                  onKeyDown:ev=>{if(ev.key==='Enter')saveRenameSong();if(ev.key==='Escape')setRenamingSongId(null);},
-                  style:{flex:1,minWidth:0}}),
-                e('button',{onClick:saveRenameSong,style:{background:theme.mid,color:'#fff',border:'none',fontWeight:500,flexShrink:0}},'Save'),
-                e('button',{onClick:()=>setRenamingSongId(null),style:{flexShrink:0}},'Cancel')
-              );
-            }
-            if(replacingSongId===sg.id){
+            if(editingSongId===sg.id){
+              const canReplace=sg.type==='image'||sg.type==='file'||sg.type==='html';
               return e('div',{key:sg.id,style:{padding:'10px 14px',borderBottom:border}},
-                e('div',{style:{fontSize:12,color:'#6b7280',marginBottom:8}},
-                  replacingSongProcessing?'Processing…':'Replacing chart for ',!replacingSongProcessing&&e('b',null,sg.name)
+                e('label',null,'Name'),
+                e('input',{autoFocus:true,value:editSongName,onChange:ev=>setEditSongName(ev.target.value),style:{width:'100%'}}),
+                sg.type==='text'&&e('div',null,
+                  e('label',null,'Chords / lyrics'),
+                  e('textarea',{rows:6,value:editSongContent,onChange:ev=>setEditSongContent(ev.target.value),
+                    style:{fontFamily:'monospace',fontSize:13,padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,width:'100%',outline:'none',background:'#fff',resize:'none'}})
                 ),
-                !replacingSongProcessing&&e('div',{style:{display:'flex',gap:8}},
-                  e('button',{onClick:()=>replaceSongFileInputRef.current&&replaceSongFileInputRef.current.click(),
-                    style:{flex:1,padding:'11px 0',borderRadius:10,border:'none',background:theme.mid,color:'#fff',fontWeight:600,cursor:'pointer',fontSize:13.5}},
-                    '📤 Choose Photo or File'
-                  ),
-                  e('button',{onClick:()=>setReplacingSongId(null)},'Cancel')
+                sg.type==='link'&&e('div',null,
+                  e('label',null,'Link'),
+                  e('input',{value:editSongContent,onChange:ev=>setEditSongContent(ev.target.value),style:{width:'100%'}})
+                ),
+                canReplace&&e('div',{style:{marginTop:12}},
+                  replacingSongProcessing?e('div',{style:{fontSize:12,color:'#6b7280'}},'Processing…')
+                    :e('button',{onClick:()=>{setReplacingSongId(sg.id);replaceSongFileInputRef.current&&replaceSongFileInputRef.current.click();},
+                        style:{width:'100%',padding:'11px 0',borderRadius:10,border:'none',background:theme.mid,color:'#fff',fontWeight:600,cursor:'pointer',fontSize:13.5}},
+                        '📤 Replace Photo or File')
+                ),
+                e('div',{style:{display:'flex',gap:8,marginTop:12}},
+                  e('button',{onClick:()=>saveSongEdit(sg),style:{background:theme.mid,color:'#fff',border:'none',fontWeight:500,flex:1}},'Save'),
+                  e('button',{onClick:()=>setEditingSongId(null),style:{flexShrink:0}},'Cancel')
                 )
               );
             }
             return e('div',{key:sg.id,style:{padding:'10px 14px',borderBottom:border,display:'flex',alignItems:'center',gap:10}},
               e('div',{style:{width:30,height:30,borderRadius:8,background:theme.pale,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}},icon),
-              e('div',{onClick:()=>startRenameSong(sg),style:{flex:1,minWidth:0,cursor:'pointer'}},
+              e('div',{onClick:()=>setViewingSong(sg),style:{flex:1,minWidth:0,cursor:'pointer'}},
                 e('div',{style:{fontSize:13.5,fontWeight:500,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},sg.name),
                 e('div',{style:{fontSize:11,color:'#9ca3af'}},
                   sg.key&&e('span',{style:{color:theme.primary,fontWeight:600}},sg.key+' · '),
                   [sg.tempo?sg.tempo+' bpm':null,sg.tag,({image:'Photo',html:'HTML file',link:'Link',file:'File',text:'Text'}[sg.type]||'Text'),'updated '+formatSetlistDate(sg.updatedAt),sg.shared===false?'🔒 Private':null].filter(Boolean).join(' · ')
                 )
               ),
-              e('button',{onClick:()=>setReplacingSongId(sg.id),style:{fontSize:12,padding:'5px 8px',flexShrink:0}},'⬆️'),
-              e('button',{onClick:()=>setViewingSong(sg),style:{fontSize:12,padding:'5px 12px',flexShrink:0}},'View'),
+              e('button',{onClick:()=>startEditSong(sg),style:{fontSize:12,padding:'5px 12px',flexShrink:0}},'Edit'),
               e('button',{onClick:()=>{if(window.confirm('Remove "'+sg.name+'"?'))deleteSong(sg.id);},style:{border:'none',background:'none',color:'#d1d5db',fontSize:16,cursor:'pointer',padding:'0 4px',flexShrink:0}},'×')
             );
           })
@@ -3323,38 +3349,39 @@ function App(){
             setlists.map((sl,idx)=>{
               const icon=sl.type==='image'?'🎼':sl.type==='html'?'🌐':sl.type==='link'?'🔗':sl.type==='file'?'📎':'🎵';
               const border=idx<setlists.length-1?'1px solid #e5e7eb':'none';
-              if(renamingSetlistId===sl.id){
-                return e('div',{key:sl.id,style:{padding:'10px 14px',borderBottom:border,display:'flex',alignItems:'center',gap:10}},
-                  e('div',{style:{width:30,height:30,borderRadius:8,background:theme.pale,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}},icon),
-                  e('input',{autoFocus:true,value:renameSetlistValue,onChange:ev=>setRenameSetlistValue(ev.target.value),
-                    onKeyDown:ev=>{if(ev.key==='Enter')saveRenameSetlist();if(ev.key==='Escape')setRenamingSetlistId(null);},
-                    style:{flex:1,minWidth:0}}),
-                  e('button',{onClick:saveRenameSetlist,style:{background:theme.mid,color:'#fff',border:'none',fontWeight:500,flexShrink:0}},'Save'),
-                  e('button',{onClick:()=>setRenamingSetlistId(null),style:{flexShrink:0}},'Cancel')
-                );
-              }
-              if(replacingSetlistId===sl.id){
+              if(editingSetlistId===sl.id){
+                const canReplace=sl.type==='image'||sl.type==='file'||sl.type==='html';
                 return e('div',{key:sl.id,style:{padding:'10px 14px',borderBottom:border}},
-                  e('div',{style:{fontSize:12,color:'#6b7280',marginBottom:8}},
-                    replacingProcessing?'Processing…':'Replacing photo for ',!replacingProcessing&&e('b',null,sl.name)
+                  e('label',null,'Name'),
+                  e('input',{autoFocus:true,value:editSetlistName,onChange:ev=>setEditSetlistName(ev.target.value),style:{width:'100%'}}),
+                  sl.type==='text'&&e('div',null,
+                    e('label',null,'Setlist'),
+                    e('textarea',{rows:6,value:editSetlistContent,onChange:ev=>setEditSetlistContent(ev.target.value),
+                      style:{fontFamily:'inherit',fontSize:14,padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,width:'100%',outline:'none',background:'#fff',resize:'none'}})
                   ),
-                  !replacingProcessing&&e('div',{style:{display:'flex',gap:8}},
-                    e('button',{onClick:()=>replaceSetlistFileInputRef.current&&replaceSetlistFileInputRef.current.click(),
-                      style:{flex:1,padding:'11px 0',borderRadius:10,border:'none',background:theme.mid,color:'#fff',fontWeight:600,cursor:'pointer',fontSize:13.5}},
-                      '📤 Choose Photo or File'
-                    ),
-                    e('button',{onClick:()=>setReplacingSetlistId(null)},'Cancel')
+                  sl.type==='link'&&e('div',null,
+                    e('label',null,'Link'),
+                    e('input',{value:editSetlistContent,onChange:ev=>setEditSetlistContent(ev.target.value),style:{width:'100%'}})
+                  ),
+                  canReplace&&e('div',{style:{marginTop:12}},
+                    replacingProcessing?e('div',{style:{fontSize:12,color:'#6b7280'}},'Processing…')
+                      :e('button',{onClick:()=>{setReplacingSetlistId(sl.id);replaceSetlistFileInputRef.current&&replaceSetlistFileInputRef.current.click();},
+                          style:{width:'100%',padding:'11px 0',borderRadius:10,border:'none',background:theme.mid,color:'#fff',fontWeight:600,cursor:'pointer',fontSize:13.5}},
+                          '📤 Replace Photo or File')
+                  ),
+                  e('div',{style:{display:'flex',gap:8,marginTop:12}},
+                    e('button',{onClick:()=>saveSetlistEdit(sl),style:{background:theme.mid,color:'#fff',border:'none',fontWeight:500,flex:1}},'Save'),
+                    e('button',{onClick:()=>setEditingSetlistId(null),style:{flexShrink:0}},'Cancel')
                   )
                 );
               }
               return e('div',{key:sl.id,style:{padding:'10px 14px',borderBottom:border,display:'flex',alignItems:'center',gap:10}},
                 e('div',{style:{width:30,height:30,borderRadius:8,background:theme.pale,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}},icon),
-                e('div',{onClick:()=>startRenameSetlist(sl),style:{flex:1,minWidth:0,cursor:'pointer'}},
+                e('div',{onClick:()=>setViewingSetlist(sl),style:{flex:1,minWidth:0,cursor:'pointer'}},
                   e('div',{style:{fontSize:13.5,fontWeight:500,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},sl.name),
                   e('div',{style:{fontSize:11,color:'#9ca3af'}},({image:'Photo',html:'HTML file',link:'Link',file:'File',text:'Text'}[sl.type]||'Text')+' · updated '+formatSetlistDate(sl.updatedAt))
                 ),
-                e('button',{onClick:()=>setReplacingSetlistId(sl.id),style:{fontSize:12,padding:'5px 8px',flexShrink:0}},'⬆️'),
-                e('button',{onClick:()=>setViewingSetlist(sl),style:{fontSize:12,padding:'5px 12px',flexShrink:0}},'View'),
+                e('button',{onClick:()=>startEditSetlist(sl),style:{fontSize:12,padding:'5px 12px',flexShrink:0}},'Edit'),
                 e('button',{onClick:()=>{if(window.confirm('Remove "'+sl.name+'"?'))deleteSetlist(sl.id);},style:{border:'none',background:'none',color:'#d1d5db',fontSize:16,cursor:'pointer',padding:'0 4px',flexShrink:0}},'×')
               );
             })
