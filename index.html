@@ -2699,7 +2699,21 @@ function App(){
             }
           });
           if(idRemap.size) setUnpaidGigIds(ids=>ids.map(id=>idRemap.has(id)?idRemap.get(id):id));
-          return [...prev.filter(g=>!g.fromCalendar&&!calKeys.has(dedupeKey(g))),...calGigs];
+          // notes/type/status/selfPA are re-derived here by parsing them back
+          // out of the calendar event's description text — but that text is
+          // only ever updated while the editing device is signed into Google
+          // Calendar. A note saved locally from a signed-out device would
+          // otherwise get silently wiped the next time this runs (every time
+          // the app is reopened) since Calendar's own copy never had it.
+          // Keep whatever this device already has for those fields; only
+          // date/venue/location/time actually come from Calendar itself.
+          const prevById=new Map(prev.map(g=>[String(g.id),g]));
+          const mergedCalGigs=calGigs.map(cg=>{
+            const existing=prevById.get(String(cg.id));
+            if(!existing)return cg;
+            return{...cg,notes:existing.notes,type:existing.type,status:existing.status,selfPA:existing.selfPA};
+          });
+          return [...prev.filter(g=>!g.fromCalendar&&!calKeys.has(dedupeKey(g))),...mergedCalGigs];
         });
         setLastSynced(new Date().toLocaleTimeString());
       } else if(!silent){
