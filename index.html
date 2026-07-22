@@ -2275,7 +2275,19 @@ function App(){
         const byId=new Map(next.map(g=>[String(g.id),g]));
         remoteGigs.forEach(rg=>{
           const existing=byId.get(String(rg.id));
-          if(existing){ if(!existing.fromCalendar) byId.set(String(rg.id),{...rg,id:existing.id}); }
+          if(existing){
+            if(!existing.fromCalendar){
+              byId.set(String(rg.id),{...rg,id:existing.id});
+            }else{
+              // Calendar stays authoritative for date/venue/location/time on
+              // a calendar-sourced gig (that's the whole point of the guard
+              // above), but notes/type/status/selfPA are edited here in the
+              // app, not on Calendar — those need to actually reach every
+              // device live via Firestore, the same as any other gig, or a
+              // note typed on one phone is stuck there forever.
+              byId.set(String(rg.id),{...existing,notes:rg.notes,type:rg.type,status:rg.status,selfPA:rg.selfPA});
+            }
+          }
           else if(!localCalKeys.has(dedupeKey(rg))) byId.set(String(rg.id),rg);
         });
         return Array.from(byId.values());
