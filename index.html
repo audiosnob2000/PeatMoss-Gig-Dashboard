@@ -2275,7 +2275,19 @@ function App(){
         const byId=new Map(next.map(g=>[String(g.id),g]));
         remoteGigs.forEach(rg=>{
           const existing=byId.get(String(rg.id));
-          if(existing){ if(!existing.fromCalendar) byId.set(String(rg.id),{...rg,id:existing.id}); }
+          if(existing){
+            if(!existing.fromCalendar){
+              byId.set(String(rg.id),{...rg,id:existing.id});
+            }else{
+              // Calendar stays authoritative for date/venue/location/time on
+              // a calendar-sourced gig (that's the whole point of the guard
+              // above), but notes/type/status/selfPA are edited here in the
+              // app, not on Calendar — those need to actually reach every
+              // device live via Firestore, the same as any other gig, or a
+              // note typed on one phone is stuck there forever.
+              byId.set(String(rg.id),{...existing,notes:rg.notes,type:rg.type,status:rg.status,selfPA:rg.selfPA});
+            }
+          }
           else if(!localCalKeys.has(dedupeKey(rg))) byId.set(String(rg.id),rg);
         });
         return Array.from(byId.values());
@@ -2699,7 +2711,21 @@ function App(){
             }
           });
           if(idRemap.size) setUnpaidGigIds(ids=>ids.map(id=>idRemap.has(id)?idRemap.get(id):id));
-          return [...prev.filter(g=>!g.fromCalendar&&!calKeys.has(dedupeKey(g))),...calGigs];
+          // notes/type/status/selfPA are re-derived here by parsing them back
+          // out of the calendar event's description text — but that text is
+          // only ever updated while the editing device is signed into Google
+          // Calendar. A note saved locally from a signed-out device would
+          // otherwise get silently wiped the next time this runs (every time
+          // the app is reopened) since Calendar's own copy never had it.
+          // Keep whatever this device already has for those fields; only
+          // date/venue/location/time actually come from Calendar itself.
+          const prevById=new Map(prev.map(g=>[String(g.id),g]));
+          const mergedCalGigs=calGigs.map(cg=>{
+            const existing=prevById.get(String(cg.id));
+            if(!existing)return cg;
+            return{...cg,notes:existing.notes,type:existing.type,status:existing.status,selfPA:existing.selfPA};
+          });
+          return [...prev.filter(g=>!g.fromCalendar&&!calKeys.has(dedupeKey(g))),...mergedCalGigs];
         });
         setLastSynced(new Date().toLocaleTimeString());
       } else if(!silent){
