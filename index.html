@@ -995,6 +995,26 @@ function Section({icon,iconBg,title,summary,isOpen,onToggle,children}){
 }
 function Row({label,sub,right,danger,border=true}){return e('div',{style:{padding:'12px 14px',borderBottom:border?'1px solid #e5e7eb':'none',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}},e('div',null,e('div',{style:{fontSize:14,color:danger?'#b91c1c':'#111827'}},label),sub&&e('div',{style:{fontSize:12,color:'#9ca3af',marginTop:2}},sub)),right&&e('div',{style:{flexShrink:0}},right));}
 
+function YourNameInput({settings,setSettings,theme}){
+  const inputRef=useRef(null);
+  useEffect(()=>{if(inputRef.current)inputRef.current.value=settings.memberName||'';},[]);
+  const save=()=>{
+    if(inputRef.current){
+      const val=inputRef.current.value.trim();
+      setSettings(s=>({...s,memberName:val}));
+    }
+  };
+  return e('div',{style:{padding:'12px 14px',borderBottom:'1px solid #e5e7eb'}},
+    e('div',{style:{fontSize:14,color:'#111827',marginBottom:4}},'Your name'),
+    e('div',{style:{fontSize:12,color:'#9ca3af',marginBottom:10}},'Used to identify your responses in "Who\'s in?"'),
+    e('div',{style:{display:'flex',gap:8}},
+      e('input',{ref:inputRef,defaultValue:settings.memberName||'',onBlur:save,
+        onKeyDown:ev=>{if(ev.key==='Enter'){save();ev.target.blur();}},
+        placeholder:'e.g. Jamie',style:{flex:1,padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,fontSize:14}}),
+      e('button',{onClick:save,style:{padding:'8px 16px',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},'Save')
+    )
+  );
+}
 function HomeAddressInput({settings,setSettings,theme}){
   const inputRef=useRef(null);
   const [locating,setLocating]=useState(false);
@@ -1436,6 +1456,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         })
       ),
       e(Section,{icon:'🏠',iconBg:'#E0EFFE',title:'Home',summary:homeSummary,isOpen:openSections.has('home'),onToggle:()=>toggleSection('home')},
+        e(YourNameInput,{settings,setSettings,theme}),
         e(HomeAddressInput,{settings,setSettings,theme})
       ),
       e('div',{ref:notificationsSectionRef},
@@ -3110,6 +3131,14 @@ function App(){
   };
   const respondToGig=(gigId,status)=>{
     if(!settings.memberName)return;
+    // Name can now be set from Settings (Home section) as well as the
+    // inline first-response prompt, and only the inline prompt used to add
+    // you to the shared roster — so someone who only ever used Settings
+    // could respond and never actually show up in anyone's tally. Make
+    // sure the roster catches up here too, whichever way the name got set.
+    if(!roster.includes(settings.memberName)){
+      db.collection('bandSettings').doc('roster').set({names:[...roster,settings.memberName]}).catch(()=>{});
+    }
     db.collection('bandSettings').doc('gigResponses').set({[gigId]:{[settings.memberName]:status}},{merge:true})
       .catch(()=>alert('Could not save — check your connection and try again.'));
   };
