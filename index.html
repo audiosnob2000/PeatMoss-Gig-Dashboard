@@ -2046,6 +2046,8 @@ function App(){
   const [pushError,setPushError]=useState('');
   const [trackingMiles,setTrackingMiles]=useState(()=>{try{const s=localStorage.getItem('pmtf_tracking');return s?JSON.parse(s):null;}catch{return null;}});
   const [askTrack,setAskTrack]=useState(null);
+  const [askHomeAddress,setAskHomeAddress]=useState(null);
+  const [homeAddressDraft,setHomeAddressDraft]=useState('');
   const [gpsStandaloneHelp,setGpsStandaloneHelp]=useState(false);
   const [setlistPrintStandaloneHelp,setSetlistPrintStandaloneHelp]=useState(false);
   const [calSyncing,setCalSyncing]=useState(false);
@@ -2507,12 +2509,25 @@ function App(){
     return ()=>{ if(watchIdRef.current!=null) navigator.geolocation.clearWatch(watchIdRef.current); };
   },[]); // run once on mount
 
-  const goHome=gig=>{
-    if(!settings.homeAddress) return;
+  const goHome=(gig,addressOverride)=>{
+    // addressOverride lets a just-saved address get used immediately,
+    // instead of reading the not-yet-updated settings.homeAddress from
+    // this render's stale closure right after setSettings().
+    const address=addressOverride||settings.homeAddress;
+    if(!address) return;
     setGigPopup(null);
-    const dest=encodeURIComponent(settings.homeAddress);
+    const dest=encodeURIComponent(address);
     openWithFallback('comgooglemaps://?daddr='+dest+'&directionsmode=driving','https://www.google.com/maps/dir/?api=1&destination='+dest);
     setTimeout(()=>startTracking({...gig,venue:gig.venue+' to Home'}),800);
+  };
+  const saveHomeAddressAndGo=()=>{
+    const trimmed=homeAddressDraft.trim();
+    if(!trimmed)return;
+    setSettings(s=>({...s,homeAddress:trimmed}));
+    const gig=askHomeAddress;
+    setAskHomeAddress(null);
+    setHomeAddressDraft('');
+    goHome(gig,trimmed);
   };
   const closeModal=()=>setModal(null);
   const openAdd=(prefillDate)=>setModal({mode:'add',prefillDate});
@@ -3817,14 +3832,16 @@ function App(){
           e('div',{style:{display:'flex',gap:8}},
             gigPopup.location&&e('button',{onClick:()=>{setAskTrack(gigPopup);setGigPopup(null);},title:'Map',
               style:{flex:1,padding:'9px 0',borderRadius:10,background:'#E0EFFE',color:'#1D4ED8',fontWeight:500,border:'none',cursor:'pointer',fontSize:16}},'📍'),
-            settings.homeAddress&&e('button',{onClick:()=>goHome(gigPopup),title:'Home',
+            // Always shown now — if there's no address yet, tapping it
+            // asks for one right here instead of just silently doing
+            // nothing (the old behavior, if this were still hidden).
+            e('button',{onClick:()=>{if(settings.homeAddress){goHome(gigPopup);}else{setAskHomeAddress(gigPopup);setGigPopup(null);}},title:'Home',
               style:{flex:1,padding:'9px 0',borderRadius:10,background:'#E1F5EE',color:'#0F6E56',fontWeight:500,border:'none',cursor:'pointer',fontSize:16}},'🏠'),
             e('button',{onClick:()=>{setGigPopup(null);openEdit(gigPopup);},title:'Edit',
               style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:16}},'✏️'),
             e('button',{onClick:()=>{if(window.confirm('Delete "'+gigPopup.venue+'"?')){const id=gigPopup.id;setGigPopup(null);deleteGig(id);}},title:'Delete',
               style:{flex:'0 0 42px',padding:'9px 0',borderRadius:10,background:'#FEE2E2',color:'#B91C1C',border:'none',cursor:'pointer',fontSize:16}},'🗑️')
           ),
-          !settings.homeAddress&&e('div',{style:{fontSize:11,color:'#9ca3af',textAlign:'center',paddingTop:2}},'Set a home address in Settings to enable the Home button'),
           e('button',{onClick:()=>{const d=gigPopup.date;setGigPopup(null);openAdd(d);},
             style:{padding:'9px 0',borderRadius:10,border:'1px solid #d1d5db',background:'#fff',color:'#374151',fontWeight:500,cursor:'pointer',fontSize:14}},'+ Add another gig this day')
         )
@@ -3857,6 +3874,28 @@ function App(){
             },
             style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:14}
           },'Yes, track')
+        )
+      )
+    ),
+
+    // ── "Add your home address" modal — shown when Home is tapped before
+    // an address has been set in Settings, so the button always does
+    // something useful instead of silently being disabled. ─────────────────
+    askHomeAddress&&e('div',{onClick:()=>{setAskHomeAddress(null);setHomeAddressDraft('');},className:'overlay'},
+      e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:360}},
+        e('div',{style:{fontSize:16,fontWeight:500,marginBottom:6}},'Add your home address'),
+        e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:16}},
+          "Set this once and the Home button will take you there after any gig, one tap."
+        ),
+        e('input',{value:homeAddressDraft,onChange:ev=>setHomeAddressDraft(ev.target.value),
+          placeholder:'123 Main St, Rocky Point, NY',autoFocus:true,
+          onKeyDown:ev=>{if(ev.key==='Enter')saveHomeAddressAndGo();},
+          style:{padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,fontSize:14,width:'100%',marginBottom:12}}),
+        e('div',{style:{display:'flex',gap:8}},
+          e('button',{onClick:()=>{setAskHomeAddress(null);setHomeAddressDraft('');},
+            style:{flex:1,padding:'9px 0',borderRadius:10,border:'1px solid #d1d5db',background:'#fff',cursor:'pointer',fontSize:14}},'Cancel'),
+          e('button',{onClick:saveHomeAddressAndGo,
+            style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:14}},'Save & Go')
         )
       )
     ),
