@@ -454,7 +454,7 @@ function weatherIconFor(code){
 // bit over a week out, so gigs further away (or missing a location) simply
 // render nothing here, same as a failed fetch. No loading placeholder or
 // error state, to avoid a flash of "Weather —" on every popup open.
-function GigWeatherRow({gig}){
+function GigWeatherRow({gig,compact}){
   const [weather,setWeather]=useState(null);
   // Surfaced on screen (not just console) since this is a client-side-only
   // app with no server logs to check — a short reason code here is the only
@@ -517,6 +517,13 @@ function GigWeatherRow({gig}){
     })();
     return ()=>{cancelled=true;};
   },[gig.location,gig.date]);
+  if(compact){
+    // Inline form for the popup's bold "quick facts" line — no label, no
+    // row layout, and a fetch failure just omits weather from the line
+    // entirely rather than showing an error where date/time are.
+    if(!weather)return null;
+    return e('span',null,'· ',weatherIconFor(weather.code)+' '+weather.hi+'°/'+weather.lo+'° · '+weather.rain+'% rain');
+  }
   if(!weather&&!failReason)return null;
   if(failReason)return e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
     e('span',{style:{fontSize:13,color:'#6b7280'}},'Weather'),
@@ -3681,22 +3688,25 @@ function App(){
 
     gigPopup&&e('div',{onClick:()=>setGigPopup(null),className:'overlay'},
       e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:360}},
-        e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}},
-          e('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
-            e('span',{className:'badge',style:{background:typeStyle(gigPopup.type).bg,color:typeStyle(gigPopup.type).color}},gigPopup.type)
+        // Type used to be its own colored badge up top — the loudest thing
+        // on the popup — but it's the least important fact here to whoever
+        // opens this. Demoted to quiet text next to the venue name so that
+        // visual weight goes to the response buttons and date/time instead.
+        e('div',{style:{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:8,marginBottom:4}},
+          e('div',{style:{fontSize:18,fontWeight:600}},
+            (gigPopup.selfPA?'🔊 ':'')+gigPopup.venue,
+            e('span',{style:{fontSize:12,fontWeight:500,color:'#9ca3af'}},' · '+gigPopup.type)
           ),
-          e('button',{onClick:()=>setGigPopup(null),style:{border:'none',background:'none',fontSize:20,color:'#9ca3af',cursor:'pointer',padding:'0 4px'}},'×')
+          e('button',{onClick:()=>setGigPopup(null),style:{border:'none',background:'none',fontSize:20,color:'#9ca3af',cursor:'pointer',padding:'0 4px',flexShrink:0}},'×')
         ),
-        e('div',{style:{fontSize:18,fontWeight:600,marginBottom:4}},(gigPopup.selfPA?'🔊 ':'')+gigPopup.venue),
-        e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:12}},gigPopup.location),
-        e('div',{style:{display:'flex',flexDirection:'column',gap:8,borderTop:'1px solid #e5e7eb',paddingTop:12,marginBottom:16}},
-          [['Date',gigPopup.date],['Time',gigPopup.time||'—']].map(([lbl,val])=>
-            e('div',{key:lbl,style:{display:'flex',justifyContent:'space-between'}},
-              e('span',{style:{fontSize:13,color:'#6b7280'}},lbl),
-              e('span',{style:{fontSize:13,fontWeight:500}},val)
-            )
-          ),
-          e(GigWeatherRow,{key:gigPopup.id,gig:gigPopup}),
+        e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:10}},gigPopup.location),
+        e('div',{style:{display:'flex',flexWrap:'wrap',columnGap:10,rowGap:4,fontSize:12.5,fontWeight:600,color:'#374151',
+          borderTop:'1px solid #e5e7eb',borderBottom:'1px solid #e5e7eb',padding:'8px 0',marginBottom:12}},
+          e('span',null,'📅 '+gigPopup.date),
+          e('span',null,'🕗 '+(gigPopup.time||'—')),
+          e(GigWeatherRow,{key:gigPopup.id,gig:gigPopup,compact:true})
+        ),
+        (gigPopup.status!=='confirmed'||gigPopup.notes)&&e('div',{style:{display:'flex',flexDirection:'column',gap:8,marginBottom:16}},
           // Row itself is hidden when confirmed, not just the badge inside
           // it — a "Status" label with nothing next to it would look broken.
           gigPopup.status!=='confirmed'&&e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
@@ -3770,15 +3780,18 @@ function App(){
           )
         ),
         e('div',{style:{display:'flex',gap:8,flexDirection:'column'}},
+          // Icon-only now, not full-width labeled buttons — these matter
+          // less than the response buttons above, so they get less visual
+          // weight. title= keeps a text label available on hover/long-press.
           e('div',{style:{display:'flex',gap:8}},
-            gigPopup.location&&e('button',{onClick:()=>{setAskTrack(gigPopup);setGigPopup(null);},
-              style:{flex:1,padding:'9px 0',borderRadius:10,background:'#E0EFFE',color:'#1D4ED8',fontWeight:500,border:'none',cursor:'pointer',fontSize:14}},'📍 Map'),
-            settings.homeAddress&&e('button',{onClick:()=>goHome(gigPopup),
-              style:{flex:1,padding:'9px 0',borderRadius:10,background:'#E1F5EE',color:'#0F6E56',fontWeight:500,border:'none',cursor:'pointer',fontSize:14}},'🏠 Home'),
-            e('button',{onClick:()=>{setGigPopup(null);openEdit(gigPopup);},
-              style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:14}},'✏️ Edit'),
-            e('button',{onClick:()=>{if(window.confirm('Delete "'+gigPopup.venue+'"?')){const id=gigPopup.id;setGigPopup(null);deleteGig(id);}},
-              style:{flex:'0 0 42px',padding:'9px 0',borderRadius:10,background:'#FEE2E2',color:'#B91C1C',border:'none',cursor:'pointer',fontSize:14}},'🗑️')
+            gigPopup.location&&e('button',{onClick:()=>{setAskTrack(gigPopup);setGigPopup(null);},title:'Map',
+              style:{flex:1,padding:'9px 0',borderRadius:10,background:'#E0EFFE',color:'#1D4ED8',fontWeight:500,border:'none',cursor:'pointer',fontSize:16}},'📍'),
+            settings.homeAddress&&e('button',{onClick:()=>goHome(gigPopup),title:'Home',
+              style:{flex:1,padding:'9px 0',borderRadius:10,background:'#E1F5EE',color:'#0F6E56',fontWeight:500,border:'none',cursor:'pointer',fontSize:16}},'🏠'),
+            e('button',{onClick:()=>{setGigPopup(null);openEdit(gigPopup);},title:'Edit',
+              style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:16}},'✏️'),
+            e('button',{onClick:()=>{if(window.confirm('Delete "'+gigPopup.venue+'"?')){const id=gigPopup.id;setGigPopup(null);deleteGig(id);}},title:'Delete',
+              style:{flex:'0 0 42px',padding:'9px 0',borderRadius:10,background:'#FEE2E2',color:'#B91C1C',border:'none',cursor:'pointer',fontSize:16}},'🗑️')
           ),
           !settings.homeAddress&&e('div',{style:{fontSize:11,color:'#9ca3af',textAlign:'center',paddingTop:2}},'Set a home address in Settings to enable the Home button'),
           e('button',{onClick:()=>{const d=gigPopup.date;setGigPopup(null);openAdd(d);},
