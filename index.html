@@ -2003,6 +2003,7 @@ function App(){
   const [newSongTag,setNewSongTag]=useState('');
   const [newSongProcessing,setNewSongProcessing]=useState(false);
   const [cleaningUpScan,setCleaningUpScan]=useState(false);
+  const [showSongDetails,setShowSongDetails]=useState(false);
   const [viewingSong,setViewingSong]=useState(null);
   const [editingSongId,setEditingSongId]=useState(null);
   const [editSongName,setEditSongName]=useState('');
@@ -3067,7 +3068,7 @@ function App(){
   };
   const resetSongForm=()=>{
     setNewSongName('');setNewSongMode('upload');setNewSongContentType('');setNewSongContent('');setNewSongFileName('');setNewSongShared(true);
-    setNewSongKey('');setNewSongTempo('');setNewSongTag('');setNewSongProcessing(false);setAddingSong(false);setCleaningUpScan(false);
+    setNewSongKey('');setNewSongTempo('');setNewSongTag('');setNewSongProcessing(false);setAddingSong(false);setCleaningUpScan(false);setShowSongDetails(false);
   };
   const handleReplaceSongFile=file=>{
     if(!replacingSongId)return;
@@ -3157,6 +3158,19 @@ function App(){
   const toggleSongRotation=sg=>{
     db.collection('songs').doc(sg.id).update({rotated:!sg.rotated})
       .catch(()=>alert('Could not save — check your connection and try again.'));
+  };
+  // The transpose stepper only ever changes what's on screen right now —
+  // this bakes that preview into the actual saved chart, so it opens in the
+  // new key from here on instead of resetting the moment you close it.
+  const saveTransposedKey=()=>{
+    if(!liveViewingSong||transposeSteps===0)return;
+    const updates={content:transposeChart(liveViewingSong.content,transposeSteps),updatedAt:todayStr};
+    if(liveViewingSong.key&&liveViewingSong.key.trim()){
+      updates.key=transposeChordToken(liveViewingSong.key.trim(),transposeSteps);
+    }
+    db.collection('songs').doc(liveViewingSong.id).update(updates)
+      .catch(()=>alert('Could not save — check your connection and try again.'));
+    setTransposeSteps(0);
   };
   const songMatchesSearch=sg=>{
     const q=songSearch.trim().toLowerCase();
@@ -3392,23 +3406,14 @@ function App(){
         addingSong&&e('div',{style:{background:'#fff',border:'1px solid #e5e7eb',borderRadius:12,padding:14}},
           e('label',null,'Song name'),
           e('input',{autoFocus:true,value:newSongName,onChange:ev=>setNewSongName(ev.target.value),placeholder:'e.g. Mustang Sally'}),
-          e('div',{style:{display:'flex',gap:8}},
-            e('div',{style:{flex:1}},
-              e('label',null,'Key (optional)'),
-              e('input',{value:newSongKey,onChange:ev=>setNewSongKey(ev.target.value),placeholder:'e.g. G'})
-            ),
-            e('div',{style:{flex:1}},
-              e('label',null,'Tempo (optional)'),
-              e('input',{value:newSongTempo,onChange:ev=>setNewSongTempo(ev.target.value),placeholder:'e.g. 118 bpm'})
+          e('div',{style:{display:'flex',gap:6,margin:'10px 0'}},
+            [['upload','📤 Upload'],['link','🔗 Link'],['manual','⌨️ Type']].map(([id,label])=>
+              e('button',{key:id,onClick:()=>{setNewSongMode(id);setNewSongContentType('');setNewSongContent('');setNewSongFileName('');},
+                style:{flex:1,padding:'8px 0',borderRadius:8,fontSize:12.5,fontWeight:600,cursor:'pointer',
+                  border:newSongMode===id?'1px solid '+theme.mid:'1px solid #e5e7eb',
+                  background:newSongMode===id?theme.pale:'#fff',color:newSongMode===id?theme.primary:'#6b7280'}},
+                label)
             )
-          ),
-          e('label',null,'Vibe / tag (optional)'),
-          e('input',{value:newSongTag,onChange:ev=>setNewSongTag(ev.target.value),placeholder:'e.g. dance floor, first set opener'}),
-          e('label',null,'Add from'),
-          e('select',{value:newSongMode,onChange:ev=>{setNewSongMode(ev.target.value);setNewSongContentType('');setNewSongContent('');setNewSongFileName('');}},
-            e('option',{value:'upload'},'Upload (photo or file)'),
-            e('option',{value:'link'},'Link (Google Drive, website, etc.)'),
-            e('option',{value:'manual'},'Type it in manually')
           ),
           newSongMode==='upload'&&e('div',null,
             e('label',null,'Photo or file'),
@@ -3447,12 +3452,29 @@ function App(){
             e('textarea',{rows:6,value:newSongContent,onChange:ev=>setNewSongContent(ev.target.value),placeholder:'G          C          D\nSome lyric line here...',
               style:{fontFamily:'monospace',fontSize:13,padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,width:'100%',outline:'none',background:'#fff',resize:'none'}})
           ),
-          e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:12,padding:'10px 12px',background:'#f9fafb',borderRadius:9}},
-            e('div',null,
-              e('div',{style:{fontSize:12.5,fontWeight:500,color:'#111827'}},newSongShared?'Share with the whole band':'Keep private (just this device)'),
-              e('div',{style:{fontSize:10.5,color:'#9ca3af'}},newSongShared?'Everyone in the band can see this chart':'Only visible on this device')
+          !showSongDetails&&e('div',{onClick:()=>setShowSongDetails(true),
+            style:{marginTop:12,paddingTop:12,borderTop:'1px solid #e5e7eb',fontSize:12.5,fontWeight:600,color:theme.mid,cursor:'pointer'}},
+            '+ Add key, tempo, tag & sharing'),
+          showSongDetails&&e('div',{style:{marginTop:12,paddingTop:12,borderTop:'1px solid #e5e7eb'}},
+            e('div',{style:{display:'flex',gap:8}},
+              e('div',{style:{flex:1}},
+                e('label',null,'Key (optional)'),
+                e('input',{value:newSongKey,onChange:ev=>setNewSongKey(ev.target.value),placeholder:'e.g. G'})
+              ),
+              e('div',{style:{flex:1}},
+                e('label',null,'Tempo (optional)'),
+                e('input',{value:newSongTempo,onChange:ev=>setNewSongTempo(ev.target.value),placeholder:'e.g. 118 bpm'})
+              )
             ),
-            e(Toggle,{on:newSongShared,onToggle:()=>setNewSongShared(v=>!v)})
+            e('label',null,'Vibe / tag (optional)'),
+            e('input',{value:newSongTag,onChange:ev=>setNewSongTag(ev.target.value),placeholder:'e.g. dance floor, first set opener'}),
+            e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:10,padding:'10px 12px',background:'#f9fafb',borderRadius:9}},
+              e('div',null,
+                e('div',{style:{fontSize:12.5,fontWeight:500,color:'#111827'}},newSongShared?'Share with the whole band':'Keep private (just this device)'),
+                e('div',{style:{fontSize:10.5,color:'#9ca3af'}},newSongShared?'Everyone in the band can see this chart':'Only visible on this device')
+              ),
+              e(Toggle,{on:newSongShared,onToggle:()=>setNewSongShared(v=>!v)})
+            )
           ),
           e('div',{style:{display:'flex',gap:8,justifyContent:'flex-end',marginTop:14}},
             e('button',{onClick:resetSongForm},'Cancel'),
@@ -3687,6 +3709,19 @@ function App(){
           e('select',{value:autoScrollSpeed,onChange:ev=>setAutoScrollSpeed(Number(ev.target.value)),
             style:{background:'#1D1B17',border:'1px solid #302C24',color:'#F1EDE3',borderRadius:8,fontSize:11,padding:'8px 4px'}},
             e('option',{value:0.5},'Slow'),e('option',{value:1},'Normal'),e('option',{value:1.75},'Fast')
+          )
+        ),
+        // Only appears once you've actually moved off the original key —
+        // the stepper above is just a live preview until this is tapped.
+        liveViewingSong.type==='text'&&transposeSteps!==0&&e('div',{className:'no-print',style:{padding:'0 20px 12px'}},
+          e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,
+            background:'#1D1B17',border:'1px solid #FFB020',borderRadius:9,padding:'9px 12px'}},
+            e('div',{style:{fontSize:11,color:'#FFB020',lineHeight:1.4}},
+              'Previewing '+(transposeSteps>0?'+':'')+transposeSteps+'. Resets when you close this chart.'),
+            e('button',{onClick:saveTransposedKey,
+              style:{padding:'7px 12px',borderRadius:8,background:'#FFB020',color:'#141311',border:'none',
+                fontWeight:700,fontSize:11,whiteSpace:'nowrap',cursor:'pointer',flexShrink:0}},
+              '💾 Save'+(liveViewingSong.key&&liveViewingSong.key.trim()?' as '+transposeChordToken(liveViewingSong.key.trim(),transposeSteps):''))
           )
         ),
         e('div',{className:'schedule-print-area song-viewer-print',style:{padding:'20px'}},
