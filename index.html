@@ -2035,6 +2035,7 @@ function App(){
   const [whosInOpen,setWhosInOpen]=useState(false);
   const [memberNameDraft,setMemberNameDraft]=useState('');
   const [editingMemberName,setEditingMemberName]=useState(false);
+  const [editingResponse,setEditingResponse]=useState(false);
   const [googleAccessToken,setGoogleAccessToken]=useState(()=>loadStoredGoogleAuth().token);
   const [googleTokenExpiresAt,setGoogleTokenExpiresAt]=useState(()=>loadStoredGoogleAuth().expiresAt);
   const [googleAuthError,setGoogleAuthError]=useState('');
@@ -2247,6 +2248,7 @@ function App(){
   useEffect(()=>{
     setWhosInOpen(false);
     setEditingMemberName(false);
+    setEditingResponse(false);
   },[gigPopup&&gigPopup.id]);
   useEffect(()=>{
     if(!stagePlotHydratedRef.current)return;
@@ -3743,6 +3745,13 @@ function App(){
                       alignItems:'center',justifyContent:'center',fontSize:11,flexShrink:0,cursor:'pointer'}},'✎'),
                   e('span',{style:{flex:1,fontSize:12.5,fontWeight:500}},name),
                   e('span',{className:'badge',style:{background:s.bg,color:s.color}},s.label),
+                  // Second pencil, only once you've actually answered —
+                  // reopens the response buttons to change your answer.
+                  // Distinct from the name pencil (left vs. right of the
+                  // row) so there's no ambiguity about what each one edits.
+                  isYou&&status!=='pending'&&e('span',{onClick:()=>setEditingResponse(true),title:'Change response',
+                    style:{width:22,height:22,borderRadius:'50%',background:theme.mid,color:'#fff',display:'flex',
+                      alignItems:'center',justifyContent:'center',fontSize:11,flexShrink:0,cursor:'pointer'}},'✎'),
                   // No remove (✕) on your own row — that's not how you'd
                   // ever leave the roster; removing others is still fine.
                   !isYou&&e('span',{onClick:()=>removeRosterName(name),title:'Remove from roster',
@@ -3755,6 +3764,12 @@ function App(){
             // added here vs. "Jimmy" on Jim's own phone) could sit stuck on
             // the roster forever. The only way onto the roster now is the
             // block below, which only ever sets YOUR OWN device's name.
+            //
+            // Once you've actually answered, this whole box disappears —
+            // your roster row above already shows the badge, so repeating
+            // Yes/Maybe/No down here too is just noise. The "change
+            // response" pencil on your roster row brings it back.
+            (!settings.memberName||editingMemberName||!gigResponses[settings.memberName]||editingResponse)&&
             e('div',{style:{marginTop:10,padding:10,borderRadius:10,background:theme.pale}},
               !settings.memberName
                 ? e('div',null,
@@ -3785,7 +3800,7 @@ function App(){
                         ['yes','maybe','no'].map(v=>{
                           const mine=gigResponses[settings.memberName]===v;
                           const s=RSVP_STYLE[v];
-                          return e('button',{key:v,onClick:()=>respondToGig(gigPopup.id,v),
+                          return e('button',{key:v,onClick:()=>{respondToGig(gigPopup.id,v);setEditingResponse(false);},
                             style:{flex:1,padding:'7px 0',borderRadius:8,border:'1.5px solid '+(mine?s.color:'#e5e7eb'),
                               background:mine?s.bg:'#fff',color:mine?s.color:'#6b7280',fontWeight:600,fontSize:12,cursor:'pointer'}
                           },s.label);
