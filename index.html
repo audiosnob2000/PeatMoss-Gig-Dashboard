@@ -3158,6 +3158,19 @@ function App(){
     db.collection('songs').doc(sg.id).update({rotated:!sg.rotated})
       .catch(()=>alert('Could not save — check your connection and try again.'));
   };
+  // The transpose stepper only ever changes what's on screen right now —
+  // this bakes that preview into the actual saved chart, so it opens in the
+  // new key from here on instead of resetting the moment you close it.
+  const saveTransposedKey=()=>{
+    if(!liveViewingSong||transposeSteps===0)return;
+    const updates={content:transposeChart(liveViewingSong.content,transposeSteps),updatedAt:todayStr};
+    if(liveViewingSong.key&&liveViewingSong.key.trim()){
+      updates.key=transposeChordToken(liveViewingSong.key.trim(),transposeSteps);
+    }
+    db.collection('songs').doc(liveViewingSong.id).update(updates)
+      .catch(()=>alert('Could not save — check your connection and try again.'));
+    setTransposeSteps(0);
+  };
   const songMatchesSearch=sg=>{
     const q=songSearch.trim().toLowerCase();
     if(!q)return true;
@@ -3687,6 +3700,19 @@ function App(){
           e('select',{value:autoScrollSpeed,onChange:ev=>setAutoScrollSpeed(Number(ev.target.value)),
             style:{background:'#1D1B17',border:'1px solid #302C24',color:'#F1EDE3',borderRadius:8,fontSize:11,padding:'8px 4px'}},
             e('option',{value:0.5},'Slow'),e('option',{value:1},'Normal'),e('option',{value:1.75},'Fast')
+          )
+        ),
+        // Only appears once you've actually moved off the original key —
+        // the stepper above is just a live preview until this is tapped.
+        liveViewingSong.type==='text'&&transposeSteps!==0&&e('div',{className:'no-print',style:{padding:'0 20px 12px'}},
+          e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,
+            background:'#1D1B17',border:'1px solid #FFB020',borderRadius:9,padding:'9px 12px'}},
+            e('div',{style:{fontSize:11,color:'#FFB020',lineHeight:1.4}},
+              'Previewing '+(transposeSteps>0?'+':'')+transposeSteps+'. Resets when you close this chart.'),
+            e('button',{onClick:saveTransposedKey,
+              style:{padding:'7px 12px',borderRadius:8,background:'#FFB020',color:'#141311',border:'none',
+                fontWeight:700,fontSize:11,whiteSpace:'nowrap',cursor:'pointer',flexShrink:0}},
+              '💾 Save'+(liveViewingSong.key&&liveViewingSong.key.trim()?' as '+transposeChordToken(liveViewingSong.key.trim(),transposeSteps):''))
           )
         ),
         e('div',{className:'schedule-print-area song-viewer-print',style:{padding:'20px'}},
