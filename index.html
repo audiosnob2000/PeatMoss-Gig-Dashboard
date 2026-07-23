@@ -3749,7 +3749,7 @@ function App(){
                   // reopens the response buttons to change your answer.
                   // Distinct from the name pencil (left vs. right of the
                   // row) so there's no ambiguity about what each one edits.
-                  isYou&&status!=='pending'&&e('span',{onClick:()=>setEditingResponse(true),title:'Change response',
+                  isYou&&status!=='pending'&&e('span',{onClick:()=>setEditingResponse(v=>!v),title:'Change response',
                     style:{width:22,height:22,borderRadius:'50%',background:theme.mid,color:'#fff',display:'flex',
                       alignItems:'center',justifyContent:'center',fontSize:11,flexShrink:0,cursor:'pointer'}},'✎'),
                   // No remove (✕) on your own row — that's not how you'd
