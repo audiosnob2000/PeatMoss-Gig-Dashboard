@@ -3121,14 +3121,6 @@ function App(){
   // doesn't pick up later Firestore updates (like a rotate) on its own —
   // re-resolve it against the live synced list every render instead.
   const liveViewingSong=viewingSong&&(songs.find(s=>s.id===viewingSong.id)||viewingSong);
-  const addRosterName=()=>{
-    const name=window.prompt('Add a band member to the roster:');
-    if(!name||!name.trim())return;
-    const trimmed=name.trim();
-    if(roster.includes(trimmed))return;
-    db.collection('bandSettings').doc('roster').set({names:[...roster,trimmed]})
-      .catch(()=>alert('Could not save — check your connection and try again.'));
-  };
   const removeRosterName=name=>{
     if(!window.confirm('Remove "'+name+'" from the roster?'))return;
     db.collection('bandSettings').doc('roster').set({names:roster.filter(n=>n!==name)})
@@ -3745,7 +3737,11 @@ function App(){
                 );
               })
             ),
-            e('div',{onClick:addRosterName,style:{fontSize:11.5,color:theme.primary,cursor:'pointer',fontWeight:500}},'+ Add someone to the roster'),
+            // No more "add someone else" prompt — that let you type in ANY
+            // name, which is how a typo'd or mismatched entry (e.g. "Jim"
+            // added here vs. "Jimmy" on Jim's own phone) could sit stuck on
+            // the roster forever. The only way onto the roster now is the
+            // block below, which only ever sets YOUR OWN device's name.
             e('div',{style:{marginTop:10,padding:10,borderRadius:10,background:theme.pale}},
               !settings.memberName
                 ? e('div',null,
@@ -3767,9 +3763,13 @@ function App(){
                       )
                     )
                   : e('div',null,
-                      e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:7}},
-                        e('div',{style:{fontSize:11.5,color:theme.primary,fontWeight:600}},'Your response'),
-                        e('span',{onClick:startEditMemberName,style:{fontSize:10.5,color:theme.mid,fontWeight:600,cursor:'pointer'}},'✎ Edit name')
+                      // Name shown right here (not a separate "Your
+                      // response" label) so the edit pencil has something
+                      // concrete to attach to, instead of floating next to
+                      // generic text with no name visible anywhere near it.
+                      e('div',{style:{marginBottom:7}},
+                        e('span',{style:{fontSize:11.5,color:theme.primary,fontWeight:600}},'Responding as '+settings.memberName+' '),
+                        e('span',{onClick:startEditMemberName,title:'Edit name',style:{fontSize:11,color:theme.mid,cursor:'pointer'}},'✎')
                       ),
                       e('div',{style:{display:'flex',gap:6}},
                         ['yes','maybe','no'].map(v=>{
