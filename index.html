@@ -421,6 +421,33 @@ function processUploadedFile(file,onSuccess,onError){
   }
 }
 
+// "Scan cleanup" for a handwritten chart photo — grayscale + a contrast/
+// brightness push, so a phone photo of paper reads like a clean scan
+// instead of a photo (whiter background, darker ink). Not perspective
+// correction or auto-crop — just the levels adjustment, which covers most
+// of the "looks like a real scan" effect on its own.
+function cleanupScanImage(dataUrl,callback){
+  const img=new Image();
+  img.onload=()=>{
+    const canvas=document.createElement('canvas');
+    canvas.width=img.width;canvas.height=img.height;
+    const ctx=canvas.getContext('2d');
+    ctx.drawImage(img,0,0);
+    const imgData=ctx.getImageData(0,0,canvas.width,canvas.height);
+    const d=imgData.data;
+    const contrast=1.6,brightness=25;
+    for(let i=0;i<d.length;i+=4){
+      const gray=d[i]*0.299+d[i+1]*0.587+d[i+2]*0.114;
+      let v=(gray-128)*contrast+128+brightness;
+      v=Math.max(0,Math.min(255,v));
+      d[i]=v;d[i+1]=v;d[i+2]=v;
+    }
+    ctx.putImageData(imgData,0,0);
+    callback(canvas.toDataURL('image/jpeg',0.85));
+  };
+  img.src=dataUrl;
+}
+
 function Badge({status}){
   // Confirmed is the default, common-case status — showing a badge for it
   // on every gig was just noise. The badge is more useful as a flag for the
@@ -1975,6 +2002,7 @@ function App(){
   const [newSongTempo,setNewSongTempo]=useState('');
   const [newSongTag,setNewSongTag]=useState('');
   const [newSongProcessing,setNewSongProcessing]=useState(false);
+  const [cleaningUpScan,setCleaningUpScan]=useState(false);
   const [viewingSong,setViewingSong]=useState(null);
   const [editingSongId,setEditingSongId]=useState(null);
   const [editSongName,setEditSongName]=useState('');
@@ -3039,7 +3067,7 @@ function App(){
   };
   const resetSongForm=()=>{
     setNewSongName('');setNewSongMode('upload');setNewSongContentType('');setNewSongContent('');setNewSongFileName('');setNewSongShared(true);
-    setNewSongKey('');setNewSongTempo('');setNewSongTag('');setNewSongProcessing(false);setAddingSong(false);
+    setNewSongKey('');setNewSongTempo('');setNewSongTag('');setNewSongProcessing(false);setAddingSong(false);setCleaningUpScan(false);
   };
   const handleReplaceSongFile=file=>{
     if(!replacingSongId)return;
@@ -3392,7 +3420,21 @@ function App(){
             ),
             e('div',{style:{textAlign:'center',fontSize:11,color:'#9ca3af',marginTop:6}},'Opens your photo library or files'),
             newSongProcessing&&e('div',{style:{fontSize:12,color:'#6b7280',marginTop:8,textAlign:'center'}},'Processing…'),
-            newSongContentType==='image'&&newSongContent&&e('img',{src:newSongContent,style:{maxWidth:'100%',borderRadius:8,marginTop:8}}),
+            newSongContentType==='image'&&newSongContent&&e('div',null,
+              e('img',{src:newSongContent,style:{maxWidth:'100%',borderRadius:8,marginTop:8}}),
+              // Grayscale + contrast cleanup only — no crop/deskew, just the
+              // levels push that makes a phone photo of handwriting read
+              // like a clean scan instead of a photo of paper.
+              e('button',{
+                onClick:()=>{
+                  setCleaningUpScan(true);
+                  cleanupScanImage(newSongContent,cleaned=>{setNewSongContent(cleaned);setCleaningUpScan(false);});
+                },
+                disabled:cleaningUpScan,
+                style:{width:'100%',marginTop:8,padding:'9px 0',borderRadius:9,border:'1px solid '+theme.mid,
+                  background:'#fff',color:theme.mid,fontWeight:600,fontSize:13,cursor:cleaningUpScan?'default':'pointer'}
+              },cleaningUpScan?'Cleaning up…':'✨ Clean Up Scan')
+            ),
             newSongContentType==='html'&&e('div',{style:{fontSize:12,color:theme.primary,marginTop:8,textAlign:'center'}},'✓ '+newSongFileName+' loaded'),
             newSongContentType==='file'&&e('div',{style:{fontSize:12,color:theme.primary,marginTop:8,textAlign:'center'}},'✓ '+newSongFileName+' saved (preview not available for this file type)')
           ),
