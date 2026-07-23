@@ -1002,13 +1002,14 @@ function Section({icon,iconBg,title,summary,isOpen,onToggle,children}){
 }
 function Row({label,sub,right,danger,border=true}){return e('div',{style:{padding:'12px 14px',borderBottom:border?'1px solid #e5e7eb':'none',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}},e('div',null,e('div',{style:{fontSize:14,color:danger?'#b91c1c':'#111827'}},label),sub&&e('div',{style:{fontSize:12,color:'#9ca3af',marginTop:2}},sub)),right&&e('div',{style:{flexShrink:0}},right));}
 
-function YourNameInput({settings,setSettings,theme}){
+function YourNameInput({settings,setSettings,theme,ensureOnRoster}){
   const inputRef=useRef(null);
   useEffect(()=>{if(inputRef.current)inputRef.current.value=settings.memberName||'';},[]);
   const save=()=>{
     if(inputRef.current){
       const val=inputRef.current.value.trim();
       setSettings(s=>({...s,memberName:val}));
+      ensureOnRoster(val);
     }
   };
   return e('div',{style:{padding:'12px 14px',borderBottom:'1px solid #e5e7eb'}},
@@ -1239,7 +1240,7 @@ function CustomColorSwatch({selected,customColor,onPick}){
   );
 }
 
-function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar,onAutoScrolled,syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,bandMessages,onNewBandMessage,onEditBandMessage,onDeleteBandMessage,bandMessageModal,bandMessageModalTarget,onCloseBandMessageModal,saveBandMessageModal,deleteBandMessageModal,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData}){
+function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar,onAutoScrolled,syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,bandMessages,onNewBandMessage,onEditBandMessage,onDeleteBandMessage,bandMessageModal,bandMessageModalTarget,onCloseBandMessageModal,saveBandMessageModal,deleteBandMessageModal,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,ensureOnRoster}){
   const googleCalendarRowRef=useRef(null);
   const [confirmDeleteMsgId,setConfirmDeleteMsgId]=useState(null);
   const [showBandStatsModal,setShowBandStatsModal]=useState(false);
@@ -1463,7 +1464,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         })
       ),
       e(Section,{icon:'🏠',iconBg:'#E0EFFE',title:'Home',summary:homeSummary,isOpen:openSections.has('home'),onToggle:()=>toggleSection('home')},
-        e(YourNameInput,{settings,setSettings,theme}),
+        e(YourNameInput,{settings,setSettings,theme,ensureOnRoster}),
         e(HomeAddressInput,{settings,setSettings,theme})
       ),
       e('div',{ref:notificationsSectionRef},
@@ -3130,33 +3131,35 @@ function App(){
     setMemberNameDraft(settings.memberName);
     setEditingMemberName(true);
   };
+  // Name can be set three different ways now (inline prompt, inline edit,
+  // Settings > Home) — every one of them needs to land you on the shared
+  // roster right away, not just whichever path happened to remember to add
+  // you. Without this, setting your name from Settings alone left you with
+  // no roster row at all until your first vote — and since the edit pencil
+  // now lives ON that roster row, that meant no way to fix a typo either.
+  const ensureOnRoster=name=>{
+    if(name&&!roster.includes(name)){
+      db.collection('bandSettings').doc('roster').set({names:[...roster,name]}).catch(()=>{});
+    }
+  };
   const saveMemberName=()=>{
     const trimmed=memberNameDraft.trim();
     if(!trimmed)return;
     setSettings(s=>({...s,memberName:trimmed}));
     setMemberNameDraft('');
     setEditingMemberName(false);
-    if(!roster.includes(trimmed)){
-      db.collection('bandSettings').doc('roster').set({names:[...roster,trimmed]}).catch(()=>{});
-    }
+    ensureOnRoster(trimmed);
   };
   const respondToGig=(gigId,status)=>{
     if(!settings.memberName)return;
-    // Name can now be set from Settings (Home section) as well as the
-    // inline first-response prompt, and only the inline prompt used to add
-    // you to the shared roster — so someone who only ever used Settings
-    // could respond and never actually show up in anyone's tally. Make
-    // sure the roster catches up here too, whichever way the name got set.
-    if(!roster.includes(settings.memberName)){
-      db.collection('bandSettings').doc('roster').set({names:[...roster,settings.memberName]}).catch(()=>{});
-    }
+    ensureOnRoster(settings.memberName);
     db.collection('bandSettings').doc('gigResponses').set({[gigId]:{[settings.memberName]:status}},{merge:true})
       .catch(()=>alert('Could not save — check your connection and try again.'));
   };
   const gigResponses=(gigPopup&&gigResponsesMap[gigPopup.id])||{};
   const gigRespondedCount=roster.filter(n=>gigResponses[n]).length;
 
-  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,bandMessages,onNewBandMessage:()=>setBandMessageModal('new'),onEditBandMessage:msg=>setBandMessageModal(msg),onDeleteBandMessage:deleteBandMessageById,bandMessageModal,bandMessageModalTarget,onCloseBandMessageModal:()=>setBandMessageModal(null),saveBandMessageModal,deleteBandMessageModal,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData});
+  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,bandMessages,onNewBandMessage:()=>setBandMessageModal('new'),onEditBandMessage:msg=>setBandMessageModal(msg),onDeleteBandMessage:deleteBandMessageById,bandMessageModal,bandMessageModalTarget,onCloseBandMessageModal:()=>setBandMessageModal(null),saveBandMessageModal,deleteBandMessageModal,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,ensureOnRoster});
 
   return e('div',{style:{maxWidth:720,margin:'0 auto',paddingBottom:'2rem'}},
     e('div',{style:{background:theme.primary,borderRadius:'0 0 20px 20px',padding:'1.25rem 1.25rem 1.5rem',marginBottom:'1.25rem'}},
@@ -3729,10 +3732,20 @@ function App(){
               roster.map(name=>{
                 const status=gigResponses[name]||'pending';
                 const s=RSVP_STYLE[status];
-                return e('div',{key:name,style:{display:'flex',alignItems:'center',gap:9,padding:'6px 8px',borderRadius:9,background:'#f9fafb'}},
+                const isYou=name===settings.memberName;
+                return e('div',{key:name,style:{display:'flex',alignItems:'center',gap:9,padding:'6px 8px',borderRadius:9,background:isYou?theme.pale:'#f9fafb'}},
+                  // Edit pencil lives on your own row now, as a real button
+                  // (not just colored text) — it's the only row that ever
+                  // gets one, so it doubles as the "this one's you" signal
+                  // instead of a separate dot or tag.
+                  isYou&&e('span',{onClick:startEditMemberName,title:'Edit name',
+                    style:{width:22,height:22,borderRadius:'50%',background:theme.mid,color:'#fff',display:'flex',
+                      alignItems:'center',justifyContent:'center',fontSize:11,flexShrink:0,cursor:'pointer'}},'✎'),
                   e('span',{style:{flex:1,fontSize:12.5,fontWeight:500}},name),
                   e('span',{className:'badge',style:{background:s.bg,color:s.color}},s.label),
-                  e('span',{onClick:()=>removeRosterName(name),title:'Remove from roster',
+                  // No remove (✕) on your own row — that's not how you'd
+                  // ever leave the roster; removing others is still fine.
+                  !isYou&&e('span',{onClick:()=>removeRosterName(name),title:'Remove from roster',
                     style:{fontSize:11,color:'#9ca3af',cursor:'pointer',padding:'0 2px',flexShrink:0}},'✕')
                 );
               })
@@ -3763,14 +3776,11 @@ function App(){
                       )
                     )
                   : e('div',null,
-                      // Name shown right here (not a separate "Your
-                      // response" label) so the edit pencil has something
-                      // concrete to attach to, instead of floating next to
-                      // generic text with no name visible anywhere near it.
-                      e('div',{style:{marginBottom:7}},
-                        e('span',{style:{fontSize:11.5,color:theme.primary,fontWeight:600}},'Responding as '+settings.memberName+' '),
-                        e('span',{onClick:startEditMemberName,title:'Edit name',style:{fontSize:11,color:theme.mid,cursor:'pointer'}},'✎')
-                      ),
+                      // The edit pencil now lives on your own roster row
+                      // above (a real button there, with your name right
+                      // next to it) — no need to repeat your name or a
+                      // second edit control down here.
+                      e('div',{style:{fontSize:11.5,color:theme.primary,fontWeight:600,marginBottom:7}},'Your response'),
                       e('div',{style:{display:'flex',gap:6}},
                         ['yes','maybe','no'].map(v=>{
                           const mine=gigResponses[settings.memberName]===v;
