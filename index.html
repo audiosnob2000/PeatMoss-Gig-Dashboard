@@ -2008,6 +2008,7 @@ function App(){
   const [editingSongId,setEditingSongId]=useState(null);
   const [editSongName,setEditSongName]=useState('');
   const [editSongContent,setEditSongContent]=useState('');
+  const [editSongShared,setEditSongShared]=useState(true);
   const [replacingSongId,setReplacingSongId]=useState(null);
   const [replacingSongProcessing,setReplacingSongProcessing]=useState(false);
   const [songPrintStandaloneHelp,setSongPrintStandaloneHelp]=useState(false);
@@ -3095,6 +3096,7 @@ function App(){
     setEditingSongId(sg.id);
     setEditSongName(sg.name);
     setEditSongContent(sg.type==='text'||sg.type==='link'?sg.content:'');
+    setEditSongShared(sg.shared!==false);
   };
   const shareSong=async sg=>{
     try{
@@ -3124,7 +3126,7 @@ function App(){
   };
   const saveSongEdit=sg=>{
     if(!editSongName.trim()){setEditingSongId(null);return;}
-    const updates={name:editSongName.trim(),updatedAt:todayStr};
+    const updates={name:editSongName.trim(),updatedAt:todayStr,shared:editSongShared};
     if(sg.type==='text'||sg.type==='link')updates.content=editSongContent;
     db.collection('songs').doc(sg.id).update(updates)
       .catch(()=>alert('Could not save — check your connection and try again.'));
@@ -3381,6 +3383,13 @@ function App(){
                     :e('button',{onClick:()=>{setReplacingSongId(sg.id);replaceSongFileInputRef.current&&replaceSongFileInputRef.current.click();},
                         style:{width:'100%',padding:'11px 0',borderRadius:10,border:'none',background:theme.mid,color:'#fff',fontWeight:600,cursor:'pointer',fontSize:13.5}},
                         '📤 Replace Photo or File')
+                ),
+                e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:12,padding:'10px 12px',background:'#f9fafb',borderRadius:9}},
+                  e('div',null,
+                    e('div',{style:{fontSize:12.5,fontWeight:500,color:'#111827'}},editSongShared?'Share with the whole band':'Keep private (just this device)'),
+                    e('div',{style:{fontSize:10.5,color:'#9ca3af'}},editSongShared?'Everyone in the band can see this chart':'Only visible on this device')
+                  ),
+                  e(Toggle,{on:editSongShared,onToggle:()=>setEditSongShared(v=>!v)})
                 ),
                 e('div',{style:{display:'flex',gap:8,marginTop:12}},
                   e('button',{onClick:()=>saveSongEdit(sg),style:{background:theme.mid,color:'#fff',border:'none',fontWeight:500,flex:1}},'Save'),
