@@ -3377,6 +3377,12 @@ function App(){
             if(editingSongId===sg.id){
               const canReplace=sg.type==='image'||sg.type==='file'||sg.type==='html';
               return e('div',{key:sg.id,style:{padding:'10px 14px',borderBottom:border}},
+                e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}},
+                  e('div',{style:{fontSize:11,fontWeight:700,color:'#9ca3af',textTransform:'uppercase',letterSpacing:'.04em'}},'Editing'),
+                  e('button',{onClick:()=>setEditingSongId(null),title:'Close',
+                    style:{width:26,height:26,borderRadius:'50%',border:'none',background:theme.pale,color:theme.primary,fontSize:13,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,padding:0}},
+                    '✕')
+                ),
                 e('label',null,'Name'),
                 e('input',{autoFocus:true,value:editSongName,onChange:ev=>setEditSongName(ev.target.value),style:{width:'100%'}}),
                 sg.type==='text'&&e('div',null,
@@ -3521,6 +3527,12 @@ function App(){
               if(editingSetlistId===sl.id){
                 const canReplace=sl.type==='image'||sl.type==='file'||sl.type==='html';
                 return e('div',{key:sl.id,style:{padding:'10px 14px',borderBottom:border}},
+                  e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}},
+                    e('div',{style:{fontSize:11,fontWeight:700,color:'#9ca3af',textTransform:'uppercase',letterSpacing:'.04em'}},'Editing'),
+                    e('button',{onClick:()=>setEditingSetlistId(null),title:'Close',
+                      style:{width:26,height:26,borderRadius:'50%',border:'none',background:theme.pale,color:theme.primary,fontSize:13,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,padding:0}},
+                      '✕')
+                  ),
                   e('label',null,'Name'),
                   e('input',{autoFocus:true,value:editSetlistName,onChange:ev=>setEditSetlistName(ev.target.value),style:{width:'100%'}}),
                   sl.type==='text'&&e('div',null,
