@@ -1997,7 +1997,7 @@ function App(){
   const [newSongContentType,setNewSongContentType]=useState('');
   const [newSongContent,setNewSongContent]=useState('');
   const [newSongFileName,setNewSongFileName]=useState('');
-  const [newSongShared,setNewSongShared]=useState(true);
+  const [newSongShared,setNewSongShared]=useState(false);
   const [newSongKey,setNewSongKey]=useState('');
   const [newSongTempo,setNewSongTempo]=useState('');
   const [newSongTag,setNewSongTag]=useState('');
@@ -2159,6 +2159,14 @@ function App(){
       midText:needsDarkText(base.mid)?'#1a1a2e':'#fff'
     };
   },[settings.theme,settings.customColor]);
+
+  // Leaving the Songs/Lists tab should always close whatever add/edit form
+  // was open there, so coming back later starts clean instead of dropping
+  // you back into a half-finished form you may not even remember opening.
+  useEffect(()=>{
+    if(tab!=='songs'){setEditingSongId(null);setAddingSong(false);}
+    if(tab!=='checklist'){setEditingSetlistId(null);setAddingSetlist(false);}
+  },[tab]);
 
   useEffect(()=>{try{localStorage.setItem('pmtf_gigs',JSON.stringify(gigs));}catch{}},[gigs]);
   useEffect(()=>{try{localStorage.setItem('pmtf_settings',JSON.stringify(settings));}catch{}},[settings]);
@@ -2997,6 +3005,7 @@ function App(){
     );
   };
   const startEditSetlist=sl=>{
+    setAddingSetlist(false);
     setEditingSetlistId(sl.id);
     setEditSetlistName(sl.name);
     setEditSetlistContent(sl.type==='text'||sl.type==='link'?sl.content:'');
@@ -3068,7 +3077,7 @@ function App(){
     );
   };
   const resetSongForm=()=>{
-    setNewSongName('');setNewSongMode('upload');setNewSongContentType('');setNewSongContent('');setNewSongFileName('');setNewSongShared(true);
+    setNewSongName('');setNewSongMode('upload');setNewSongContentType('');setNewSongContent('');setNewSongFileName('');setNewSongShared(false);
     setNewSongKey('');setNewSongTempo('');setNewSongTag('');setNewSongProcessing(false);setAddingSong(false);setCleaningUpScan(false);setShowSongDetails(false);
   };
   const handleReplaceSongFile=file=>{
@@ -3093,6 +3102,7 @@ function App(){
     );
   };
   const startEditSong=sg=>{
+    setAddingSong(false);
     setEditingSongId(sg.id);
     setEditSongName(sg.name);
     setEditSongContent(sg.type==='text'||sg.type==='link'?sg.content:'');
@@ -3411,7 +3421,7 @@ function App(){
             );
           })
         ),
-        !addingSong&&e('button',{onClick:()=>setAddingSong(true),style:{width:'100%',padding:'9px 0',borderRadius:10,border:'none',background:theme.mid,color:'#fff',fontWeight:500,cursor:'pointer',fontSize:14}},'+ Add song'),
+        !addingSong&&e('button',{onClick:()=>{setEditingSongId(null);setAddingSong(true);},style:{width:'100%',padding:'9px 0',borderRadius:10,border:'none',background:theme.mid,color:'#fff',fontWeight:500,cursor:'pointer',fontSize:14}},'+ Add song'),
         addingSong&&e('div',{style:{background:'#fff',border:'1px solid #e5e7eb',borderRadius:12,padding:14}},
           e('label',null,'Song name'),
           e('input',{autoFocus:true,value:newSongName,onChange:ev=>setNewSongName(ev.target.value),placeholder:'e.g. Mustang Sally'}),
@@ -3545,7 +3555,7 @@ function App(){
               );
             })
           ),
-          !addingSetlist&&e('button',{onClick:()=>setAddingSetlist(true),style:{width:'100%',padding:'9px 0',borderRadius:10,border:'none',background:theme.mid,color:'#fff',fontWeight:500,cursor:'pointer',fontSize:14}},'+ Add setlist'),
+          !addingSetlist&&e('button',{onClick:()=>{setEditingSetlistId(null);setAddingSetlist(true);},style:{width:'100%',padding:'9px 0',borderRadius:10,border:'none',background:theme.mid,color:'#fff',fontWeight:500,cursor:'pointer',fontSize:14}},'+ Add setlist'),
           addingSetlist&&e('div',{style:{background:'#fff',border:'1px solid #e5e7eb',borderRadius:12,padding:14}},
             e('label',null,'Name'),
             e('input',{autoFocus:true,value:newSetlistName,onChange:ev=>setNewSetlistName(ev.target.value),placeholder:"e.g. Summer 2026 — Full Set (optional — today's date if left blank)"}),
