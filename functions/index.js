@@ -7,6 +7,8 @@ admin.initializeApp();
 
 const APP_URL = 'https://audiosnob2000.github.io/PeatMoss-Gig-Dashboard/';
 const ALLOWED_ORIGIN = 'https://audiosnob2000.github.io';
+// Mirrors BAND_MESSAGE_CAP in index.html — keep the two in sync.
+const BAND_MESSAGE_CAP = 2;
 const GOOGLE_CLIENT_ID = '675499838790-l0lgct7rbkbc7u4lttqkpjta3vm9qrvi.apps.googleusercontent.com';
 // Set via functions/.env at deploy time (written from a GitHub secret) —
 // never hardcoded, never sent to the client.
@@ -421,4 +423,61 @@ exports.sendGigReminders = onSchedule({schedule: 'every 15 minutes', timeZone: '
     if (response.responses[i].success) batch.set(admin.firestore().collection('sentReminders').doc(p.sendKey), {sentAt: Date.now()});
   });
   await batch.commit();
+});
+
+// --- Weekly feature digest ---
+// There's no maintained changelog in the app, so rather than hand-curating
+// entries this reads the last week of commits straight off GitHub (the repo
+// is public — no auth needed) and turns the PR titles into a short bulleted
+// summary. Posting through the existing bandMessages collection means it
+// automatically gets the same banner, cap enforcement, and push notification
+// (with its existing opt-out) as a message a person typed by hand — no new
+// UI or collection needed.
+const REPO_API = 'https://api.github.com/repos/audiosnob2000/PeatMoss-Gig-Dashboard';
+
+function summarizeCommitTitle(message) {
+  return (message || '').split('\n')[0].trim().replace(/\s*\(#\d+\)\s*$/, '');
+}
+
+exports.sendWeeklyFeatureDigest = onSchedule({schedule: 'every monday 09:00', timeZone: 'America/New_York'}, async () => {
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  let commits;
+  try {
+    const res = await fetch(`${REPO_API}/commits?sha=main&since=${since}&per_page=50`, {
+      headers: {'User-Agent': 'peatmoss-gig-dashboard-weekly-digest'}
+    });
+    if (!res.ok) return;
+    commits = await res.json();
+  } catch (err) {
+    return;
+  }
+  if (!Array.isArray(commits) || !commits.length) return;
+
+  // Merge commits (two parents) have no useful summary of their own — the
+  // PR's actual commit(s) already cover the change. Titles are deduped
+  // case-insensitively since a revert + reapply can otherwise repeat a line.
+  const seen = new Set();
+  const lines = [];
+  for (const c of commits) {
+    if (c.parents && c.parents.length > 1) continue;
+    const title = summarizeCommitTitle(c.commit && c.commit.message);
+    const key = title.toLowerCase();
+    if (!title || seen.has(key)) continue;
+    seen.add(key);
+    lines.push(title);
+  }
+  if (!lines.length) return;
+
+  // Keep it to a "small simple summary" — most recent 6 changes.
+  const text = `🎸 This week's app updates:\n` + lines.slice(0, 6).map(l => `• ${l}`).join('\n');
+
+  const db = admin.firestore();
+  const existingSnap = await db.collection('bandMessages').orderBy('postedAt', 'desc').get();
+  const overflow = existingSnap.docs.slice(BAND_MESSAGE_CAP - 1);
+  if (overflow.length) {
+    const batch = db.batch();
+    overflow.forEach(d => batch.delete(d.ref));
+    await batch.commit();
+  }
+  await db.collection('bandMessages').doc().set({text, postedAt: new Date().toISOString()});
 });
