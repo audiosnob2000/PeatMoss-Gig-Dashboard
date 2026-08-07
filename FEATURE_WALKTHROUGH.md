@@ -46,6 +46,9 @@
 14. **Band Messaging**
     Message the band directly in the app instead of a separate group chat.
 
+15. **Weekly "What's New" Update**
+    Every Monday, a short summary of whatever features shipped that week gets posted automatically as a band message/banner — no one has to go looking for a changelog.
+
 ---
 
 **Note for Jon:** Chart Library data is stored locally on-device for now (no cloud sync yet) — worth mentioning so no one's surprised charts don't show up on a different phone.

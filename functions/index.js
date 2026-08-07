@@ -422,3 +422,45 @@ exports.sendGigReminders = onSchedule({schedule: 'every 15 minutes', timeZone: '
   });
   await batch.commit();
 });
+
+// --- Weekly feature update ---
+// A running log of user-facing changes, one short entry per shipped
+// feature, appended to as part of the PR that ships it. The scheduled
+// function below announces whatever's new since the last run (tracked by
+// id in bandSettings/featureAnnouncements) rather than a fixed calendar
+// window, so a late deploy or a skipped week never drops or repeats an
+// entry.
+const FEATURE_CHANGELOG = [
+  {id: 'whos-in-rsvp', text: "See who's in for a gig, and get notified when a bandmate RSVPs"},
+  {id: 'song-viewer', text: 'New stage-mode Songs viewer, with key transposition and auto-scroll'},
+  {id: 'chart-scan-cleanup', text: 'Handwritten chart photos now get an automatic "clean up" scan'},
+  {id: 'home-button', text: 'Home button is always available, with a one-time address prompt'},
+  {id: 'song-privacy', text: 'Songs can be kept private and shared with the band later'},
+  {id: 'gig-polish', text: 'Gig popup and notes got cleaned up and made more reliable across devices'}
+];
+
+// Mirrors BAND_MESSAGE_CAP in index.html — keep the two in sync since this
+// enforces the same "at most 2 active band messages" cap as the client's
+// own postBandMessage, just on the write path that originates server-side.
+const BAND_MESSAGE_CAP = 2;
+
+exports.sendWeeklyFeatureUpdate = onSchedule({schedule: 'every monday 09:00', timeZone: 'America/New_York'}, async () => {
+  const markerRef = admin.firestore().collection('bandSettings').doc('featureAnnouncements');
+  const markerSnap = await markerRef.get();
+  const lastAnnouncedId = markerSnap.exists ? markerSnap.data().lastAnnouncedId : null;
+  const lastIndex = lastAnnouncedId ? FEATURE_CHANGELOG.findIndex(f => f.id === lastAnnouncedId) : -1;
+  const fresh = FEATURE_CHANGELOG.slice(lastIndex + 1);
+  if (!fresh.length) return;
+
+  const text = 'New this week: ' + fresh.map(f => f.text).join('; ') + '.';
+
+  const messagesRef = admin.firestore().collection('bandMessages');
+  const existingSnap = await messagesRef.orderBy('postedAt', 'desc').get();
+  const overflow = existingSnap.docs.slice(BAND_MESSAGE_CAP - 1);
+
+  const batch = admin.firestore().batch();
+  overflow.forEach(d => batch.delete(d.ref));
+  batch.set(messagesRef.doc(), {text, postedAt: new Date().toISOString()});
+  batch.set(markerRef, {lastAnnouncedId: fresh[fresh.length - 1].id});
+  await batch.commit();
+});
