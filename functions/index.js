@@ -250,6 +250,65 @@ exports.notifyOnGigResponse = onDocumentWritten('bandSettings/gigResponses', asy
   }
 });
 
+// --- Weekly feature-summary band message ---
+// Turns the past week's commits on main into a short "what's new" band
+// message — reusing the existing bandMessages collection (rather than a
+// separate delivery path) so it shows up exactly like a manually-posted
+// band message: banner in-app, plus the existing notifyOnBandMessage push.
+const DIGEST_REPO = 'audiosnob2000/PeatMoss-Gig-Dashboard';
+// Must match BAND_MESSAGE_CAP in index.html — the automated post follows
+// the same "keep the newest N" rule a manual post does.
+const BAND_MESSAGE_CAP = 2;
+const weeklyDigestDoc = () => admin.firestore().collection('bandSettings').doc('weeklyDigest');
+
+exports.postWeeklyFeatureSummary = onSchedule({schedule: 'every monday 09:00', timeZone: 'America/New_York'}, async () => {
+  const now = new Date();
+  const digestSnap = await weeklyDigestDoc().get();
+  const sinceIso = (digestSnap.exists && digestSnap.data().lastPostedAt)
+    ? digestSnap.data().lastPostedAt
+    : new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  const res = await fetch(
+    `https://api.github.com/repos/${DIGEST_REPO}/commits?sha=main&since=${encodeURIComponent(sinceIso)}&until=${encodeURIComponent(now.toISOString())}`,
+    {headers: {'User-Agent': 'peatmoss-gig-dashboard', Accept: 'application/vnd.github+json'}}
+  );
+  // Advance the watermark even on an API hiccup or a quiet week, so a
+  // failed/empty run never causes next week's digest to re-report old
+  // commits (on failure) or never advance at all (on a quiet week).
+  await weeklyDigestDoc().set({lastPostedAt: now.toISOString()}, {merge: true});
+  if (!res.ok) return;
+  const commits = await res.json();
+  if (!Array.isArray(commits)) return;
+
+  // A "Merge pull request #NNN from ..." subject just duplicates the
+  // squash commit's own title, so it's dropped in favor of the actual
+  // change description.
+  const seen = new Set();
+  const titles = [];
+  for (const c of commits) {
+    const subject = ((c.commit && c.commit.message) || '').split('\n')[0].trim();
+    if (!subject || /^Merge pull request/i.test(subject) || seen.has(subject)) continue;
+    seen.add(subject);
+    titles.push(subject);
+  }
+  if (!titles.length) return;
+
+  const bullets = titles.slice(0, 8).map(t => `• ${t}`).join('\n');
+  const text = `🎸 This week in the app:\n${bullets}`;
+
+  const existingSnap = await admin.firestore().collection('bandMessages').get();
+  const existing = existingSnap.docs.map(d => ({id: d.id, postedAt: d.data().postedAt || ''}));
+  existing.sort((a, b) => b.postedAt.localeCompare(a.postedAt));
+  const overflow = existing.slice(BAND_MESSAGE_CAP - 1);
+  if (overflow.length) {
+    const batch = admin.firestore().batch();
+    overflow.forEach(m => batch.delete(admin.firestore().collection('bandMessages').doc(m.id)));
+    await batch.commit();
+  }
+
+  await admin.firestore().collection('bandMessages').doc().set({text, postedAt: now.toISOString()});
+});
+
 // --- Gig reminders ---
 // Read straight from Firestore's `gigs` collection — the app's own data,
 // synced by every device regardless of whether anyone is signed into
