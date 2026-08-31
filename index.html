@@ -2555,8 +2555,13 @@ function App(){
     if(!address) return;
     setGigPopup(null);
     const dest=encodeURIComponent(address);
-    openWithFallback('comgooglemaps://?daddr='+dest+'&directionsmode=driving','https://www.google.com/maps/dir/?api=1&destination='+dest);
-    setTimeout(()=>startTracking({...gig,venue:gig.venue+' to Home'}),800);
+    // startTracking fires the location-permission request synchronously
+    // (required for iOS standalone apps — see its own comment), then opens
+    // Maps only once that request has actually been answered, so the app
+    // isn't backgrounding itself out from under the OS permission prompt.
+    startTracking({...gig,venue:gig.venue+' to Home'},()=>{
+      openWithFallback('comgooglemaps://?daddr='+dest+'&directionsmode=driving','https://www.google.com/maps/dir/?api=1&destination='+dest);
+    });
   };
   const saveHomeAddressAndGo=()=>{
     const trimmed=homeAddressDraft.trim();
@@ -2854,9 +2859,21 @@ function App(){
   // Sets state FIRST so banner appears immediately, then starts GPS watch.
   // Uses a ref for the distance accumulator so the watchPosition callback
   // never closes over stale state (the root cause of the invisible banner).
-  const startTracking=gig=>{
+  //
+  // iOS only shows the location-permission prompt for a standalone (added-
+  // to-home-screen) web app when the request fires synchronously, tied
+  // directly to the user's tap — any delay (even a short setTimeout) and it
+  // silently denies instead of prompting. So this must be called first thing
+  // in the click handler, with nothing async ahead of it. The optional
+  // onSettled callback lets the caller (which also wants to open Maps) wait
+  // until the permission prompt has actually been answered before
+  // navigating away — opening Maps in parallel with the prompt risks the
+  // app backgrounding while the OS dialog is still up.
+  const startTracking=(gig,onSettled)=>{
+    const settle=()=>{ if(onSettled) onSettled(); };
     if(!navigator.geolocation){
       alert('GPS not available on this device.');
+      settle();
       return;
     }
 
@@ -2896,6 +2913,7 @@ function App(){
           {enableHighAccuracy:true,maximumAge:0,timeout:10000}
         );
         watchIdRef.current=wid;
+        settle();
       },
       err=>{
         console.warn('Initial GPS fix failed:',err);
@@ -2911,6 +2929,7 @@ function App(){
         if(err.code===1&&isIOSStandalone) setGpsStandaloneHelp(true);
         setTrackingMiles(null);
         trackingRef.current=null;
+        settle();
       },
       {enableHighAccuracy:true,timeout:15000,maximumAge:0}
     );
@@ -3990,13 +4009,13 @@ function App(){
             },
             style:{flex:1,padding:'9px 0',borderRadius:10,border:'1px solid #d1d5db',cursor:'pointer',fontSize:14}
           },'Skip'),
-          // Track: start tracking FIRST, then open Maps
+          // Track: request location FIRST (must be synchronous with the tap
+          // on iOS standalone), then open Maps once that's been answered.
           e('button',{
             onClick:()=>{
               const gig=askTrack;
               setAskTrack(null);             // close modal
-              openMaps(gig.venue,gig.location); // open Maps immediately
-              setTimeout(()=>startTracking(gig),800); // start GPS after Maps launches
+              startTracking(gig,()=>openMaps(gig.venue,gig.location));
             },
             style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:14}
           },'Yes, track')
