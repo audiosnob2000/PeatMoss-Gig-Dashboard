@@ -972,6 +972,193 @@ async function tryShareScheduleCalendarImage(args){
   }
 }
 
+// Same real fix as the calendar-view print, applied to a setlist's song
+// list: render it to an image and hand it to the OS share sheet instead of
+// the dead window.print(). Canvas height grows with the song count instead
+// of a fixed size, since a setlist can be any length.
+function drawSetlistCanvas({name,content,theme}){
+  const lines=(content||'').split('\n').map(l=>l.trim()).filter(Boolean);
+  const width=900;
+  const marginX=60;
+  const lineHeight=42;
+  const headerHeight=140;
+  const footerHeight=50;
+  const height=headerHeight+Math.max(lines.length,1)*lineHeight+footerHeight;
+  const canvas=document.createElement('canvas');
+  canvas.width=width;canvas.height=height;
+  const ctx=canvas.getContext('2d');
+  const font='-apple-system, Helvetica, Arial, sans-serif';
+
+  ctx.fillStyle='#ffffff';
+  ctx.fillRect(0,0,width,height);
+
+  ctx.textAlign='center';
+  ctx.fillStyle='#111827';
+  ctx.font='bold 32px '+font;
+  ctx.fillText(name,width/2,56);
+
+  ctx.fillStyle=theme.primary;
+  ctx.font='600 16px '+font;
+  ctx.fillText(lines.length+' song'+(lines.length===1?'':'s'),width/2,86);
+
+  ctx.textAlign='left';
+  const maxTextWidth=width-marginX*2-56;
+  let y=headerHeight;
+  lines.forEach((line,i)=>{
+    ctx.font='600 15px '+font;
+    ctx.fillStyle='#9ca3af';
+    ctx.fillText(String(i+1).padStart(2,'0'),marginX,y);
+
+    ctx.font='500 20px '+font;
+    ctx.fillStyle='#111827';
+    let text=line;
+    if(ctx.measureText(text).width>maxTextWidth){
+      while(text.length>1&&ctx.measureText(text+'…').width>maxTextWidth)text=text.slice(0,-1);
+      text+='…';
+    }
+    ctx.fillText(text,marginX+56,y);
+
+    ctx.strokeStyle='#e5e7eb';
+    ctx.lineWidth=1;
+    ctx.beginPath();
+    ctx.moveTo(marginX,y+14);
+    ctx.lineTo(width-marginX,y+14);
+    ctx.stroke();
+    y+=lineHeight;
+  });
+
+  ctx.textAlign='center';
+  ctx.font='10px '+font;
+  ctx.fillStyle='#9ca3af';
+  ctx.fillText('MADE WITH GIG DASHBOARD',width/2,height-20);
+
+  return canvas;
+}
+async function tryShareSetlistImage(args){
+  try{
+    if(!(navigator.canShare&&typeof File!=='undefined'))return false;
+    const canvas=drawSetlistCanvas(args);
+    const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+    if(!blob)return false;
+    const safeName=args.name.replace(/[\/\\:*?"<>|]/g,'-');
+    const file=new File([blob],safeName+'.png',{type:'image/png'});
+    if(!navigator.canShare({files:[file]}))return false;
+    try{
+      await navigator.share({files:[file],title:args.name});
+    }catch(err){
+      if(!(err&&err.name==='AbortError'))return false;
+    }
+    return true;
+  }catch(err){
+    return false;
+  }
+}
+
+// Same fix again for a typed song chart — the more delicate case, since a
+// chord chart's chords only line up over the right lyrics because of
+// monospace character-column alignment. A canvas render has to preserve
+// that: same monospace font the on-screen viewer uses, no per-line
+// reflow/wrapping (that would shift columns and break the alignment), and
+// instead of truncating a too-wide line, the whole chart's font size is
+// scaled down uniformly until the longest line fits — shrinking every
+// column by the same ratio keeps every chord still sitting over the right
+// syllable, just smaller.
+function drawSongChartCanvas({name,key,tempo,tag,content}){
+  const lines=(content||'').split('\n');
+  const monoFont='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+  const uiFont='-apple-system, Helvetica, Arial, sans-serif';
+  const marginX=50;
+  const headerHeight=110;
+  const footerHeight=50;
+  const width=1700;
+  const maxContentWidth=width-marginX*2;
+
+  const measureCanvas=document.createElement('canvas');
+  const mctx=measureCanvas.getContext('2d');
+  let fontSize=22;
+  mctx.font=fontSize+'px '+monoFont;
+  let widest=0;
+  lines.forEach(l=>{const w=mctx.measureText(l||' ').width;if(w>widest)widest=w;});
+  if(widest>maxContentWidth)fontSize=Math.max(10,Math.floor(fontSize*(maxContentWidth/widest)));
+  const lineHeight=Math.round(fontSize*1.55);
+
+  const height=headerHeight+lines.length*lineHeight+footerHeight;
+  const canvas=document.createElement('canvas');
+  canvas.width=width;canvas.height=height;
+  const ctx=canvas.getContext('2d');
+
+  ctx.fillStyle='#ffffff';
+  ctx.fillRect(0,0,width,height);
+
+  ctx.textAlign='left';
+  ctx.fillStyle='#111827';
+  ctx.font='bold 28px '+uiFont;
+  ctx.fillText(name,marginX,50);
+
+  const metaParts=[key,tempo?tempo+' bpm':null,tag].filter(Boolean).join('   ·   ');
+  if(metaParts){
+    ctx.font='600 15px '+uiFont;
+    ctx.fillStyle='#4b5563';
+    ctx.fillText(metaParts,marginX,78);
+  }
+
+  ctx.font=fontSize+'px '+monoFont;
+  ctx.fillStyle='#111827';
+  let y=headerHeight;
+  lines.forEach(line=>{
+    ctx.fillText(line,marginX,y);
+    y+=lineHeight;
+  });
+
+  ctx.textAlign='center';
+  ctx.font='11px '+uiFont;
+  ctx.fillStyle='#9ca3af';
+  ctx.fillText('MADE WITH GIG DASHBOARD',width/2,height-22);
+
+  return canvas;
+}
+async function tryShareSongChartImage(args){
+  try{
+    if(!(navigator.canShare&&typeof File!=='undefined'))return false;
+    const canvas=drawSongChartCanvas(args);
+    const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+    if(!blob)return false;
+    const safeName=args.name.replace(/[\/\\:*?"<>|]/g,'-');
+    const file=new File([blob],safeName+'.png',{type:'image/png'});
+    if(!navigator.canShare({files:[file]}))return false;
+    try{
+      await navigator.share({files:[file],title:args.name});
+    }catch(err){
+      if(!(err&&err.name==='AbortError'))return false;
+    }
+    return true;
+  }catch(err){
+    return false;
+  }
+}
+// A photo chart already IS an image — sharing the actual uploaded photo
+// (same technique as the existing stage-plot file share) is both simpler
+// and more faithful than re-drawing it onto a fresh canvas.
+async function trySharePhotoFile(src,name){
+  try{
+    if(!(navigator.canShare&&typeof File!=='undefined'))return false;
+    const res=await fetch(src);
+    const blob=await res.blob();
+    const safeName=(name||'chart').replace(/[\/\\:*?"<>|]/g,'-');
+    const ext=(blob.type.split('/')[1]||'jpg').replace('jpeg','jpg');
+    const file=new File([blob],safeName+'.'+ext,{type:blob.type});
+    if(!navigator.canShare({files:[file]}))return false;
+    try{
+      await navigator.share({files:[file],title:name});
+    }catch(err){
+      if(!(err&&err.name==='AbortError'))return false;
+    }
+    return true;
+  }catch(err){
+    return false;
+  }
+}
+
 function Modal({gig,prefillDate,onSave,onDelete,onClose}){
   const blank={date:prefillDate||'',venue:'',location:'',type:'bar',status:'confirmed',time:'',selfPA:false,notes:''};
   const [form,setForm]=useState(gig||blank);
@@ -3851,7 +4038,13 @@ function App(){
       e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:420,maxHeight:'85vh',overflowY:'auto',padding:0}},
         e('div',{className:'no-print',style:{display:'flex',gap:8,padding:'14px 20px',borderBottom:'1px solid #e5e7eb'}},
           e('button',{onClick:()=>setViewingSetlist(null),style:{flex:1,padding:'9px 0'}},'Close'),
-          e('button',{onClick:()=>tryPrint(setSetlistPrintStandaloneHelp),style:{flex:1,padding:'9px 0',borderRadius:8,border:'0.5px solid #d1d5db',background:'#fff',color:'#374151',cursor:'pointer',fontWeight:500}},'🖨️ Print'),
+          e('button',{onClick:async()=>{
+              if(viewingSetlist.type==='text'){
+                const handled=await tryShareSetlistImage({name:viewingSetlist.name,content:viewingSetlist.content,theme});
+                if(handled)return;
+              }
+              tryPrint(setSetlistPrintStandaloneHelp);
+            },style:{flex:1,padding:'9px 0',borderRadius:8,border:'0.5px solid #d1d5db',background:'#fff',color:'#374151',cursor:'pointer',fontWeight:500}},'🖨️ Print'),
           e('button',{onClick:()=>shareSetlist(viewingSetlist),style:{flex:1,padding:'9px 0',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontWeight:500}},'📤 Share')
         ),
         e('div',{className:'schedule-print-area',style:{padding:'20px'}},
@@ -3889,7 +4082,19 @@ function App(){
           e('button',{onClick:()=>setViewingSong(null),style:{flex:1,padding:'9px 0',background:'#1D1B17',color:'#F1EDE3',border:'1px solid #302C24'}},'Close'),
           liveViewingSong.type==='image'&&e('button',{onClick:()=>toggleSongRotation(liveViewingSong),title:'Rotate',
             style:{padding:'9px 14px',borderRadius:8,border:'1px solid #302C24',background:'#1D1B17',color:'#FFB020',fontWeight:700,fontSize:15}},'⟳'),
-          e('button',{onClick:()=>tryPrint(setSongPrintStandaloneHelp),style:{flex:1,padding:'9px 0',borderRadius:8,border:'1px solid #302C24',background:'#1D1B17',color:'#F1EDE3',cursor:'pointer',fontWeight:500}},'🖨️ Print'),
+          e('button',{onClick:async()=>{
+              if(liveViewingSong.type==='text'){
+                const handled=await tryShareSongChartImage({
+                  name:liveViewingSong.name,key:liveViewingSong.key,tempo:liveViewingSong.tempo,tag:liveViewingSong.tag,
+                  content:transposeChart(liveViewingSong.content,transposeSteps)
+                });
+                if(handled)return;
+              } else if(liveViewingSong.type==='image'){
+                const handled=await trySharePhotoFile(liveViewingSong.content,liveViewingSong.name);
+                if(handled)return;
+              }
+              tryPrint(setSongPrintStandaloneHelp);
+            },style:{flex:1,padding:'9px 0',borderRadius:8,border:'1px solid #302C24',background:'#1D1B17',color:'#F1EDE3',cursor:'pointer',fontWeight:500}},'🖨️ Print'),
           e('button',{onClick:()=>shareSong(liveViewingSong),style:{flex:1,padding:'9px 0',borderRadius:8,border:'none',background:'#FFB020',color:'#141311',cursor:'pointer',fontWeight:700}},'📤 Share')
         ),
         (liveViewingSong.type==='text'||liveViewingSong.type==='image')&&e('div',{className:'no-print',style:{display:'flex',gap:7,padding:'0 20px 12px',alignItems:'center'}},
