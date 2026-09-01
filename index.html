@@ -2092,6 +2092,7 @@ function App(){
   const [autoScrollOn,setAutoScrollOn]=useState(false);
   const [autoScrollSpeed,setAutoScrollSpeed]=useState(1);
   const songViewerScrollRef=useRef(null);
+  const autoScrollRemainderRef=useRef(0);
   useEffect(()=>{
     setTransposeSteps(0);
     setAutoScrollOn(false);
@@ -2100,16 +2101,29 @@ function App(){
     if(!autoScrollOn)return;
     const el=songViewerScrollRef.current;
     if(!el)return;
+    autoScrollRemainderRef.current=0;
     const id=setInterval(()=>{
-      // A direct `el.scrollTop += x` write can silently no-op on iOS Safari
-      // for an overflow-y:auto element nested inside a position:fixed,
-      // flex-centered overlay (exactly this modal's setup) — it's a known
-      // WebKit quirk that only bites script-driven scrolling, not a finger
-      // swipe. scrollBy() goes through the browser's actual scroll API
-      // instead of mutating a property, which is the reliable way to do
-      // this across engines.
-      if(el.scrollBy)el.scrollBy({top:autoScrollSpeed*0.6,left:0,behavior:'auto'});
-      else el.scrollTop+=autoScrollSpeed*0.6;
+      // iOS Safari rounds a fractional scroll delta down to whole pixels —
+      // Slow (0.3px/tick) and Normal (0.6px/tick) were both rounding to
+      // literally 0px every tick and never moving at all, while only Fast
+      // (1.05px/tick, already over a full pixel) ever visibly scrolled.
+      // Accumulating the fractional remainder here and only ever asking
+      // the browser to move a whole number of pixels means no precision
+      // gets lost to that rounding — it just takes an extra tick or two at
+      // slower speeds before the next real pixel is due.
+      autoScrollRemainderRef.current+=autoScrollSpeed*0.6;
+      const px=Math.floor(autoScrollRemainderRef.current);
+      if(px>0){
+        autoScrollRemainderRef.current-=px;
+        // A direct `el.scrollTop += x` write can silently no-op on iOS
+        // Safari for an overflow-y:auto element nested inside a
+        // position:fixed, flex-centered overlay (exactly this modal's
+        // setup) — scrollBy() goes through the browser's actual scroll
+        // API instead of mutating a property, which is the reliable way
+        // to do this across engines.
+        if(el.scrollBy)el.scrollBy({top:px,left:0,behavior:'auto'});
+        else el.scrollTop+=px;
+      }
       if(el.scrollTop+el.clientHeight>=el.scrollHeight-2)setAutoScrollOn(false);
     },50);
     return ()=>clearInterval(id);
