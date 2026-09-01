@@ -693,6 +693,46 @@ function BandMessageBannerStack({messages,dismissedIds,onEdit,onDismiss}){
   );
 }
 
+function formatChangeDate(dateStr){
+  return new Date(dateStr+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
+}
+function WhatsChangedBanner({summary,expanded,onToggle,onDismiss,onOpenGig}){
+  if(!summary)return null;
+  const{added,timeChanged}=summary;
+  const count=added.length+timeChanged.length;
+  if(!count)return null;
+  const label=count+' update'+(count>1?'s':'')+' since you were last here';
+  const rowStyle={display:'flex',gap:8,padding:'8px 11px',fontSize:12,color:'#1E3A8A',alignItems:'flex-start',cursor:'pointer',borderTop:'1px solid #DBEAFE'};
+  return e('div',{style:{marginBottom:'0.6rem',background:'#EFF6FF',border:'1px solid #93C5FD',borderRadius:10,overflow:'hidden'}},
+    e('div',{style:{display:'flex',alignItems:'center',gap:9,padding:'9px 11px',borderBottom:expanded?'1px solid #BFDBFE':'none'}},
+      e('div',{onClick:onToggle,style:{display:'flex',alignItems:'center',gap:9,flex:1,minWidth:0,cursor:'pointer'}},
+        e('span',{style:{fontSize:15,flexShrink:0}},'🔔'),
+        e('span',{style:{flex:1,minWidth:0,fontSize:12.5,color:'#1E3A8A',fontWeight:expanded?600:500}},label),
+        e('span',{style:{fontSize:11,color:'#2563EB',flexShrink:0,display:'inline-block',transform:expanded?'rotate(-90deg)':'none'}},'›')
+      ),
+      e('button',{onClick:onDismiss,title:'Dismiss',style:{border:'none',background:'none',cursor:'pointer',fontSize:14,color:'#2563EB',opacity:0.7,padding:'0 2px',flexShrink:0}},'×')
+    ),
+    expanded&&added.map(g=>e('div',{key:'a'+g.id,onClick:()=>onOpenGig(g),style:rowStyle},
+      e('span',{style:{fontSize:13,flexShrink:0}},'🆕'),
+      e('div',{style:{flex:1,minWidth:0}},
+        e('div',{style:{fontWeight:600}},g.venue),
+        e('div',{style:{color:'#3B5BA5',fontSize:11,marginTop:1}},'New gig added · '+formatChangeDate(g.date)+(g.time?', '+g.time:''))
+      )
+    )),
+    expanded&&timeChanged.map(c=>e('div',{key:'t'+c.gig.id,onClick:()=>onOpenGig(c.gig),style:rowStyle},
+      e('span',{style:{fontSize:13,flexShrink:0}},'🕐'),
+      e('div',{style:{flex:1,minWidth:0}},
+        e('div',{style:{fontWeight:600}},c.gig.venue),
+        e('div',{style:{color:'#3B5BA5',fontSize:11,marginTop:1}},
+          'Time changed · '+formatChangeDate(c.gig.date)+' · ',
+          e('span',{style:{textDecoration:'line-through',opacity:0.65}},c.oldTime||'(none)'),
+          ' → '+(c.gig.time||'(none)')
+        )
+      )
+    ))
+  );
+}
+
 // Compose/edit/delete card for a single band message. Each message is its
 // own Firestore doc (bandMessages collection) — passing message=null opens
 // a blank compose box for a new post; passing an existing message edits
@@ -3010,6 +3050,60 @@ function App(){
 
   const gigsByDate=useMemo(()=>{const m={};(settings.showPast?gigs:gigs.filter(g=>g.date>=todayStr||unpaidGigIds.includes(g.id))).forEach(g=>{if(!m[g.date])m[g.date]=[];m[g.date].push(g);});return m;},[gigs,settings.showPast,unpaidGigIds]);
 
+  // "What's changed since you were last here" banner. There's no per-gig
+  // timestamp to compare against (calendar-sourced gigs in particular never
+  // carry one), so this diffs the current gig list against a lightweight
+  // snapshot of what it looked like the last time this device acknowledged
+  // it, saved locally — not Firestore-synced, same as dismissedMessageIds,
+  // since "have I personally seen this" is inherently per-device.
+  const [changeSummary,setChangeSummary]=useState(null);
+  const [changeExpanded,setChangeExpanded]=useState(false);
+  const [highlightedGigIds,setHighlightedGigIds]=useState(()=>new Set());
+  const changesComputedRef=useRef(false);
+  const saveSeenGigsSnapshot=useCallback(()=>{
+    try{
+      const snap=gigs.map(g=>({id:g.id,date:g.date,time:g.time||'',venue:g.venue,status:g.status}));
+      localStorage.setItem('pmtf_last_seen_gigs',JSON.stringify(snap));
+    }catch{}
+  },[gigs]);
+  useEffect(()=>{
+    if(changesComputedRef.current)return;
+    // Debounce against the initial burst of Firestore snapshot updates on
+    // mount (local cache, then server data) so this only ever diffs once,
+    // against the settled list — not once per intermediate update.
+    const t=setTimeout(()=>{
+      if(changesComputedRef.current)return;
+      changesComputedRef.current=true;
+      let lastSeen=null;
+      try{lastSeen=JSON.parse(localStorage.getItem('pmtf_last_seen_gigs')||'null');}catch{}
+      if(!lastSeen){saveSeenGigsSnapshot();return;} // first-ever load — nothing to compare against yet
+      const prevById=new Map(lastSeen.map(g=>[String(g.id),g]));
+      const added=[],timeChanged=[];
+      gigs.forEach(g=>{
+        if(g.status==='cancelled')return;
+        const prev=prevById.get(String(g.id));
+        if(!prev)added.push(g);
+        else if((prev.time||'')!==(g.time||''))timeChanged.push({gig:g,oldTime:prev.time||''});
+      });
+      if(added.length||timeChanged.length){
+        setChangeSummary({added,timeChanged});
+        setHighlightedGigIds(new Set([...added.map(g=>String(g.id)),...timeChanged.map(c=>String(c.gig.id))]));
+      }
+    },1200);
+    return ()=>clearTimeout(t);
+  },[gigs,saveSeenGigsSnapshot]);
+  const dismissChangeSummary=()=>{
+    saveSeenGigsSnapshot();
+    setChangeSummary(null);
+    setChangeExpanded(false);
+  };
+  const openGigPopup=g=>{
+    if(highlightedGigIds.has(String(g.id))){
+      setHighlightedGigIds(prev=>{const next=new Set(prev);next.delete(String(g.id));return next;});
+    }
+    setGigPopup(g);
+  };
+
   const firstDay=new Date(calYear,calMonth,1).getDay();
   const daysInMonth=new Date(calYear,calMonth+1,0).getDate();
   const cells=Array(firstDay).fill(null).concat(Array.from({length:daysInMonth},(_,i)=>i+1));
@@ -3330,6 +3424,10 @@ function App(){
         messages:bandMessages,dismissedIds:dismissedMessageIds,
         onEdit:msg=>setBandMessageModal(msg),onDismiss:dismissBandMessage
       }),
+      e(WhatsChangedBanner,{
+        summary:changeSummary,expanded:changeExpanded,
+        onToggle:()=>setChangeExpanded(x=>!x),onDismiss:dismissChangeSummary,onOpenGig:openGigPopup
+      }),
       e('div',{className:'tab-bar'},
         [{id:'calendar',label:'Calendar'},{id:'list',label:'Shows'},{id:'songs',label:'Songs'},{id:'checklist',label:'Lists'}].map(t=>
           e('button',{key:t.id,className:'tab-btn'+(tab===t.id?' active':''),style:{color:tab===t.id?theme.primary:'#6b7280'},onClick:()=>setTab(t.id)},t.label)
@@ -3361,7 +3459,7 @@ function App(){
             const hasUnpaid=dg.some(g=>unpaidGigIds.includes(g.id));
             return e('div',{key:day,className:'cal-cell',onClick:()=>{
                 if(unpaidMode){if(hasgig)toggleUnpaidForDay(dg);return;}
-                if(dg.length===1)setGigPopup(dg[0]);else if(dg.length>1)setDayPopup({date:ds,gigs:dg});else openAdd(ds);
+                if(dg.length===1)openGigPopup(dg[0]);else if(dg.length>1)setDayPopup({date:ds,gigs:dg});else openAdd(ds);
               },
               style:{minHeight:56,padding:'4px 5px',borderRadius:8,cursor:'pointer',position:'relative',
                 background:allCancelled?'#FEE2E2':hasWedding?'#EEEDFE':hasgig?'#E1F5EE':'#f9fafb',
@@ -3375,8 +3473,9 @@ function App(){
                 // shade of green regardless of type. Cancelled still wins,
                 // since that's the more important thing to flag at a glance.
                 const gs=g.status==='cancelled'?STATUS_STYLE.cancelled:typeStyle(g.type);
+                const isChanged=highlightedGigIds.has(String(g.id));
                 return e('div',{key:g.id,className:'cal-gig',style:{fontSize:9,marginTop:2,color:gs.color,background:gs.bg,borderRadius:3,padding:'1px 4px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',
-                  outline:unpaidMode?'2px dashed #DC2626':'none',outlineOffset:1}},(g.selfPA?'🔊 ':'')+g.venue);
+                  outline:unpaidMode?'2px dashed #DC2626':isChanged?'2px solid #2563EB':'none',outlineOffset:1}},(g.selfPA?'🔊 ':'')+g.venue);
               }),
               hasUnpaid&&e('div',{style:{position:'absolute',top:1,right:1,background:'#DC2626',color:'#fff',fontSize:7,fontWeight:700,width:11,height:11,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center'}},'$')
             );
@@ -3843,7 +3942,7 @@ function App(){
         ),
         e('div',{style:{display:'flex',flexDirection:'column',gap:8}},
           dayPopup.gigs.map(g=>
-            e('div',{key:g.id,onClick:()=>{setDayPopup(null);setGigPopup(g);},
+            e('div',{key:g.id,onClick:()=>{setDayPopup(null);openGigPopup(g);},
               style:{padding:'10px 12px',borderRadius:10,border:'1px solid #e5e7eb',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}},
               e('div',{style:{minWidth:0}},
                 e('div',{style:{fontWeight:500,fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},(g.selfPA?'🔊 ':'')+g.venue),
