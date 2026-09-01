@@ -698,8 +698,8 @@ function formatChangeDate(dateStr){
 }
 function WhatsChangedBanner({summary,expanded,onToggle,onDismiss,onOpenGig}){
   if(!summary)return null;
-  const{added,timeChanged}=summary;
-  const count=added.length+timeChanged.length;
+  const{added,timeChanged,notesChanged}=summary;
+  const count=added.length+timeChanged.length+notesChanged.length;
   if(!count)return null;
   const label=count+' update'+(count>1?'s':'')+' since you were last here';
   const rowStyle={display:'flex',gap:8,padding:'8px 11px',fontSize:12,color:'#1E3A8A',alignItems:'flex-start',cursor:'pointer',borderTop:'1px solid #DBEAFE'};
@@ -727,6 +727,18 @@ function WhatsChangedBanner({summary,expanded,onToggle,onDismiss,onOpenGig}){
           'Time changed · '+formatChangeDate(c.gig.date)+' · ',
           e('span',{style:{textDecoration:'line-through',opacity:0.65}},c.oldTime||'(none)'),
           ' → '+(c.gig.time||'(none)')
+        )
+      )
+    )),
+    expanded&&notesChanged.map(c=>e('div',{key:'n'+c.gig.id,onClick:()=>onOpenGig(c.gig),style:rowStyle},
+      e('span',{style:{fontSize:13,flexShrink:0}},'📝'),
+      e('div',{style:{flex:1,minWidth:0}},
+        e('div',{style:{fontWeight:600}},c.gig.venue),
+        e('div',{style:{color:'#3B5BA5',fontSize:11,marginTop:1}},
+          (c.isNew?'Note added · ':'Note updated · ')+formatChangeDate(c.gig.date)
+        ),
+        e('div',{style:{color:'#1E3A8A',fontSize:11,marginTop:2,fontStyle:'italic',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},
+          '"'+(c.gig.notes.length>60?c.gig.notes.slice(0,60)+'…':c.gig.notes)+'"'
         )
       )
     ))
@@ -3062,7 +3074,7 @@ function App(){
   const changesComputedRef=useRef(false);
   const saveSeenGigsSnapshot=useCallback(()=>{
     try{
-      const snap=gigs.map(g=>({id:g.id,date:g.date,time:g.time||'',venue:g.venue,status:g.status}));
+      const snap=gigs.map(g=>({id:g.id,date:g.date,time:g.time||'',venue:g.venue,status:g.status,notes:g.notes||''}));
       localStorage.setItem('pmtf_last_seen_gigs',JSON.stringify(snap));
     }catch{}
   },[gigs]);
@@ -3078,16 +3090,17 @@ function App(){
       try{lastSeen=JSON.parse(localStorage.getItem('pmtf_last_seen_gigs')||'null');}catch{}
       if(!lastSeen){saveSeenGigsSnapshot();return;} // first-ever load — nothing to compare against yet
       const prevById=new Map(lastSeen.map(g=>[String(g.id),g]));
-      const added=[],timeChanged=[];
+      const added=[],timeChanged=[],notesChanged=[];
       gigs.forEach(g=>{
         if(g.status==='cancelled')return;
         const prev=prevById.get(String(g.id));
-        if(!prev)added.push(g);
-        else if((prev.time||'')!==(g.time||''))timeChanged.push({gig:g,oldTime:prev.time||''});
+        if(!prev){added.push(g);return;}
+        if((prev.time||'')!==(g.time||''))timeChanged.push({gig:g,oldTime:prev.time||''});
+        if((prev.notes||'')!==(g.notes||'')&&(g.notes||'').trim())notesChanged.push({gig:g,isNew:!(prev.notes||'').trim()});
       });
-      if(added.length||timeChanged.length){
-        setChangeSummary({added,timeChanged});
-        setHighlightedGigIds(new Set([...added.map(g=>String(g.id)),...timeChanged.map(c=>String(c.gig.id))]));
+      if(added.length||timeChanged.length||notesChanged.length){
+        setChangeSummary({added,timeChanged,notesChanged});
+        setHighlightedGigIds(new Set([...added.map(g=>String(g.id)),...timeChanged.map(c=>String(c.gig.id)),...notesChanged.map(c=>String(c.gig.id))]));
       }
     },1200);
     return ()=>clearTimeout(t);
