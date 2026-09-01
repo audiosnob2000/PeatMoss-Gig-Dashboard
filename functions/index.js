@@ -343,7 +343,7 @@ function reminderText(gig, pref) {
   return `${gig.venue} starts in ${hours} hour${hours > 1 ? 's' : ''}`;
 }
 
-exports.sendGigReminders = onSchedule({schedule: 'every 15 minutes', timeZone: 'America/New_York'}, async () => {
+exports.sendGigReminders = onSchedule({schedule: 'every 5 minutes', timeZone: 'America/New_York'}, async () => {
   const now = new Date();
   // Cheap lower bound so this doesn't keep re-scanning every gig ever
   // played as the collection grows over years — no reminder offset reaches
@@ -392,9 +392,12 @@ exports.sendGigReminders = onSchedule({schedule: 'every 15 minutes', timeZone: '
           if (!gig.startDateTime) continue;
           sendAt = new Date(gig.startDateTime.getTime() - offset.hours * 60 * 60 * 1000);
         }
-        // Only fire within the ~20 minute window just after the target time
-        // so a single scheduled run catches it once, not on every run.
-        if (sendAt <= now && sendAt > new Date(now.getTime() - 20 * 60 * 1000)) {
+        // Only fire within the ~8 minute window just after the target time —
+        // wide enough to always overlap the next run at a 5-minute cadence
+        // (with a few minutes of buffer for a run that's a little late),
+        // narrow enough to keep worst-case lag well under the old 20-minute
+        // window's.
+        if (sendAt <= now && sendAt > new Date(now.getTime() - 8 * 60 * 1000)) {
           // Including the computed send time means editing a gig's date/time
           // (a real reschedule, or someone retesting) naturally produces a
           // fresh dedupe key instead of getting silently blocked by a
