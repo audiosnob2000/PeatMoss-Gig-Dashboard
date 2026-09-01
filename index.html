@@ -642,7 +642,7 @@ function PrintStandaloneBanner({show,onDismiss,theme}){
       'Printing doesn\'t work in the installed app on iPhone — an Apple limitation, not a setting you can fix. Open this page in Safari to print there instead.'
     ),
     e('div',{style:{display:'flex',gap:8}},
-      e('a',{href:'x-safari-'+window.location.href,target:'_blank',rel:'noopener',onClick:onDismiss,
+      e('a',{href:'x-safari-'+withDeviceIdParam(window.location.href),target:'_blank',rel:'noopener',onClick:onDismiss,
         style:{flex:1,textAlign:'center',padding:'8px 0',borderRadius:8,background:theme.mid,color:'#fff',fontWeight:600,fontSize:13,textDecoration:'none'}},
         '↗ Open in Safari'),
       e('button',{onClick:onDismiss,
@@ -1132,7 +1132,7 @@ function HomeAddressInput({settings,setSettings,theme}){
     // rather than just re-navigating within this same standalone context,
     // which is what a plain same-URL target="_blank" link was silently
     // doing (no visible effect, since the URL never actually changed).
-    showOpenInSafari&&e('a',{href:'x-safari-'+window.location.href,target:'_blank',rel:'noopener',
+    showOpenInSafari&&e('a',{href:'x-safari-'+withDeviceIdParam(window.location.href),target:'_blank',rel:'noopener',
       style:{display:'block',textAlign:'center',marginTop:8,fontSize:12.5,color:theme.mid,fontWeight:500,textDecoration:'underline'}},
       '↗ Open in Safari to use your location')
   );
@@ -1933,11 +1933,32 @@ function getDeviceId(){
   try{
     let id=localStorage.getItem('pmtf_device_id');
     if(!id){
-      id=(crypto.randomUUID?crypto.randomUUID():'dev-'+Date.now()+'-'+Math.random().toString(36).slice(2));
+      // A standalone home-screen install and a Safari tab for the same URL
+      // don't reliably share localStorage on iOS, so a page opened via the
+      // "Open in Safari" fallback would otherwise generate a brand new,
+      // disconnected device id — any data it saves (e.g. a mileage trip)
+      // would never show back up in the installed app. The Safari links
+      // carry the installed app's id as ?asDevice=..., so a first-ever load
+      // here adopts that instead of minting a new one.
+      const params=new URLSearchParams(window.location.search);
+      const carriedId=params.get('asDevice');
+      id=carriedId||(crypto.randomUUID?crypto.randomUUID():'dev-'+Date.now()+'-'+Math.random().toString(36).slice(2));
       localStorage.setItem('pmtf_device_id',id);
+      if(carriedId){
+        params.delete('asDevice');
+        const qs=params.toString();
+        window.history.replaceState(null,'',window.location.pathname+(qs?'?'+qs:''));
+      }
     }
     return id;
   }catch{return 'dev-'+Date.now();}
+}
+// Appends this device's id as a query param onto a same-app URL, so the
+// "Open in Safari" links (see getDeviceId's comment above) hand off a
+// stable identity instead of Safari generating an unrelated new one.
+function withDeviceIdParam(url){
+  const sep=url.includes('?')?'&':'?';
+  return url+sep+'asDevice='+encodeURIComponent(getDeviceId());
 }
 
 function App(){
@@ -4087,7 +4108,7 @@ function App(){
         'Mileage tracking needs location access, which doesn\'t work reliably in the installed app on iPhone — an Apple limitation. Open this page in Safari to track mileage there instead.'
       ),
       e('div',{style:{display:'flex',gap:8}},
-        e('a',{href:'x-safari-'+window.location.href,target:'_blank',rel:'noopener',onClick:()=>setGpsStandaloneHelp(false),
+        e('a',{href:'x-safari-'+withDeviceIdParam(window.location.href),target:'_blank',rel:'noopener',onClick:()=>setGpsStandaloneHelp(false),
           style:{flex:1,textAlign:'center',padding:'8px 0',borderRadius:8,background:theme.mid,color:'#fff',fontWeight:600,fontSize:13,textDecoration:'none'}},
           '↗ Open in Safari'),
         e('button',{onClick:()=>setGpsStandaloneHelp(false),
