@@ -2101,7 +2101,15 @@ function App(){
     const el=songViewerScrollRef.current;
     if(!el)return;
     const id=setInterval(()=>{
-      el.scrollTop+=autoScrollSpeed*0.6;
+      // A direct `el.scrollTop += x` write can silently no-op on iOS Safari
+      // for an overflow-y:auto element nested inside a position:fixed,
+      // flex-centered overlay (exactly this modal's setup) — it's a known
+      // WebKit quirk that only bites script-driven scrolling, not a finger
+      // swipe. scrollBy() goes through the browser's actual scroll API
+      // instead of mutating a property, which is the reliable way to do
+      // this across engines.
+      if(el.scrollBy)el.scrollBy({top:autoScrollSpeed*0.6,left:0,behavior:'auto'});
+      else el.scrollTop+=autoScrollSpeed*0.6;
       if(el.scrollTop+el.clientHeight>=el.scrollHeight-2)setAutoScrollOn(false);
     },50);
     return ()=>clearInterval(id);
@@ -3879,7 +3887,14 @@ function App(){
     // theme. This is the one screen actually read off a stand in a dark
     // room, so it earns breaking from the theme; nothing else does.
     viewingSong&&e('div',{onClick:()=>setViewingSong(null),className:'overlay',style:{background:'rgba(0,0,0,0.7)'}},
-      e('div',{ref:songViewerScrollRef,onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:440,maxHeight:'85vh',overflowY:'auto',padding:0,background:'#141311'}},
+      // A photo chart has no adjustable text size the way a typed chart
+      // does, so the only way to make it legible is more screen real
+      // estate — let it use most of the viewport width instead of the
+      // same comfortable-reading-column width that suits typed charts.
+      // The .modal class sets an explicit width:min(420px,100%) — a
+      // max-width override alone can only ever shrink that, never grow it,
+      // so the wider image case needs its own explicit width too.
+      e('div',{ref:songViewerScrollRef,onClick:ev=>ev.stopPropagation(),className:'modal',style:{width:liveViewingSong.type==='image'?'min(94vw, 720px)':'min(420px, 100%)',maxHeight:'85vh',overflowY:'auto',padding:0,background:'#141311'}},
         e('div',{className:'no-print',style:{display:'flex',gap:8,padding:'14px 20px',borderBottom:'1px solid #302C24'}},
           e('button',{onClick:()=>setViewingSong(null),style:{flex:1,padding:'9px 0',background:'#1D1B17',color:'#F1EDE3',border:'1px solid #302C24'}},'Close'),
           liveViewingSong.type==='image'&&e('button',{onClick:()=>toggleSongRotation(liveViewingSong),title:'Rotate',
@@ -3919,7 +3934,7 @@ function App(){
               '💾 Save'+(liveViewingSong.key&&liveViewingSong.key.trim()?' as '+transposeChordToken(liveViewingSong.key.trim(),transposeSteps):''))
           )
         ),
-        e('div',{className:'schedule-print-area song-viewer-print',style:{padding:'20px'}},
+        e('div',{className:'schedule-print-area song-viewer-print',style:{padding:liveViewingSong.type==='image'?'12px':'20px'}},
           e('div',{style:{fontSize:16,fontWeight:600,marginBottom:4,color:'#F1EDE3'}},liveViewingSong.name),
           (liveViewingSong.key||liveViewingSong.tempo||liveViewingSong.tag)&&e('div',{style:{fontSize:12,color:'#FFB020',marginBottom:14,display:'flex',gap:8,flexWrap:'wrap'}},
             [liveViewingSong.key,liveViewingSong.tempo?liveViewingSong.tempo+' bpm':null,liveViewingSong.tag].filter(Boolean).join('  ·  ')
@@ -3927,7 +3942,11 @@ function App(){
           liveViewingSong.type==='text'&&e('div',{style:{fontSize:14,color:'#F1EDE3',whiteSpace:'pre-wrap',lineHeight:1.6,fontFamily:'monospace'}},transposeChart(liveViewingSong.content,transposeSteps)),
           liveViewingSong.type==='image'&&e('div',{style:{display:'flex',justifyContent:'center'}},
             e('img',{src:liveViewingSong.content,style:{
-              maxWidth:liveViewingSong.rotated?340:'100%',maxHeight:liveViewingSong.rotated?340:'none',
+              // Rotated stays capped (its rotated width is really the
+              // photo's original height, which has to fit the modal's own
+              // maxHeight after the transform) but bumped up along with the
+              // wider modal now available for the common, unrotated case.
+              maxWidth:liveViewingSong.rotated?460:'100%',maxHeight:liveViewingSong.rotated?460:'none',
               transform:liveViewingSong.rotated?'rotate(90deg)':'none',transition:'transform .2s',borderRadius:8,display:'block'
             }})
           ),
