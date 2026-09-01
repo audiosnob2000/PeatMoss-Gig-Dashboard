@@ -357,9 +357,11 @@ exports.sendGigReminders = onSchedule({schedule: 'every 15 minutes', timeZone: '
     if (!g.date || g.date < cutoffStr || g.status === 'cancelled') return null;
     return {id: d.id, date: g.date, venue: g.venue || 'Untitled', time: g.time || '', selfPA: !!g.selfPA, startDateTime: parseGigStartTime(g.date, g.time || '')};
   }).filter(Boolean);
+  console.log(`sendGigReminders: ${gigsSnap.size} total gig doc(s), ${gigs.length} in range after cutoff/cancelled filter.`);
   if (!gigs.length) return;
 
   const tokensSnap = await admin.firestore().collection('fcmTokens').get();
+  console.log(`sendGigReminders: ${tokensSnap.size} registered device token(s).`);
   if (tokensSnap.empty) return;
 
   const candidates = [];
@@ -402,11 +404,13 @@ exports.sendGigReminders = onSchedule({schedule: 'every 15 minutes', timeZone: '
       }
     }
   }
+  console.log(`sendGigReminders: ${candidates.length} candidate(s) inside the send window.`, candidates.map(c => `${c.gig.venue} (${c.gig.date} ${c.gig.time}) pref=${c.pref} token=${c.token.slice(0, 12)}…`));
   if (!candidates.length) return;
 
   const sentRefs = candidates.map(c => admin.firestore().collection('sentReminders').doc(c.sendKey));
   const sentSnaps = await admin.firestore().getAll(...sentRefs);
   const pending = candidates.filter((c, i) => !sentSnaps[i].exists);
+  console.log(`sendGigReminders: ${pending.length} of ${candidates.length} candidate(s) not already sent (rest matched an existing sentReminders record).`);
   if (!pending.length) return;
 
   const messages = pending.map(p => ({
@@ -415,6 +419,13 @@ exports.sendGigReminders = onSchedule({schedule: 'every 15 minutes', timeZone: '
     data: {url: APP_URL}
   }));
   const response = await admin.messaging().sendEach(messages);
+  response.responses.forEach((r, i) => {
+    if (r.success) {
+      console.log(`sendGigReminders: sent OK — ${pending[i].gig.venue} to token ${pending[i].token.slice(0, 12)}…`);
+    } else {
+      console.error(`sendGigReminders: FAILED to send — ${pending[i].gig.venue} to token ${pending[i].token.slice(0, 12)}…`, r.error && (r.error.code || r.error.message));
+    }
+  });
 
   const batch = admin.firestore().batch();
   pending.forEach((p, i) => {
