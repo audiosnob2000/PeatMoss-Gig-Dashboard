@@ -20,6 +20,7 @@
 <script src="vendor/firebase-app-compat.js"></script>
 <script src="vendor/firebase-firestore-compat.js"></script>
 <script src="vendor/firebase-messaging-compat.js"></script>
+<script src="vendor/firebase-auth-compat.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{overflow-x:hidden;width:100%}
@@ -104,6 +105,7 @@ const firebaseConfig={
 const FCM_VAPID_KEY='BKATe0QN1FrjWid92DVXJx_TCpwjD1iU7G3DTUN_E58quzdW6IbPRHr-h8B6QW305Z9KEogo_JelmLu68R5EdQM';
 firebase.initializeApp(firebaseConfig);
 const db=firebase.firestore();
+const auth=firebase.auth();
 try{db.enablePersistence({synchronizeTabs:true});}catch(err){}
 const messagingSupported=typeof window!=='undefined'&&'serviceWorker' in navigator&&'Notification' in window;
 const GOOGLE_CLIENT_ID='675499838790-l0lgct7rbkbc7u4lttqkpjta3vm9qrvi.apps.googleusercontent.com';
@@ -1243,6 +1245,45 @@ function Section({icon,iconBg,title,summary,isOpen,onToggle,children}){
   );
 }
 function Row({label,sub,right,danger,border=true}){return e('div',{style:{padding:'12px 14px',borderBottom:border?'1px solid #e5e7eb':'none',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}},e('div',null,e('div',{style:{fontSize:14,color:danger?'#b91c1c':'#111827'}},label),sub&&e('div',{style:{fontSize:12,color:'#9ca3af',marginTop:2}},sub)),right&&e('div',{style:{flexShrink:0}},right));}
+// Signing in swaps this device's personal data (mileage, checklist, private
+// songs, unpaid marks) onto a stable account id instead of the random
+// per-device one, so it survives a new phone or cleared storage. Deliberately
+// email+password, not a magic link — a link opened from Mail hands off to
+// Safari instead of reopening the standalone home-screen app, the same class
+// of bug already hit for Google Calendar and mileage tracking.
+function AccountSection({authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,theme}){
+  const [mode,setMode]=useState('signin');
+  const [email,setEmail]=useState('');
+  const [password,setPassword]=useState('');
+  if(authUser){
+    return e('div',{style:{padding:'12px 14px'}},
+      e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:10}},
+        `Signed in as ${authUser.email}. Your mileage log, checklist, private songs, and unpaid marks now follow this account instead of just this phone.`),
+      e('button',{onClick:onSignOut,style:{color:'#b91c1c',borderColor:'#fecaca'}},'Sign out')
+    );
+  }
+  const submit=()=>{
+    if(authBusy||!email.trim()||!password)return;
+    if(mode==='signup')onSignUp(email.trim(),password);else onSignIn(email.trim(),password);
+  };
+  return e('div',{style:{padding:'12px 14px'}},
+    e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:10}},
+      'Sign in so your mileage log, checklist, private songs, and unpaid marks survive a new phone or cleared storage — right now they only live on this device.'),
+    e('label',null,'Email'),
+    e('input',{type:'email',value:email,autoComplete:'email',onChange:ev=>setEmail(ev.target.value)}),
+    e('label',null,'Password'),
+    e('input',{type:'password',value:password,autoComplete:mode==='signup'?'new-password':'current-password',
+      onChange:ev=>setPassword(ev.target.value),onKeyDown:ev=>{if(ev.key==='Enter')submit();}}),
+    authError&&e('div',{style:{color:'#b91c1c',fontSize:12,marginTop:8}},authError),
+    e('button',{onClick:submit,disabled:authBusy,style:{background:theme.primary,color:'#fff',borderColor:theme.primary,width:'100%',marginTop:12}},
+      authBusy?'Please wait…':(mode==='signup'?'Create account':'Sign in')),
+    e('div',{style:{marginTop:10,fontSize:12,textAlign:'center'}},
+      mode==='signup'
+        ?e('span',null,'Already have an account? ',e('a',{href:'#',onClick:ev=>{ev.preventDefault();setMode('signin');},style:{color:theme.primary}},'Sign in'))
+        :e('span',null,"New here? ",e('a',{href:'#',onClick:ev=>{ev.preventDefault();setMode('signup');},style:{color:theme.primary}},'Create an account'))
+    )
+  );
+}
 
 function YourNameInput({settings,setSettings,theme,ensureOnRoster}){
   const inputRef=useRef(null);
@@ -1482,7 +1523,7 @@ function CustomColorSwatch({selected,customColor,onPick}){
   );
 }
 
-function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar,onAutoScrolled,syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,bandMessages,onNewBandMessage,onEditBandMessage,onDeleteBandMessage,bandMessageModal,bandMessageModalTarget,onCloseBandMessageModal,saveBandMessageModal,deleteBandMessageModal,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,ensureOnRoster}){
+function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar,onAutoScrolled,syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,bandMessages,onNewBandMessage,onEditBandMessage,onDeleteBandMessage,bandMessageModal,bandMessageModalTarget,onCloseBandMessageModal,saveBandMessageModal,deleteBandMessageModal,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,ensureOnRoster,authUser,authBusy,authError,onSignUp,onSignIn,onSignOut}){
   const googleCalendarRowRef=useRef(null);
   const [confirmDeleteMsgId,setConfirmDeleteMsgId]=useState(null);
   const [showBandStatsModal,setShowBandStatsModal]=useState(false);
@@ -1539,7 +1580,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
     const newTrip={id:'trip'+Date.now(),venue:manualLabel.trim()||'Manual entry',date:manualDate,miles:parseFloat(miles.toFixed(1)),manual:true};
     setMileageLog(prev=>[...prev,newTrip]);
     const{id,...tripBody}=newTrip;
-    db.collection('mileageTrips').doc(id).set({...tripBody,deviceId:getDeviceId()}).catch(()=>{});
+    db.collection('mileageTrips').doc(id).set({...tripBody,deviceId:getUserId()}).catch(()=>{});
     setManualDate(todayStr);setManualMiles('');setManualLabel('');
     setAddingTrip(false);
   };
@@ -1704,6 +1745,9 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
             })
           )
         })
+      ),
+      e(Section,{icon:'🔐',iconBg:'#EEF2FF',title:'Account',summary:authUser?authUser.email:'Not signed in',isOpen:openSections.has('account'),onToggle:()=>toggleSection('account')},
+        e(AccountSection,{authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,theme})
       ),
       e(Section,{icon:'🏠',iconBg:'#E0EFFE',title:'Home',summary:homeSummary,isOpen:openSections.has('home'),onToggle:()=>toggleSection('home')},
         e(YourNameInput,{settings,setSettings,theme,ensureOnRoster}),
@@ -2175,6 +2219,30 @@ function withDeviceIdParam(url){
   const sep=url.includes('?')?'&':'?';
   return url+sep+'asDevice='+encodeURIComponent(getDeviceId());
 }
+// The identity everything personal (mileage, checklist, private songs,
+// unpaid marks) is actually keyed to. Signed in, that's a stable account id
+// that survives a new phone or cleared storage; signed out, it falls back to
+// the same per-device id as before — nothing regresses for anyone who never
+// signs in.
+function getUserId(){
+  try{
+    return (auth.currentUser&&auth.currentUser.uid)||getDeviceId();
+  }catch{return getDeviceId();}
+}
+function friendlyAuthError(err){
+  const code=err&&err.code;
+  const map={
+    'auth/email-already-in-use':'That email already has an account — try signing in instead.',
+    'auth/invalid-email':"That doesn't look like a valid email address.",
+    'auth/weak-password':'Password needs to be at least 6 characters.',
+    'auth/wrong-password':'Wrong password.',
+    'auth/user-not-found':'No account with that email — try creating one instead.',
+    'auth/invalid-credential':'Email or password is wrong.',
+    'auth/too-many-requests':'Too many attempts — wait a bit and try again.',
+    'auth/network-request-failed':'No connection — check your signal and try again.'
+  };
+  return (code&&map[code])||(err&&err.message)||'Something went wrong — try again.';
+}
 
 function App(){
   const [settings,setSettings]=useState(()=>{
@@ -2359,6 +2427,61 @@ function App(){
   // Same guard, but for the stage plot, which is shared band-wide (one doc, no deviceId).
   const stagePlotHydratedRef=useRef(false);
 
+  // Real signed-in identity (#19) — everything above is still keyed by
+  // getUserId(), which falls back to the per-device id below until someone
+  // signs in, so none of it changes behavior for a device that never does.
+  const [authUser,setAuthUser]=useState(()=>{try{return auth.currentUser;}catch{return null;}});
+  const [authBusy,setAuthBusy]=useState(false);
+  const [authError,setAuthError]=useState('');
+  useEffect(()=>auth.onAuthStateChanged(u=>setAuthUser(u)),[]);
+  const signUpWithEmail=(email,password)=>{
+    setAuthBusy(true);setAuthError('');
+    auth.createUserWithEmailAndPassword(email,password)
+      .catch(err=>setAuthError(friendlyAuthError(err)))
+      .finally(()=>setAuthBusy(false));
+  };
+  const signInWithEmail=(email,password)=>{
+    setAuthBusy(true);setAuthError('');
+    auth.signInWithEmailAndPassword(email,password)
+      .catch(err=>setAuthError(friendlyAuthError(err)))
+      .finally(()=>setAuthBusy(false));
+  };
+  const signOutOfAccount=()=>{auth.signOut().catch(()=>{});};
+  // One-time, per sign-in: hand this device's existing personal data over to
+  // the account that just signed in, so a first login doesn't strand
+  // whatever was already here. Safe to re-run (idempotent) and never
+  // destructive — it only ever copies/reassigns onto the account id, nothing
+  // is deleted, so a failed or partial run just leaves data reachable under
+  // the old device id instead of losing it.
+  const identityMigratedRef=useRef(false);
+  useEffect(()=>{
+    if(!authUser||identityMigratedRef.current)return;
+    const uid=authUser.uid;
+    const legacyId=getDeviceId();
+    if(uid===legacyId)return;
+    identityMigratedRef.current=true;
+    db.collection('mileageTrips').get().then(snap=>{
+      const mine=snap.docs.filter(d=>d.data().deviceId===legacyId);
+      return Promise.all(mine.map(d=>db.collection('mileageTrips').doc(d.id).update({deviceId:uid})));
+    }).catch(()=>{});
+    db.collection('songs').get().then(snap=>{
+      const mine=snap.docs.filter(d=>d.data().deviceId===legacyId);
+      return Promise.all(mine.map(d=>db.collection('songs').doc(d.id).update({deviceId:uid})));
+    }).catch(()=>{});
+    db.collection('checklists').doc(uid).get().then(uidDoc=>{
+      if(uidDoc.exists)return;
+      return db.collection('checklists').doc(legacyId).get().then(legacyDoc=>{
+        if(legacyDoc.exists)return db.collection('checklists').doc(uid).set(legacyDoc.data());
+      });
+    }).catch(()=>{});
+    db.collection('unpaidGigs').doc(uid).get().then(uidDoc=>{
+      if(uidDoc.exists)return;
+      return db.collection('unpaidGigs').doc(legacyId).get().then(legacyDoc=>{
+        if(legacyDoc.exists)return db.collection('unpaidGigs').doc(uid).set(legacyDoc.data());
+      });
+    }).catch(()=>{});
+  },[authUser]);
+
   // Band-wide messages (e.g. "all black suits tonight") — each post is its
   // own doc in the bandMessages collection (shared band-wide, same pattern
   // as the stage plot/setlists) so up to BAND_MESSAGE_CAP can be active at
@@ -2430,12 +2553,12 @@ function App(){
   useEffect(()=>{try{localStorage.setItem('pmtf_settings',JSON.stringify(settings));}catch{}},[settings]);
   useEffect(()=>{
     try{localStorage.setItem('pmtf_members',JSON.stringify(members));}catch{}
-    if(checklistHydratedRef.current) db.collection('checklists').doc(getDeviceId()).set({members}).catch(()=>{});
+    if(checklistHydratedRef.current) db.collection('checklists').doc(getUserId()).set({members}).catch(()=>{});
   },[members]);
   useEffect(()=>{try{localStorage.setItem('pmtf_mileage',JSON.stringify(mileageLog));}catch{}},[mileageLog]);
   useEffect(()=>{
     try{localStorage.setItem('pmtf_unpaid_gigs',JSON.stringify(unpaidGigIds));}catch{}
-    if(unpaidHydratedRef.current) db.collection('unpaidGigs').doc(getDeviceId()).set({gigIds:unpaidGigIds}).catch(()=>{});
+    if(unpaidHydratedRef.current) db.collection('unpaidGigs').doc(getUserId()).set({gigIds:unpaidGigIds}).catch(()=>{});
   },[unpaidGigIds]);
   useEffect(()=>{try{if(pushToken)localStorage.setItem('pmtf_push_token',pushToken);else localStorage.removeItem('pmtf_push_token');}catch{}},[pushToken]);
   // Register the service worker once so it's ready to receive background
@@ -2578,13 +2701,13 @@ function App(){
   // local storage ever gets cleared.
   useEffect(()=>{
     const unsub=db.collection('songs').onSnapshot(snap=>{
-      const myDeviceId=getDeviceId();
+      const myId=getUserId();
       setSongs(snap.docs.map(d=>({id:d.id,...d.data()}))
-        .filter(s=>s.shared||s.deviceId===myDeviceId)
+        .filter(s=>s.shared||s.deviceId===myId)
         .sort((a,b)=>a.name.localeCompare(b.name)));
     },()=>{});
     return unsub;
-  },[]);
+  },[authUser]);
   // Live-sync gigs from Firestore so every device sees gigs added on any
   // other device instantly, whether or not that device is signed into
   // Google. This runs alongside (never in place of) the Google Calendar
@@ -2639,15 +2762,15 @@ function App(){
   // device's id and each client filters down to just its own, so nobody
   // else's trips show up here even though the collection itself is shared.
   useEffect(()=>{
-    const deviceId=getDeviceId();
+    const myId=getUserId();
     let migrating=false;
     const unsub=db.collection('mileageTrips').onSnapshot(snap=>{
-      const mine=snap.docs.filter(d=>d.data().deviceId===deviceId);
+      const mine=snap.docs.filter(d=>d.data().deviceId===myId);
       if(mine.length===0&&!migrating&&mileageLog.length>0&&!localStorage.getItem('pmtf_mileage_migrated')){
         migrating=true;
         const withIds=mileageLog.map(t=>t.id?t:{...t,id:'trip'+Date.now()+Math.random().toString(36).slice(2,8)});
         const batch=db.batch();
-        withIds.forEach(t=>{const{id,...rest}=t;batch.set(db.collection('mileageTrips').doc(id),{...rest,deviceId});});
+        withIds.forEach(t=>{const{id,...rest}=t;batch.set(db.collection('mileageTrips').doc(id),{...rest,deviceId:myId});});
         batch.commit().then(()=>{
           try{localStorage.setItem('pmtf_mileage_migrated','1');}catch{}
           setMileageLog(withIds);
@@ -2657,19 +2780,19 @@ function App(){
       setMileageLog(mine.map(d=>{const{deviceId,...rest}=d.data();return{id:d.id,...rest};}));
     },()=>{});
     return unsub;
-  },[]);
+  },[authUser]);
 
   // Back up this device's checklist (members + their items) to Firestore,
   // same reasoning and pattern as mileage above — personal, not shared
   // band-wide, stored as one doc per device rather than per-item since the
   // whole checklist is small and always written/read as a unit.
   useEffect(()=>{
-    const deviceId=getDeviceId();
+    const myId=getUserId();
     let migrating=false;
-    const unsub=db.collection('checklists').doc(deviceId).onSnapshot(doc=>{
+    const unsub=db.collection('checklists').doc(myId).onSnapshot(doc=>{
       if(!doc.exists&&!migrating&&members.length>0&&!localStorage.getItem('pmtf_members_migrated')){
         migrating=true;
-        db.collection('checklists').doc(deviceId).set({members}).then(()=>{
+        db.collection('checklists').doc(myId).set({members}).then(()=>{
           try{localStorage.setItem('pmtf_members_migrated','1');}catch{}
           checklistHydratedRef.current=true;
         }).catch(()=>{migrating=false;});
@@ -2679,18 +2802,18 @@ function App(){
       checklistHydratedRef.current=true;
     },()=>{checklistHydratedRef.current=true;});
     return unsub;
-  },[]);
+  },[authUser]);
 
   // Back up this device's unpaid-gig marks to Firestore, same per-device
   // pattern as the checklist above — which gigs you've flagged unpaid is
   // personal bookkeeping, not something that should broadcast to the band.
   useEffect(()=>{
-    const deviceId=getDeviceId();
+    const myId=getUserId();
     let migrating=false;
-    const unsub=db.collection('unpaidGigs').doc(deviceId).onSnapshot(doc=>{
+    const unsub=db.collection('unpaidGigs').doc(myId).onSnapshot(doc=>{
       if(!doc.exists&&!migrating&&unpaidGigIds.length>0&&!localStorage.getItem('pmtf_unpaid_gigs_migrated')){
         migrating=true;
-        db.collection('unpaidGigs').doc(deviceId).set({gigIds:unpaidGigIds}).then(()=>{
+        db.collection('unpaidGigs').doc(myId).set({gigIds:unpaidGigIds}).then(()=>{
           try{localStorage.setItem('pmtf_unpaid_gigs_migrated','1');}catch{}
           unpaidHydratedRef.current=true;
         }).catch(()=>{migrating=false;});
@@ -2700,7 +2823,7 @@ function App(){
       unpaidHydratedRef.current=true;
     },()=>{unpaidHydratedRef.current=true;});
     return unsub;
-  },[]);
+  },[authUser]);
 
   // Keep ref in sync with state so GPS callback can read it
   useEffect(()=>{ trackingRef.current=trackingMiles; },[trackingMiles]);
@@ -3209,7 +3332,7 @@ function App(){
       };
       setMileageLog(prev=>[...prev,newTrip]);
       const{id,...tripBody}=newTrip;
-      db.collection('mileageTrips').doc(id).set({...tripBody,deviceId:getDeviceId()}).catch(()=>{});
+      db.collection('mileageTrips').doc(id).set({...tripBody,deviceId:getUserId()}).catch(()=>{});
     }
     setTrackingMiles(null);
     trackingRef.current=null;
@@ -3499,7 +3622,7 @@ function App(){
     const type=newSongMode==='link'?'link':newSongMode==='manual'?'text':newSongContentType;
     db.collection('songs').doc('sg'+Date.now()).set({
       name:newSongName.trim(),type,content:newSongContent,fileName:newSongFileName||null,
-      updatedAt:todayStr,shared:newSongShared,deviceId:getDeviceId(),
+      updatedAt:todayStr,shared:newSongShared,deviceId:getUserId(),
       key:newSongKey.trim()||null,tempo:newSongTempo.trim()||null,tag:newSongTag.trim()||null,rotated:false
     }).catch(()=>alert('Could not save — check your connection and try again.'));
     resetSongForm();
@@ -3574,7 +3697,7 @@ function App(){
   const gigResponses=(gigPopup&&gigResponsesMap[gigPopup.id])||{};
   const gigRespondedCount=roster.filter(n=>gigResponses[n]).length;
 
-  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,bandMessages,onNewBandMessage:()=>setBandMessageModal('new'),onEditBandMessage:msg=>setBandMessageModal(msg),onDeleteBandMessage:deleteBandMessageById,bandMessageModal,bandMessageModalTarget,onCloseBandMessageModal:()=>setBandMessageModal(null),saveBandMessageModal,deleteBandMessageModal,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,ensureOnRoster});
+  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,bandMessages,onNewBandMessage:()=>setBandMessageModal('new'),onEditBandMessage:msg=>setBandMessageModal(msg),onDeleteBandMessage:deleteBandMessageById,bandMessageModal,bandMessageModalTarget,onCloseBandMessageModal:()=>setBandMessageModal(null),saveBandMessageModal,deleteBandMessageModal,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,ensureOnRoster,authUser,authBusy,authError,onSignUp:signUpWithEmail,onSignIn:signInWithEmail,onSignOut:signOutOfAccount});
 
   return e('div',{style:{maxWidth:720,margin:'0 auto',paddingBottom:'2rem'}},
     e('div',{style:{background:theme.primary,borderRadius:'0 0 20px 20px',padding:'1.25rem 1.25rem 1.5rem',marginBottom:'1.25rem'}},
