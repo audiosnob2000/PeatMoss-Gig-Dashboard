@@ -3417,10 +3417,23 @@ function App(){
     saveSeenGigsSnapshot();
     setChangeSummary(null);
     setChangeExpanded(false);
+    setHighlightedGigIds(new Set());
   };
   const openGigPopup=g=>{
     if(highlightedGigIds.has(String(g.id))){
       setHighlightedGigIds(prev=>{const next=new Set(prev);next.delete(String(g.id));return next;});
+      // Patch just this gig into the last-seen snapshot so it stays cleared
+      // across a reload too — without this, closing the app before
+      // dismissing the whole banner re-diffs against the stale snapshot
+      // next time and puts the circle right back on a gig you already
+      // looked at.
+      try{
+        const lastSeen=JSON.parse(localStorage.getItem('pmtf_last_seen_gigs')||'[]');
+        const idx=lastSeen.findIndex(x=>String(x.id)===String(g.id));
+        const entry={id:g.id,date:g.date,time:g.time||'',venue:g.venue,status:g.status,notes:g.notes||''};
+        if(idx>=0)lastSeen[idx]=entry;else lastSeen.push(entry);
+        localStorage.setItem('pmtf_last_seen_gigs',JSON.stringify(lastSeen));
+      }catch{}
     }
     setGigPopup(g);
   };
