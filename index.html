@@ -840,6 +840,20 @@ function BandStatsModal({chartYear,setChartYear,chartType,setChartType,chartShow
     )
   );
 }
+// Shared by the running click and the tap-tempo preview click, so both
+// respect the same volume fader and sound the same. exponentialRamp can't
+// target exactly 0 (throws), so volume is floored just above it — at the
+// fader's minimum this is quiet enough to read as silent.
+function playMetronomeClick(ctx,time,volume){
+  const osc=ctx.createOscillator();
+  const gain=ctx.createGain();
+  osc.frequency.value=1000;
+  gain.gain.setValueAtTime(0.0001,time);
+  gain.gain.exponentialRampToValueAtTime(Math.max(0.0001,volume),time+0.002);
+  gain.gain.exponentialRampToValueAtTime(0.0001,time+0.05);
+  osc.connect(gain);gain.connect(ctx.destination);
+  osc.start(time);osc.stop(time+0.06);
+}
 // A saved tempo's card in the list — the "start" targets (badge, name, and
 // play button) all trigger the same action so there's no dead-feeling area
 // on a fairly small tap target; only the ✕ is a separate, smaller target.
@@ -868,15 +882,35 @@ function MetronomeList({tempos,onStart,onDelete,onAdd,onClose}){
     e('button',{onClick:onAdd,style:{width:'100%',padding:'13px 0',borderRadius:12,border:'1.5px dashed #5DCAA5',background:'#F4FBF8',color:'#0F6E56',fontWeight:600,fontSize:14,cursor:'pointer',flexShrink:0}},'+ Save a tempo')
   );
 }
-function MetronomeAdd({name,setName,bpm,setBpm,onTap,onSave,onBack,theme}){
+function MetronomeAdd({name,setName,bpm,setBpm,onTap,onSave,onBack,theme,volume,tapClickOn,setTapClickOn}){
   // Brief press-feedback on the tap zone (scale + color flash) so a big,
   // otherwise-static button still visibly confirms each tap landed — useful
   // since tap tempo depends on tapping right on the beat, not just tapping.
   const [tapped,setTapped]=useState(false);
+  const audioCtxRef=useRef(null);
+  useEffect(()=>()=>{if(audioCtxRef.current)audioCtxRef.current.close().catch(()=>{});},[]);
   const doTap=()=>{
     onTap();
     setTapped(true);
     setTimeout(()=>setTapped(false),100);
+    if(tapClickOn){
+      const AudioCtx=window.AudioContext||window.webkitAudioContext;
+      if(!AudioCtx)return;
+      if(!audioCtxRef.current)audioCtxRef.current=new AudioCtx();
+      const ctx=audioCtxRef.current;
+      if(ctx.state==='suspended')ctx.resume();
+      playMetronomeClick(ctx,ctx.currentTime,volume);
+    }
+  };
+  // A real <button>'s click event only fires after the browser's touch
+  // heuristics resolve (waiting to rule out a scroll/double-tap-zoom
+  // gesture), which is exactly the latency that was swallowing taps at
+  // fast tempos. onPointerDown fires the instant a finger lands, for both
+  // touch and mouse — preventDefault stops the browser from also firing a
+  // delayed synthetic click that would otherwise double-count the tap.
+  const handlePointerDown=ev=>{
+    ev.preventDefault();
+    doTap();
   };
   return e('div',{style:{display:'flex',flexDirection:'column',height:'100%'}},
     e('div',{style:{display:'flex',alignItems:'center',gap:12,marginBottom:18}},
@@ -886,7 +920,7 @@ function MetronomeAdd({name,setName,bpm,setBpm,onTap,onSave,onBack,theme}){
     e('label',{style:{fontSize:12,fontWeight:600,color:'#6b7280',textTransform:'uppercase',letterSpacing:'0.03em',display:'block',marginBottom:6}},'Song name'),
     e('input',{value:name,onChange:ev=>setName(ev.target.value),placeholder:'e.g. Mustang Sally',
       style:{width:'100%',fontSize:16,padding:'12px 13px',border:'1px solid #d1d5db',borderRadius:10,marginBottom:18}}),
-    e('div',{style:{display:'flex',alignItems:'center',justifyContent:'center',gap:22,background:'#f9fafb',border:'1px solid #e5e7eb',borderRadius:16,padding:'20px 10px',marginBottom:16}},
+    e('div',{style:{display:'flex',alignItems:'center',justifyContent:'center',gap:22,background:'#f9fafb',border:'1px solid #e5e7eb',borderRadius:16,padding:'20px 10px',marginBottom:14}},
       e('button',{onClick:()=>setBpm(b=>Math.max(30,b-1)),style:{width:44,height:44,borderRadius:'50%',border:'1px solid #d1d5db',background:'#fff',fontSize:19,color:'#374151',cursor:'pointer'}},'−'),
       e('div',{style:{textAlign:'center'}},
         e('b',{style:{fontSize:48,fontWeight:700,fontVariantNumeric:'tabular-nums',lineHeight:1,display:'block'}},bpm),
@@ -894,11 +928,16 @@ function MetronomeAdd({name,setName,bpm,setBpm,onTap,onSave,onBack,theme}){
       ),
       e('button',{onClick:()=>setBpm(b=>Math.min(300,b+1)),style:{width:44,height:44,borderRadius:'50%',border:'1px solid #d1d5db',background:'#fff',fontSize:19,color:'#374151',cursor:'pointer'}},'+')
     ),
+    e('div',{onClick:()=>setTapClickOn(v=>!v),style:{display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'pointer',marginBottom:14,padding:'2px 2px'}},
+      e('span',{style:{fontSize:13,color:'#6b7280'}},'🔊 Click while tapping'),
+      e(Toggle,{on:tapClickOn,onToggle:()=>setTapClickOn(v=>!v)})
+    ),
     // The tap zone is deliberately the biggest, easiest target on this
     // screen — flex:1 so it soaks up whatever room the full-screen modal
     // has left, since a bigger target is the whole point of making it
-    // easier to keep a steady rhythm going while tapping.
-    e('button',{onClick:doTap,style:{flex:1,minHeight:120,width:'100%',borderRadius:18,cursor:'pointer',marginBottom:18,
+    // easier to keep a steady rhythm going while tapping. onPointerDown,
+    // not onClick — see handlePointerDown above.
+    e('button',{onPointerDown:handlePointerDown,style:{flex:1,minHeight:110,width:'100%',borderRadius:18,cursor:'pointer',marginBottom:18,touchAction:'manipulation',
       border:'2px dashed '+(tapped?'#0F6E56':'#5DCAA5'),background:tapped?'#DCF5E9':'#F4FBF8',color:'#0F6E56',fontWeight:600,
       display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:8,
       transform:tapped?'scale(0.97)':'scale(1)',transition:'transform 0.08s ease, background 0.08s ease'}},
@@ -918,7 +957,7 @@ function MetronomeAdd({name,setName,bpm,setBpm,onTap,onSave,onBack,theme}){
 // a setTimeout sized to the gap between now and the note's audio time), so
 // click and flash stay in sync with each other, not just individually
 // accurate.
-function MetronomeRun({tempo,soundOn,setSoundOn,flashOn,setFlashOn,onBack,theme}){
+function MetronomeRun({tempo,soundOn,setSoundOn,flashOn,setFlashOn,volume,setVolume,onBack,theme}){
   const [bpm,setBpm]=useState(tempo.bpm);
   const [flashPulse,setFlashPulse]=useState(false);
   const [beatIndex,setBeatIndex]=useState(0);
@@ -928,23 +967,16 @@ function MetronomeRun({tempo,soundOn,setSoundOn,flashOn,setFlashOn,onBack,theme}
   const bpmRef=useRef(bpm);
   const soundOnRef=useRef(soundOn);
   const flashOnRef=useRef(flashOn);
+  const volumeRef=useRef(volume);
   const beatCountRef=useRef(0);
   useEffect(()=>{bpmRef.current=bpm;},[bpm]);
   useEffect(()=>{soundOnRef.current=soundOn;},[soundOn]);
   useEffect(()=>{flashOnRef.current=flashOn;},[flashOn]);
+  useEffect(()=>{volumeRef.current=volume;},[volume]);
 
   const scheduleNote=useCallback((time)=>{
     const ctx=audioCtxRef.current;
-    if(soundOnRef.current){
-      const osc=ctx.createOscillator();
-      const gain=ctx.createGain();
-      osc.frequency.value=1000;
-      gain.gain.setValueAtTime(0.001,time);
-      gain.gain.exponentialRampToValueAtTime(0.5,time+0.002);
-      gain.gain.exponentialRampToValueAtTime(0.001,time+0.05);
-      osc.connect(gain);gain.connect(ctx.destination);
-      osc.start(time);osc.stop(time+0.06);
-    }
+    if(soundOnRef.current)playMetronomeClick(ctx,time,volumeRef.current);
     const delayMs=Math.max(0,(time-ctx.currentTime)*1000);
     setTimeout(()=>{
       if(flashOnRef.current){
@@ -1007,6 +1039,13 @@ function MetronomeRun({tempo,soundOn,setSoundOn,flashOn,setFlashOn,onBack,theme}
         border:'2px solid '+(flashOn?(theme.mid||'#0F6E56'):'#d1d5db'),
         background:flashOn?(theme.mid||'#0F6E56'):'#fff',color:flashOn?'#fff':'#6b7280',fontSize:14.5,fontWeight:600}},'💡 Flash')
     ),
+    e('div',{style:{display:'flex',alignItems:'center',gap:10,width:'100%',marginBottom:18,flexShrink:0,opacity:soundOn?1:0.45}},
+      e('span',{style:{fontSize:15}},'🔈'),
+      e('input',{type:'range',min:0,max:100,value:Math.round(volume*100),
+        onChange:ev=>setVolume(Number(ev.target.value)/100),
+        style:{flex:1,accentColor:theme.mid||'#0F6E56',height:24}}),
+      e('span',{style:{fontSize:17}},'🔊')
+    ),
     e('div',{style:{display:'flex',gap:10,alignItems:'center',width:'100%',flexShrink:0}},
       e('div',{style:{display:'flex',alignItems:'center',gap:8,background:'#fff',border:'1px solid #e5e7eb',borderRadius:11,padding:'8px 10px'}},
         e('button',{onClick:()=>setBpm(b=>Math.max(30,b-1)),style:{fontSize:16,width:28,border:'none',background:'none',cursor:'pointer'}},'−'),
@@ -1016,7 +1055,7 @@ function MetronomeRun({tempo,soundOn,setSoundOn,flashOn,setFlashOn,onBack,theme}
     )
   );
 }
-function MetronomeModal({tempos,setTempos,soundOn,setSoundOn,flashOn,setFlashOn,theme,onClose}){
+function MetronomeModal({tempos,setTempos,soundOn,setSoundOn,flashOn,setFlashOn,volume,setVolume,tapClickOn,setTapClickOn,theme,onClose}){
   const [view,setView]=useState('list');
   const [runningTempo,setRunningTempo]=useState(null);
   const [newName,setNewName]=useState('');
@@ -1054,8 +1093,8 @@ function MetronomeModal({tempos,setTempos,soundOn,setSoundOn,flashOn,setFlashOn,
     e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',
       style:{width:'100%',maxWidth:480,height:'min(88vh, 720px)',display:'flex',flexDirection:'column'}},
       view==='list'&&e(MetronomeList,{tempos,onStart:startTempo,onDelete:deleteTempo,onAdd:()=>setView('add'),onClose}),
-      view==='add'&&e(MetronomeAdd,{name:newName,setName:setNewName,bpm:newBpm,setBpm:setNewBpm,onTap:handleTap,onSave:addTempo,onBack:()=>setView('list'),theme}),
-      view==='run'&&runningTempo&&e(MetronomeRun,{tempo:runningTempo,soundOn,setSoundOn,flashOn,setFlashOn,onBack:()=>setView('list'),theme})
+      view==='add'&&e(MetronomeAdd,{name:newName,setName:setNewName,bpm:newBpm,setBpm:setNewBpm,onTap:handleTap,onSave:addTempo,onBack:()=>setView('list'),theme,volume,tapClickOn,setTapClickOn}),
+      view==='run'&&runningTempo&&e(MetronomeRun,{tempo:runningTempo,soundOn,setSoundOn,flashOn,setFlashOn,volume,setVolume,onBack:()=>setView('list'),theme})
     )
   );
 }
@@ -1754,9 +1793,13 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
   const [metronomeTempos,setMetronomeTempos]=useState(()=>{try{const s=localStorage.getItem('pmtf_metronome_tempos');return s?JSON.parse(s):[];}catch{return [];}});
   const [metronomeSound,setMetronomeSound]=useState(()=>{try{const s=localStorage.getItem('pmtf_metronome_sound');return s===null?true:s==='1';}catch{return true;}});
   const [metronomeFlash,setMetronomeFlash]=useState(()=>{try{const s=localStorage.getItem('pmtf_metronome_flash');return s===null?false:s==='1';}catch{return false;}});
+  const [metronomeVolume,setMetronomeVolume]=useState(()=>{try{const s=localStorage.getItem('pmtf_metronome_volume');return s===null?0.7:parseFloat(s);}catch{return 0.7;}});
+  const [metronomeTapClick,setMetronomeTapClick]=useState(()=>{try{const s=localStorage.getItem('pmtf_metronome_tap_click');return s===null?true:s==='1';}catch{return true;}});
   useEffect(()=>{try{localStorage.setItem('pmtf_metronome_tempos',JSON.stringify(metronomeTempos));}catch{}},[metronomeTempos]);
   useEffect(()=>{try{localStorage.setItem('pmtf_metronome_sound',metronomeSound?'1':'0');}catch{}},[metronomeSound]);
   useEffect(()=>{try{localStorage.setItem('pmtf_metronome_flash',metronomeFlash?'1':'0');}catch{}},[metronomeFlash]);
+  useEffect(()=>{try{localStorage.setItem('pmtf_metronome_volume',String(metronomeVolume));}catch{}},[metronomeVolume]);
+  useEffect(()=>{try{localStorage.setItem('pmtf_metronome_tap_click',metronomeTapClick?'1':'0');}catch{}},[metronomeTapClick]);
   const notificationsSectionRef=useRef(null);
   const jumpToNotifications=()=>{
     setOpenSections(prev=>{const next=new Set(prev);next.add('notifications');return next;});
@@ -2270,6 +2313,8 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
       tempos:metronomeTempos,setTempos:setMetronomeTempos,
       soundOn:metronomeSound,setSoundOn:setMetronomeSound,
       flashOn:metronomeFlash,setFlashOn:setMetronomeFlash,
+      volume:metronomeVolume,setVolume:setMetronomeVolume,
+      tapClickOn:metronomeTapClick,setTapClickOn:setMetronomeTapClick,
       theme,onClose:()=>setShowMetronomeModal(false)
     }),
     showSchedulePreview&&e('div',{onClick:()=>setShowSchedulePreview(false),className:'overlay'},
