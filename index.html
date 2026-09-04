@@ -844,50 +844,69 @@ function BandStatsModal({chartYear,setChartYear,chartType,setChartType,chartShow
 // play button) all trigger the same action so there's no dead-feeling area
 // on a fairly small tap target; only the ✕ is a separate, smaller target.
 function MetronomeList({tempos,onStart,onDelete,onAdd,onClose}){
-  return e('div',null,
-    e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}},
-      e('div',{style:{fontSize:16,fontWeight:700}},'Metronome'),
-      e('button',{onClick:onClose,style:{border:'none',background:'none',fontSize:18,color:'#9ca3af',cursor:'pointer',padding:'0 4px'}},'×')
+  return e('div',{style:{display:'flex',flexDirection:'column',height:'100%'}},
+    e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}},
+      e('div',{style:{fontSize:19,fontWeight:700}},'Metronome'),
+      e('button',{onClick:onClose,style:{border:'none',background:'none',fontSize:22,color:'#9ca3af',cursor:'pointer',padding:'0 4px'}},'×')
     ),
     tempos.length===0
-      ?e('div',{style:{textAlign:'center',padding:'20px 0',color:'#9ca3af',fontSize:13}},'No saved tempos yet.')
-      :e('div',{style:{display:'flex',flexDirection:'column',gap:8,marginBottom:12,maxHeight:360,overflowY:'auto'}},
-          tempos.map(t=>e('div',{key:t.id,style:{display:'flex',alignItems:'center',gap:11,background:'#f9fafb',border:'1px solid #e5e7eb',borderRadius:11,padding:'9px 10px'}},
-            e('div',{onClick:()=>onStart(t),style:{width:46,height:46,borderRadius:10,background:'#E1F5EE',color:'#085041',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',flexShrink:0,cursor:'pointer'}},
-              e('b',{style:{fontSize:14,fontWeight:700,lineHeight:1}},t.bpm),
-              e('span',{style:{fontSize:7,fontWeight:600,letterSpacing:'0.04em',textTransform:'uppercase',opacity:.75}},'bpm')
+      ?e('div',{style:{flex:1,display:'flex',alignItems:'center',justifyContent:'center',color:'#9ca3af',fontSize:14}},'No saved tempos yet.')
+      :e('div',{style:{display:'flex',flexDirection:'column',gap:10,marginBottom:14,flex:1,overflowY:'auto'}},
+          tempos.map(t=>e('div',{key:t.id,style:{display:'flex',alignItems:'center',gap:13,background:'#f9fafb',border:'1px solid #e5e7eb',borderRadius:13,padding:'12px 13px'}},
+            e('div',{onClick:()=>onStart(t),style:{width:58,height:58,borderRadius:12,background:'#E1F5EE',color:'#085041',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',flexShrink:0,cursor:'pointer'}},
+              e('b',{style:{fontSize:18,fontWeight:700,lineHeight:1}},t.bpm),
+              e('span',{style:{fontSize:8,fontWeight:600,letterSpacing:'0.04em',textTransform:'uppercase',opacity:.75}},'bpm')
             ),
             e('div',{onClick:()=>onStart(t),style:{flex:1,minWidth:0,cursor:'pointer'}},
-              e('div',{style:{fontSize:13.5,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},t.name),
-              e('div',{style:{fontSize:11,color:'#9ca3af',marginTop:1}},t.lastUsed?('Last used '+timeAgo(new Date(t.lastUsed).toISOString())):'Never used yet')
+              e('div',{style:{fontSize:15.5,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},t.name),
+              e('div',{style:{fontSize:12,color:'#9ca3af',marginTop:2}},t.lastUsed?('Last used '+timeAgo(new Date(t.lastUsed).toISOString())):'Never used yet')
             ),
-            e('div',{onClick:()=>onStart(t),style:{width:32,height:32,borderRadius:'50%',background:'#0F6E56',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,flexShrink:0,cursor:'pointer'}},'▶'),
-            e('span',{onClick:()=>{if(window.confirm('Delete "'+t.name+'"?'))onDelete(t.id);},style:{fontSize:11,color:'#9ca3af',cursor:'pointer',padding:'0 2px',flexShrink:0}},'✕')
+            e('div',{onClick:()=>onStart(t),style:{width:42,height:42,borderRadius:'50%',background:'#0F6E56',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0,cursor:'pointer'}},'▶'),
+            e('span',{onClick:()=>{if(window.confirm('Delete "'+t.name+'"?'))onDelete(t.id);},style:{fontSize:13,color:'#9ca3af',cursor:'pointer',padding:'0 4px',flexShrink:0}},'✕')
           ))
         ),
-    e('button',{onClick:onAdd,style:{width:'100%',padding:'9px 0',borderRadius:10,border:'1.5px dashed #5DCAA5',background:'#F4FBF8',color:'#0F6E56',fontWeight:600,fontSize:12.5,cursor:'pointer'}},'+ Save a tempo')
+    e('button',{onClick:onAdd,style:{width:'100%',padding:'13px 0',borderRadius:12,border:'1.5px dashed #5DCAA5',background:'#F4FBF8',color:'#0F6E56',fontWeight:600,fontSize:14,cursor:'pointer',flexShrink:0}},'+ Save a tempo')
   );
 }
 function MetronomeAdd({name,setName,bpm,setBpm,onTap,onSave,onBack,theme}){
-  return e('div',null,
-    e('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:14}},
-      e('span',{onClick:onBack,style:{fontSize:18,color:'#374151',cursor:'pointer'}},'‹'),
-      e('div',{style:{fontSize:16,fontWeight:700}},'New tempo')
+  // Brief press-feedback on the tap zone (scale + color flash) so a big,
+  // otherwise-static button still visibly confirms each tap landed — useful
+  // since tap tempo depends on tapping right on the beat, not just tapping.
+  const [tapped,setTapped]=useState(false);
+  const doTap=()=>{
+    onTap();
+    setTapped(true);
+    setTimeout(()=>setTapped(false),100);
+  };
+  return e('div',{style:{display:'flex',flexDirection:'column',height:'100%'}},
+    e('div',{style:{display:'flex',alignItems:'center',gap:12,marginBottom:18}},
+      e('span',{onClick:onBack,style:{fontSize:22,color:'#374151',cursor:'pointer'}},'‹'),
+      e('div',{style:{fontSize:19,fontWeight:700}},'New tempo')
     ),
-    e('label',{style:{fontSize:11,fontWeight:600,color:'#6b7280',textTransform:'uppercase',letterSpacing:'0.03em',display:'block',marginBottom:5}},'Song name'),
+    e('label',{style:{fontSize:12,fontWeight:600,color:'#6b7280',textTransform:'uppercase',letterSpacing:'0.03em',display:'block',marginBottom:6}},'Song name'),
     e('input',{value:name,onChange:ev=>setName(ev.target.value),placeholder:'e.g. Mustang Sally',
-      style:{width:'100%',fontSize:14,padding:'9px 11px',border:'1px solid #d1d5db',borderRadius:9,marginBottom:14}}),
-    e('div',{style:{display:'flex',alignItems:'center',justifyContent:'center',gap:18,background:'#f9fafb',border:'1px solid #e5e7eb',borderRadius:14,padding:'16px 10px',marginBottom:12}},
-      e('button',{onClick:()=>setBpm(b=>Math.max(30,b-1)),style:{width:36,height:36,borderRadius:'50%',border:'1px solid #d1d5db',background:'#fff',fontSize:16,color:'#374151',cursor:'pointer'}},'−'),
+      style:{width:'100%',fontSize:16,padding:'12px 13px',border:'1px solid #d1d5db',borderRadius:10,marginBottom:18}}),
+    e('div',{style:{display:'flex',alignItems:'center',justifyContent:'center',gap:22,background:'#f9fafb',border:'1px solid #e5e7eb',borderRadius:16,padding:'20px 10px',marginBottom:16}},
+      e('button',{onClick:()=>setBpm(b=>Math.max(30,b-1)),style:{width:44,height:44,borderRadius:'50%',border:'1px solid #d1d5db',background:'#fff',fontSize:19,color:'#374151',cursor:'pointer'}},'−'),
       e('div',{style:{textAlign:'center'}},
-        e('b',{style:{fontSize:38,fontWeight:700,fontVariantNumeric:'tabular-nums',lineHeight:1,display:'block'}},bpm),
-        e('span',{style:{fontSize:10,color:'#9ca3af',letterSpacing:'0.05em',textTransform:'uppercase'}},'bpm')
+        e('b',{style:{fontSize:48,fontWeight:700,fontVariantNumeric:'tabular-nums',lineHeight:1,display:'block'}},bpm),
+        e('span',{style:{fontSize:11,color:'#9ca3af',letterSpacing:'0.05em',textTransform:'uppercase'}},'bpm')
       ),
-      e('button',{onClick:()=>setBpm(b=>Math.min(300,b+1)),style:{width:36,height:36,borderRadius:'50%',border:'1px solid #d1d5db',background:'#fff',fontSize:16,color:'#374151',cursor:'pointer'}},'+')
+      e('button',{onClick:()=>setBpm(b=>Math.min(300,b+1)),style:{width:44,height:44,borderRadius:'50%',border:'1px solid #d1d5db',background:'#fff',fontSize:19,color:'#374151',cursor:'pointer'}},'+')
     ),
-    e('button',{onClick:onTap,style:{width:'100%',padding:'11px 0',borderRadius:10,border:'1.5px dashed #5DCAA5',background:'#F4FBF8',color:'#0F6E56',fontWeight:600,fontSize:12.5,cursor:'pointer',marginBottom:16}},'👆 Tap along to set it'),
-    e('button',{onClick:onSave,disabled:!name.trim(),style:{width:'100%',padding:'10px 0',borderRadius:10,border:'none',
-      background:name.trim()?(theme.mid||'#1D9E75'):'#d1d5db',color:'#fff',fontWeight:500,fontSize:13.5,cursor:name.trim()?'pointer':'not-allowed'}},'Save')
+    // The tap zone is deliberately the biggest, easiest target on this
+    // screen — flex:1 so it soaks up whatever room the full-screen modal
+    // has left, since a bigger target is the whole point of making it
+    // easier to keep a steady rhythm going while tapping.
+    e('button',{onClick:doTap,style:{flex:1,minHeight:120,width:'100%',borderRadius:18,cursor:'pointer',marginBottom:18,
+      border:'2px dashed '+(tapped?'#0F6E56':'#5DCAA5'),background:tapped?'#DCF5E9':'#F4FBF8',color:'#0F6E56',fontWeight:600,
+      display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:8,
+      transform:tapped?'scale(0.97)':'scale(1)',transition:'transform 0.08s ease, background 0.08s ease'}},
+      e('span',{style:{fontSize:34}},'👆'),
+      e('span',{style:{fontSize:15}},'Tap along to set it')
+    ),
+    e('button',{onClick:onSave,disabled:!name.trim(),style:{width:'100%',padding:'14px 0',borderRadius:12,border:'none',flexShrink:0,
+      background:name.trim()?(theme.mid||'#1D9E75'):'#d1d5db',color:'#fff',fontWeight:600,fontSize:15.5,cursor:name.trim()?'pointer':'not-allowed'}},'Save')
   );
 }
 // The actual click/flash engine. Uses a Web Audio lookahead scheduler
@@ -957,36 +976,43 @@ function MetronomeRun({tempo,soundOn,setSoundOn,flashOn,setFlashOn,onBack,theme}
     };
   },[scheduleNote]);
 
-  return e('div',null,
-    e('div',{style:{textAlign:'center'}},
-      e('div',{style:{fontSize:14,fontWeight:600}},tempo.name),
-      e('div',{style:{fontSize:12,color:'#9ca3af',marginBottom:18}},bpm+' BPM')
+  // The circle is the whole point of "flash" mode, so it's sized to
+  // dominate the screen (not just be one element among several) — clamped
+  // between a sane floor and ceiling so it scales with the viewport instead
+  // of sitting at a fixed size regardless of how much room the full-screen
+  // modal actually has.
+  return e('div',{style:{display:'flex',flexDirection:'column',alignItems:'center',height:'100%'}},
+    e('div',{style:{textAlign:'center',flexShrink:0}},
+      e('div',{style:{fontSize:17,fontWeight:600}},tempo.name),
+      e('div',{style:{fontSize:13,color:'#9ca3af'}},bpm+' BPM')
     ),
-    e('div',{style:{width:150,height:150,borderRadius:'50%',margin:'0 auto 18px',
-      background:`radial-gradient(circle at 50% 45%, ${flashPulse?'#3FE0A5':'#1FBE87'}, ${theme.mid||'#0F6E56'})`,
-      display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',
-      boxShadow:flashPulse?`0 0 0 14px ${theme.pale||'rgba(15,110,86,.2)'}, 0 14px 30px rgba(15,110,86,.35)`:'0 0 0 10px rgba(15,110,86,.14), 0 14px 30px rgba(15,110,86,.28)',
-      transition:'box-shadow 0.1s ease, background 0.1s ease'}},
-      e('b',{style:{fontSize:44,fontWeight:700}},bpm)
+    e('div',{style:{flex:1,display:'flex',alignItems:'center',justifyContent:'center',width:'100%',minHeight:0}},
+      e('div',{style:{width:'min(64vw, 300px)',height:'min(64vw, 300px)',maxWidth:'100%',aspectRatio:'1',borderRadius:'50%',
+        background:`radial-gradient(circle at 50% 45%, ${flashPulse?'#3FE0A5':'#1FBE87'}, ${theme.mid||'#0F6E56'})`,
+        display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',
+        boxShadow:flashPulse?`0 0 0 18px ${theme.pale||'rgba(15,110,86,.2)'}, 0 18px 40px rgba(15,110,86,.4)`:'0 0 0 12px rgba(15,110,86,.14), 0 18px 40px rgba(15,110,86,.3)',
+        transition:'box-shadow 0.1s ease, background 0.1s ease'}},
+        e('b',{style:{fontSize:'clamp(56px, 15vw, 76px)',fontWeight:700}},bpm)
+      )
     ),
-    e('div',{style:{display:'flex',gap:9,justifyContent:'center',marginBottom:18}},
-      [0,1,2,3].map(i=>e('i',{key:i,style:{width:10,height:10,borderRadius:'50%',display:'block',
+    e('div',{style:{display:'flex',gap:11,justifyContent:'center',marginBottom:20,flexShrink:0}},
+      [0,1,2,3].map(i=>e('i',{key:i,style:{width:13,height:13,borderRadius:'50%',display:'block',
         background:i===beatIndex?(theme.mid||'#0F6E56'):'#d1d5db'}}))
     ),
-    e('div',{style:{display:'flex',gap:8,marginBottom:16}},
-      e('button',{onClick:()=>setSoundOn(v=>!v),style:{flex:1,padding:'9px 0',borderRadius:9,cursor:'pointer',
-        border:'1px solid '+(soundOn?(theme.mid||'#0F6E56'):'#d1d5db'),
-        background:soundOn?(theme.mid||'#0F6E56'):'#fff',color:soundOn?'#fff':'#6b7280',fontSize:11.5,fontWeight:500}},'🔊 Sound'),
-      e('button',{onClick:()=>setFlashOn(v=>!v),style:{flex:1,padding:'9px 0',borderRadius:9,cursor:'pointer',
-        border:'1px solid '+(flashOn?(theme.mid||'#0F6E56'):'#d1d5db'),
-        background:flashOn?(theme.mid||'#0F6E56'):'#fff',color:flashOn?'#fff':'#6b7280',fontSize:11.5,fontWeight:500}},'💡 Flash')
+    e('div',{style:{display:'flex',gap:10,marginBottom:18,width:'100%',flexShrink:0}},
+      e('button',{onClick:()=>setSoundOn(v=>!v),style:{flex:1,padding:'14px 0',borderRadius:12,cursor:'pointer',
+        border:'2px solid '+(soundOn?(theme.mid||'#0F6E56'):'#d1d5db'),
+        background:soundOn?(theme.mid||'#0F6E56'):'#fff',color:soundOn?'#fff':'#6b7280',fontSize:14.5,fontWeight:600}},'🔊 Sound'),
+      e('button',{onClick:()=>setFlashOn(v=>!v),style:{flex:1,padding:'14px 0',borderRadius:12,cursor:'pointer',
+        border:'2px solid '+(flashOn?(theme.mid||'#0F6E56'):'#d1d5db'),
+        background:flashOn?(theme.mid||'#0F6E56'):'#fff',color:flashOn?'#fff':'#6b7280',fontSize:14.5,fontWeight:600}},'💡 Flash')
     ),
-    e('div',{style:{display:'flex',gap:10,alignItems:'center'}},
-      e('div',{style:{display:'flex',alignItems:'center',gap:6,background:'#fff',border:'1px solid #e5e7eb',borderRadius:9,padding:'5px 8px'}},
-        e('button',{onClick:()=>setBpm(b=>Math.max(30,b-1)),style:{fontSize:13,width:22,border:'none',background:'none',cursor:'pointer'}},'−'),
-        e('button',{onClick:()=>setBpm(b=>Math.min(300,b+1)),style:{fontSize:13,width:22,border:'none',background:'none',cursor:'pointer'}},'+')
+    e('div',{style:{display:'flex',gap:10,alignItems:'center',width:'100%',flexShrink:0}},
+      e('div',{style:{display:'flex',alignItems:'center',gap:8,background:'#fff',border:'1px solid #e5e7eb',borderRadius:11,padding:'8px 10px'}},
+        e('button',{onClick:()=>setBpm(b=>Math.max(30,b-1)),style:{fontSize:16,width:28,border:'none',background:'none',cursor:'pointer'}},'−'),
+        e('button',{onClick:()=>setBpm(b=>Math.min(300,b+1)),style:{fontSize:16,width:28,border:'none',background:'none',cursor:'pointer'}},'+')
       ),
-      e('button',{onClick:onBack,style:{flex:1,padding:'11px 0',borderRadius:11,border:'none',background:'#B91C1C',color:'#fff',fontWeight:600,fontSize:14,cursor:'pointer'}},'■ Stop')
+      e('button',{onClick:onBack,style:{flex:1,padding:'15px 0',borderRadius:13,border:'none',background:'#B91C1C',color:'#fff',fontWeight:700,fontSize:16,cursor:'pointer'}},'■ Stop')
     )
   );
 }
@@ -1025,7 +1051,8 @@ function MetronomeModal({tempos,setTempos,soundOn,setSoundOn,flashOn,setFlashOn,
   };
 
   return e('div',{onClick:onClose,className:'overlay'},
-    e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:380}},
+    e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',
+      style:{width:'100%',maxWidth:480,height:'min(88vh, 720px)',display:'flex',flexDirection:'column'}},
       view==='list'&&e(MetronomeList,{tempos,onStart:startTempo,onDelete:deleteTempo,onAdd:()=>setView('add'),onClose}),
       view==='add'&&e(MetronomeAdd,{name:newName,setName:setNewName,bpm:newBpm,setBpm:setNewBpm,onTap:handleTap,onSave:addTempo,onBack:()=>setView('list'),theme}),
       view==='run'&&runningTempo&&e(MetronomeRun,{tempo:runningTempo,soundOn,setSoundOn,flashOn,setFlashOn,onBack:()=>setView('list'),theme})
