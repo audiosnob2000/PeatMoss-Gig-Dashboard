@@ -1,0 +1,30 @@
+name: Weekly Band Update
+
+on:
+  schedule:
+    # Monday 9am ET (14:00 UTC) — a quick heads-up on what's new in the app.
+    - cron: '0 14 * * 1'
+  workflow_dispatch: {}
+
+jobs:
+  post-update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install function dependencies
+        working-directory: functions
+        run: npm install
+      - name: Write service account key
+        run: echo "$FIREBASE_SERVICE_ACCOUNT" > /tmp/gcp-key.json
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      - name: Post weekly band update
+        working-directory: functions
+        run: node ../scripts/post-weekly-band-update.js
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcp-key.json
