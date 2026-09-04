@@ -840,6 +840,198 @@ function BandStatsModal({chartYear,setChartYear,chartType,setChartType,chartShow
     )
   );
 }
+// A saved tempo's card in the list — the "start" targets (badge, name, and
+// play button) all trigger the same action so there's no dead-feeling area
+// on a fairly small tap target; only the ✕ is a separate, smaller target.
+function MetronomeList({tempos,onStart,onDelete,onAdd,onClose}){
+  return e('div',null,
+    e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}},
+      e('div',{style:{fontSize:16,fontWeight:700}},'Metronome'),
+      e('button',{onClick:onClose,style:{border:'none',background:'none',fontSize:18,color:'#9ca3af',cursor:'pointer',padding:'0 4px'}},'×')
+    ),
+    tempos.length===0
+      ?e('div',{style:{textAlign:'center',padding:'20px 0',color:'#9ca3af',fontSize:13}},'No saved tempos yet.')
+      :e('div',{style:{display:'flex',flexDirection:'column',gap:8,marginBottom:12,maxHeight:360,overflowY:'auto'}},
+          tempos.map(t=>e('div',{key:t.id,style:{display:'flex',alignItems:'center',gap:11,background:'#f9fafb',border:'1px solid #e5e7eb',borderRadius:11,padding:'9px 10px'}},
+            e('div',{onClick:()=>onStart(t),style:{width:46,height:46,borderRadius:10,background:'#E1F5EE',color:'#085041',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',flexShrink:0,cursor:'pointer'}},
+              e('b',{style:{fontSize:14,fontWeight:700,lineHeight:1}},t.bpm),
+              e('span',{style:{fontSize:7,fontWeight:600,letterSpacing:'0.04em',textTransform:'uppercase',opacity:.75}},'bpm')
+            ),
+            e('div',{onClick:()=>onStart(t),style:{flex:1,minWidth:0,cursor:'pointer'}},
+              e('div',{style:{fontSize:13.5,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},t.name),
+              e('div',{style:{fontSize:11,color:'#9ca3af',marginTop:1}},t.lastUsed?('Last used '+timeAgo(new Date(t.lastUsed).toISOString())):'Never used yet')
+            ),
+            e('div',{onClick:()=>onStart(t),style:{width:32,height:32,borderRadius:'50%',background:'#0F6E56',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,flexShrink:0,cursor:'pointer'}},'▶'),
+            e('span',{onClick:()=>{if(window.confirm('Delete "'+t.name+'"?'))onDelete(t.id);},style:{fontSize:11,color:'#9ca3af',cursor:'pointer',padding:'0 2px',flexShrink:0}},'✕')
+          ))
+        ),
+    e('button',{onClick:onAdd,style:{width:'100%',padding:'9px 0',borderRadius:10,border:'1.5px dashed #5DCAA5',background:'#F4FBF8',color:'#0F6E56',fontWeight:600,fontSize:12.5,cursor:'pointer'}},'+ Save a tempo')
+  );
+}
+function MetronomeAdd({name,setName,bpm,setBpm,onTap,onSave,onBack,theme}){
+  return e('div',null,
+    e('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:14}},
+      e('span',{onClick:onBack,style:{fontSize:18,color:'#374151',cursor:'pointer'}},'‹'),
+      e('div',{style:{fontSize:16,fontWeight:700}},'New tempo')
+    ),
+    e('label',{style:{fontSize:11,fontWeight:600,color:'#6b7280',textTransform:'uppercase',letterSpacing:'0.03em',display:'block',marginBottom:5}},'Song name'),
+    e('input',{value:name,onChange:ev=>setName(ev.target.value),placeholder:'e.g. Mustang Sally',
+      style:{width:'100%',fontSize:14,padding:'9px 11px',border:'1px solid #d1d5db',borderRadius:9,marginBottom:14}}),
+    e('div',{style:{display:'flex',alignItems:'center',justifyContent:'center',gap:18,background:'#f9fafb',border:'1px solid #e5e7eb',borderRadius:14,padding:'16px 10px',marginBottom:12}},
+      e('button',{onClick:()=>setBpm(b=>Math.max(30,b-1)),style:{width:36,height:36,borderRadius:'50%',border:'1px solid #d1d5db',background:'#fff',fontSize:16,color:'#374151',cursor:'pointer'}},'−'),
+      e('div',{style:{textAlign:'center'}},
+        e('b',{style:{fontSize:38,fontWeight:700,fontVariantNumeric:'tabular-nums',lineHeight:1,display:'block'}},bpm),
+        e('span',{style:{fontSize:10,color:'#9ca3af',letterSpacing:'0.05em',textTransform:'uppercase'}},'bpm')
+      ),
+      e('button',{onClick:()=>setBpm(b=>Math.min(300,b+1)),style:{width:36,height:36,borderRadius:'50%',border:'1px solid #d1d5db',background:'#fff',fontSize:16,color:'#374151',cursor:'pointer'}},'+')
+    ),
+    e('button',{onClick:onTap,style:{width:'100%',padding:'11px 0',borderRadius:10,border:'1.5px dashed #5DCAA5',background:'#F4FBF8',color:'#0F6E56',fontWeight:600,fontSize:12.5,cursor:'pointer',marginBottom:16}},'👆 Tap along to set it'),
+    e('button',{onClick:onSave,disabled:!name.trim(),style:{width:'100%',padding:'10px 0',borderRadius:10,border:'none',
+      background:name.trim()?(theme.mid||'#1D9E75'):'#d1d5db',color:'#fff',fontWeight:500,fontSize:13.5,cursor:name.trim()?'pointer':'not-allowed'}},'Save')
+  );
+}
+// The actual click/flash engine. Uses a Web Audio lookahead scheduler
+// (schedule each note ~100ms ahead on the audio clock, re-check every 25ms)
+// rather than driving the click off setInterval/setTimeout directly —
+// setTimeout drift is very audible on a metronome over more than a few bars,
+// where audio-clock scheduling stays sample-accurate regardless of any main
+// thread jank. The visual flash is scheduled off that same audio clock (via
+// a setTimeout sized to the gap between now and the note's audio time), so
+// click and flash stay in sync with each other, not just individually
+// accurate.
+function MetronomeRun({tempo,soundOn,setSoundOn,flashOn,setFlashOn,onBack,theme}){
+  const [bpm,setBpm]=useState(tempo.bpm);
+  const [flashPulse,setFlashPulse]=useState(false);
+  const [beatIndex,setBeatIndex]=useState(0);
+  const audioCtxRef=useRef(null);
+  const nextNoteTimeRef=useRef(0);
+  const timerIdRef=useRef(null);
+  const bpmRef=useRef(bpm);
+  const soundOnRef=useRef(soundOn);
+  const flashOnRef=useRef(flashOn);
+  const beatCountRef=useRef(0);
+  useEffect(()=>{bpmRef.current=bpm;},[bpm]);
+  useEffect(()=>{soundOnRef.current=soundOn;},[soundOn]);
+  useEffect(()=>{flashOnRef.current=flashOn;},[flashOn]);
+
+  const scheduleNote=useCallback((time)=>{
+    const ctx=audioCtxRef.current;
+    if(soundOnRef.current){
+      const osc=ctx.createOscillator();
+      const gain=ctx.createGain();
+      osc.frequency.value=1000;
+      gain.gain.setValueAtTime(0.001,time);
+      gain.gain.exponentialRampToValueAtTime(0.5,time+0.002);
+      gain.gain.exponentialRampToValueAtTime(0.001,time+0.05);
+      osc.connect(gain);gain.connect(ctx.destination);
+      osc.start(time);osc.stop(time+0.06);
+    }
+    const delayMs=Math.max(0,(time-ctx.currentTime)*1000);
+    setTimeout(()=>{
+      if(flashOnRef.current){
+        setFlashPulse(true);
+        setTimeout(()=>setFlashPulse(false),100);
+      }
+      setBeatIndex(beatCountRef.current%4);
+      beatCountRef.current++;
+    },delayMs);
+  },[]);
+
+  useEffect(()=>{
+    const AudioCtx=window.AudioContext||window.webkitAudioContext;
+    if(!AudioCtx)return; // no Web Audio support — flash-only still works via the fallback below
+    const ctx=new AudioCtx();
+    audioCtxRef.current=ctx;
+    nextNoteTimeRef.current=ctx.currentTime+0.05;
+    const scheduler=()=>{
+      while(nextNoteTimeRef.current<ctx.currentTime+0.1){
+        scheduleNote(nextNoteTimeRef.current);
+        nextNoteTimeRef.current+=60/bpmRef.current;
+      }
+      timerIdRef.current=setTimeout(scheduler,25);
+    };
+    scheduler();
+    return ()=>{
+      clearTimeout(timerIdRef.current);
+      ctx.close().catch(()=>{});
+    };
+  },[scheduleNote]);
+
+  return e('div',null,
+    e('div',{style:{textAlign:'center'}},
+      e('div',{style:{fontSize:14,fontWeight:600}},tempo.name),
+      e('div',{style:{fontSize:12,color:'#9ca3af',marginBottom:18}},bpm+' BPM')
+    ),
+    e('div',{style:{width:150,height:150,borderRadius:'50%',margin:'0 auto 18px',
+      background:`radial-gradient(circle at 50% 45%, ${flashPulse?'#3FE0A5':'#1FBE87'}, ${theme.mid||'#0F6E56'})`,
+      display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',
+      boxShadow:flashPulse?`0 0 0 14px ${theme.pale||'rgba(15,110,86,.2)'}, 0 14px 30px rgba(15,110,86,.35)`:'0 0 0 10px rgba(15,110,86,.14), 0 14px 30px rgba(15,110,86,.28)',
+      transition:'box-shadow 0.1s ease, background 0.1s ease'}},
+      e('b',{style:{fontSize:44,fontWeight:700}},bpm)
+    ),
+    e('div',{style:{display:'flex',gap:9,justifyContent:'center',marginBottom:18}},
+      [0,1,2,3].map(i=>e('i',{key:i,style:{width:10,height:10,borderRadius:'50%',display:'block',
+        background:i===beatIndex?(theme.mid||'#0F6E56'):'#d1d5db'}}))
+    ),
+    e('div',{style:{display:'flex',gap:8,marginBottom:16}},
+      e('button',{onClick:()=>setSoundOn(v=>!v),style:{flex:1,padding:'9px 0',borderRadius:9,cursor:'pointer',
+        border:'1px solid '+(soundOn?(theme.mid||'#0F6E56'):'#d1d5db'),
+        background:soundOn?(theme.mid||'#0F6E56'):'#fff',color:soundOn?'#fff':'#6b7280',fontSize:11.5,fontWeight:500}},'🔊 Sound'),
+      e('button',{onClick:()=>setFlashOn(v=>!v),style:{flex:1,padding:'9px 0',borderRadius:9,cursor:'pointer',
+        border:'1px solid '+(flashOn?(theme.mid||'#0F6E56'):'#d1d5db'),
+        background:flashOn?(theme.mid||'#0F6E56'):'#fff',color:flashOn?'#fff':'#6b7280',fontSize:11.5,fontWeight:500}},'💡 Flash')
+    ),
+    e('div',{style:{display:'flex',gap:10,alignItems:'center'}},
+      e('div',{style:{display:'flex',alignItems:'center',gap:6,background:'#fff',border:'1px solid #e5e7eb',borderRadius:9,padding:'5px 8px'}},
+        e('button',{onClick:()=>setBpm(b=>Math.max(30,b-1)),style:{fontSize:13,width:22,border:'none',background:'none',cursor:'pointer'}},'−'),
+        e('button',{onClick:()=>setBpm(b=>Math.min(300,b+1)),style:{fontSize:13,width:22,border:'none',background:'none',cursor:'pointer'}},'+')
+      ),
+      e('button',{onClick:onBack,style:{flex:1,padding:'11px 0',borderRadius:11,border:'none',background:'#B91C1C',color:'#fff',fontWeight:600,fontSize:14,cursor:'pointer'}},'■ Stop')
+    )
+  );
+}
+function MetronomeModal({tempos,setTempos,soundOn,setSoundOn,flashOn,setFlashOn,theme,onClose}){
+  const [view,setView]=useState('list');
+  const [runningTempo,setRunningTempo]=useState(null);
+  const [newName,setNewName]=useState('');
+  const [newBpm,setNewBpm]=useState(120);
+  const tapTimesRef=useRef([]);
+
+  const addTempo=()=>{
+    if(!newName.trim())return;
+    setTempos(prev=>[...prev,{id:'mt'+Date.now(),name:newName.trim(),bpm:newBpm,lastUsed:null}]);
+    setNewName('');setNewBpm(120);
+    setView('list');
+  };
+  const deleteTempo=id=>setTempos(prev=>prev.filter(t=>t.id!==id));
+  const startTempo=t=>{
+    setTempos(prev=>prev.map(x=>x.id===t.id?{...x,lastUsed:Date.now()}:x));
+    setRunningTempo(t);
+    setView('run');
+  };
+  // Tap tempo: average the gaps between the last several taps (within 3s of
+  // each other, so an old stray tap doesn't drag a fresh sequence off) and
+  // convert to BPM. Two taps is enough for a first guess; each additional
+  // tap within the window refines it.
+  const handleTap=()=>{
+    const now=Date.now();
+    tapTimesRef.current=[...tapTimesRef.current,now].filter(t=>now-t<3000).slice(-6);
+    if(tapTimesRef.current.length>=2){
+      const gaps=[];
+      for(let i=1;i<tapTimesRef.current.length;i++)gaps.push(tapTimesRef.current[i]-tapTimesRef.current[i-1]);
+      const avg=gaps.reduce((a,b)=>a+b,0)/gaps.length;
+      setNewBpm(Math.max(30,Math.min(300,Math.round(60000/avg))));
+    }
+  };
+
+  return e('div',{onClick:onClose,className:'overlay'},
+    e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:380}},
+      view==='list'&&e(MetronomeList,{tempos,onStart:startTempo,onDelete:deleteTempo,onAdd:()=>setView('add'),onClose}),
+      view==='add'&&e(MetronomeAdd,{name:newName,setName:setNewName,bpm:newBpm,setBpm:setNewBpm,onTap:handleTap,onSave:addTempo,onBack:()=>setView('list'),theme}),
+      view==='run'&&runningTempo&&e(MetronomeRun,{tempo:runningTempo,soundOn,setSoundOn,flashOn,setFlashOn,onBack:()=>setView('list'),theme})
+    )
+  );
+}
 function tryPrint(setStandaloneHelp){
   if(window.navigator.standalone===true){setStandaloneHelp(true);return;}
   window.print();
@@ -1527,6 +1719,17 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
   const googleCalendarRowRef=useRef(null);
   const [confirmDeleteMsgId,setConfirmDeleteMsgId]=useState(null);
   const [showBandStatsModal,setShowBandStatsModal]=useState(false);
+  // Metronome: per-device, same reasoning as mileage/checklist — a saved
+  // tempo is personal practice data, not something the whole band needs to
+  // see. Sound/flash are global toggles (not per-tempo) since in practice
+  // you pick one mode for a given room/stage, not per song.
+  const [showMetronomeModal,setShowMetronomeModal]=useState(false);
+  const [metronomeTempos,setMetronomeTempos]=useState(()=>{try{const s=localStorage.getItem('pmtf_metronome_tempos');return s?JSON.parse(s):[];}catch{return [];}});
+  const [metronomeSound,setMetronomeSound]=useState(()=>{try{const s=localStorage.getItem('pmtf_metronome_sound');return s===null?true:s==='1';}catch{return true;}});
+  const [metronomeFlash,setMetronomeFlash]=useState(()=>{try{const s=localStorage.getItem('pmtf_metronome_flash');return s===null?false:s==='1';}catch{return false;}});
+  useEffect(()=>{try{localStorage.setItem('pmtf_metronome_tempos',JSON.stringify(metronomeTempos));}catch{}},[metronomeTempos]);
+  useEffect(()=>{try{localStorage.setItem('pmtf_metronome_sound',metronomeSound?'1':'0');}catch{}},[metronomeSound]);
+  useEffect(()=>{try{localStorage.setItem('pmtf_metronome_flash',metronomeFlash?'1':'0');}catch{}},[metronomeFlash]);
   const notificationsSectionRef=useRef(null);
   const jumpToNotifications=()=>{
     setOpenSections(prev=>{const next=new Set(prev);next.add('notifications');return next;});
@@ -2018,6 +2221,11 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
           right:e('button',{onClick:()=>setShowBandStatsModal(true),style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'View')
         })
       ),
+      e(Section,{icon:'🎵',iconBg:'#FDF0DC',title:'Metronome',summary:metronomeTempos.length?metronomeTempos.length+' saved tempo'+(metronomeTempos.length===1?'':'s'):'No saved tempos yet',isOpen:openSections.has('metronome'),onToggle:()=>toggleSection('metronome')},
+        e(Row,{label:'Saved tempos',sub:'Name a song, save its BPM, tap to start the click',border:false,
+          right:e('button',{onClick:()=>setShowMetronomeModal(true),style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'Open')
+        })
+      ),
       e(Section,{icon:'ℹ️',iconBg:'#E5E7EB',title:'About',summary:'v1.0.0',isOpen:openSections.has('about'),onToggle:()=>toggleSection('about')},
         e(Row,{label:'Version',sub:'1.0.0',border:true,right:null}),
         e(Row,{label:'Share app',sub:'Coming soon',border:false,right:e('button',{disabled:true,style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #e5e7eb',color:'#9ca3af',cursor:'not-allowed',background:'#f9fafb'}},'Coming soon')})
@@ -2030,6 +2238,12 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
     showBandStatsModal&&e(BandStatsModal,{
       chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,theme,
       onClose:()=>setShowBandStatsModal(false)
+    }),
+    showMetronomeModal&&e(MetronomeModal,{
+      tempos:metronomeTempos,setTempos:setMetronomeTempos,
+      soundOn:metronomeSound,setSoundOn:setMetronomeSound,
+      flashOn:metronomeFlash,setFlashOn:setMetronomeFlash,
+      theme,onClose:()=>setShowMetronomeModal(false)
     }),
     showSchedulePreview&&e('div',{onClick:()=>setShowSchedulePreview(false),className:'overlay'},
       e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:460,maxHeight:'90vh',overflowY:'auto',padding:0}},
@@ -3417,10 +3631,23 @@ function App(){
     saveSeenGigsSnapshot();
     setChangeSummary(null);
     setChangeExpanded(false);
+    setHighlightedGigIds(new Set());
   };
   const openGigPopup=g=>{
     if(highlightedGigIds.has(String(g.id))){
       setHighlightedGigIds(prev=>{const next=new Set(prev);next.delete(String(g.id));return next;});
+      // Patch just this gig into the last-seen snapshot so it stays cleared
+      // across a reload too — without this, closing the app before
+      // dismissing the whole banner re-diffs against the stale snapshot
+      // next time and puts the circle right back on a gig you already
+      // looked at.
+      try{
+        const lastSeen=JSON.parse(localStorage.getItem('pmtf_last_seen_gigs')||'[]');
+        const idx=lastSeen.findIndex(x=>String(x.id)===String(g.id));
+        const entry={id:g.id,date:g.date,time:g.time||'',venue:g.venue,status:g.status,notes:g.notes||''};
+        if(idx>=0)lastSeen[idx]=entry;else lastSeen.push(entry);
+        localStorage.setItem('pmtf_last_seen_gigs',JSON.stringify(lastSeen));
+      }catch{}
     }
     setGigPopup(g);
   };
