@@ -840,6 +840,35 @@ function BandStatsModal({chartYear,setChartYear,chartType,setChartType,chartShow
     )
   );
 }
+// A +/- button that keeps stepping while held, not just once per tap —
+// going from 100 to 162 BPM one tap at a time is exactly the kind of thing
+// this exists to avoid. Steps once immediately on press (so a quick tap
+// still behaves like a normal button), then after a short pause starts
+// auto-repeating, accelerating from a deliberate pace to a fast one the
+// longer it's held — mirrors how native steppers/scroll pickers feel.
+// onPointerDown/Up (not onClick) so it can start/stop precisely on press
+// and release, the same reasoning as the tap-tempo button's touch handling.
+function HoldRepeatButton({onStep,children,style}){
+  const holdRef=useRef(null);
+  const startTimeRef=useRef(0);
+  const stop=()=>{
+    if(holdRef.current){clearTimeout(holdRef.current);holdRef.current=null;}
+  };
+  const tick=()=>{
+    onStep();
+    const heldMs=Date.now()-startTimeRef.current;
+    holdRef.current=setTimeout(tick,heldMs<1500?90:40);
+  };
+  const start=ev=>{
+    ev.preventDefault();
+    startTimeRef.current=Date.now();
+    onStep();
+    holdRef.current=setTimeout(tick,350);
+  };
+  useEffect(()=>stop,[]);
+  return e('button',{onPointerDown:start,onPointerUp:stop,onPointerLeave:stop,onPointerCancel:stop,
+    style:{...style,touchAction:'manipulation'}},children);
+}
 // Shared by the running click and the tap-tempo preview click, so both
 // respect the same volume fader and sound the same. exponentialRamp can't
 // target exactly 0 (throws), so volume is floored just above it — at the
@@ -921,12 +950,12 @@ function MetronomeAdd({name,setName,bpm,setBpm,onTap,onSave,onBack,theme,volume,
     e('input',{value:name,onChange:ev=>setName(ev.target.value),placeholder:'e.g. Mustang Sally',
       style:{width:'100%',fontSize:16,padding:'12px 13px',border:'1px solid #d1d5db',borderRadius:10,marginBottom:18}}),
     e('div',{style:{display:'flex',alignItems:'center',justifyContent:'center',gap:22,background:'#f9fafb',border:'1px solid #e5e7eb',borderRadius:16,padding:'20px 10px',marginBottom:14}},
-      e('button',{onClick:()=>setBpm(b=>Math.max(30,b-1)),style:{width:44,height:44,borderRadius:'50%',border:'1px solid #d1d5db',background:'#fff',fontSize:19,color:'#374151',cursor:'pointer'}},'−'),
+      e(HoldRepeatButton,{onStep:()=>setBpm(b=>Math.max(30,b-1)),style:{width:44,height:44,borderRadius:'50%',border:'1px solid #d1d5db',background:'#fff',fontSize:19,color:'#374151',cursor:'pointer'}},'−'),
       e('div',{style:{textAlign:'center'}},
         e('b',{style:{fontSize:48,fontWeight:700,fontVariantNumeric:'tabular-nums',lineHeight:1,display:'block'}},bpm),
         e('span',{style:{fontSize:11,color:'#9ca3af',letterSpacing:'0.05em',textTransform:'uppercase'}},'bpm')
       ),
-      e('button',{onClick:()=>setBpm(b=>Math.min(300,b+1)),style:{width:44,height:44,borderRadius:'50%',border:'1px solid #d1d5db',background:'#fff',fontSize:19,color:'#374151',cursor:'pointer'}},'+')
+      e(HoldRepeatButton,{onStep:()=>setBpm(b=>Math.min(300,b+1)),style:{width:44,height:44,borderRadius:'50%',border:'1px solid #d1d5db',background:'#fff',fontSize:19,color:'#374151',cursor:'pointer'}},'+')
     ),
     e('div',{onClick:()=>setTapClickOn(v=>!v),style:{display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'pointer',marginBottom:14,padding:'2px 2px'}},
       e('span',{style:{fontSize:13,color:'#6b7280'}},'🔊 Click while tapping'),
@@ -1048,8 +1077,8 @@ function MetronomeRun({tempo,soundOn,setSoundOn,flashOn,setFlashOn,volume,setVol
     ),
     e('div',{style:{display:'flex',gap:10,alignItems:'center',width:'100%',flexShrink:0}},
       e('div',{style:{display:'flex',alignItems:'center',gap:8,background:'#fff',border:'1px solid #e5e7eb',borderRadius:11,padding:'8px 10px'}},
-        e('button',{onClick:()=>setBpm(b=>Math.max(30,b-1)),style:{fontSize:16,width:28,border:'none',background:'none',cursor:'pointer'}},'−'),
-        e('button',{onClick:()=>setBpm(b=>Math.min(300,b+1)),style:{fontSize:16,width:28,border:'none',background:'none',cursor:'pointer'}},'+')
+        e(HoldRepeatButton,{onStep:()=>setBpm(b=>Math.max(30,b-1)),style:{fontSize:16,width:28,border:'none',background:'none',cursor:'pointer'}},'−'),
+        e(HoldRepeatButton,{onStep:()=>setBpm(b=>Math.min(300,b+1)),style:{fontSize:16,width:28,border:'none',background:'none',cursor:'pointer'}},'+')
       ),
       e('button',{onClick:onBack,style:{flex:1,padding:'15px 0',borderRadius:13,border:'none',background:'#B91C1C',color:'#fff',fontWeight:700,fontSize:16,cursor:'pointer'}},'■ Stop')
     )
