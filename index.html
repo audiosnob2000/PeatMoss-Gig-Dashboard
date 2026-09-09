@@ -213,12 +213,6 @@ const STATUS_STYLE={
   hold: {bg:"#f1f5f9",color:"#475569",label:"Hold"},
   cancelled:{bg:"#fee2e2",color:"#b91c1c",label:"Cancelled"},
 };
-const RSVP_STYLE={
-  yes:  {bg:"#E4F6EA",color:"#0F8A4B",label:"✅ Yes"},
-  maybe:{bg:"#FEF3C7",color:"#B45309",label:"❓ Maybe"},
-  no:   {bg:"#FEE2E2",color:"#DC2626",label:"❌ No"},
-  pending:{bg:"#F3F4F6",color:"#9ca3af",label:"Waiting"},
-};
 // Chord transposition for typed/text charts. Chart text is free-form (no
 // ChordPro-style markup), so there's no structural way to tell a chord
 // token from a lyric word on its own — "A" is both a valid chord and a
@@ -1532,6 +1526,42 @@ function Section({icon,iconBg,title,summary,isOpen,onToggle,children}){
   );
 }
 function Row({label,sub,right,danger,border=true}){return e('div',{style:{padding:'12px 14px',borderBottom:border?'1px solid #e5e7eb':'none',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}},e('div',null,e('div',{style:{fontSize:14,color:danger?'#b91c1c':'#111827'}},label),sub&&e('div',{style:{fontSize:12,color:'#9ca3af',marginTop:2}},sub)),right&&e('div',{style:{flexShrink:0}},right));}
+// Shared by both gig reminders and the sound-gig override — "Custom…"
+// stores as 'custom:<hours>' so the preset keys ('1h','dayof','3d',...)
+// stay untouched and the Cloud Function only needs one extra branch to
+// parse it, rather than every caller inventing its own custom-time UI.
+function ReminderTimeSelect({value,onChange}){
+  const isCustom=typeof value==='string'&&value.startsWith('custom:');
+  const customHours=isCustom?value.slice(7):'';
+  return e('div',{style:{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:6}},
+    e('select',{value:isCustom?'custom':value,
+      onChange:ev=>{const v=ev.target.value;onChange(v==='custom'?'custom:6':v);},
+      style:{padding:'5px 8px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'auto'}},
+      e('option',{value:'off'},'Off'),
+      e('option',{value:'1h'},'1 hour before'),
+      e('option',{value:'2h'},'2 hours before'),
+      e('option',{value:'3h'},'3 hours before'),
+      e('option',{value:'4h'},'4 hours before'),
+      e('option',{value:'dayof'},'Time of event'),
+      e('option',{value:'1d'},'1 day before'),
+      e('option',{value:'2d'},'2 days before'),
+      e('option',{value:'3d'},'3 days before'),
+      e('option',{value:'custom'},'Custom…')
+    ),
+    isCustom&&e('div',{style:{display:'flex',alignItems:'center',gap:5}},
+      e('input',{type:'number',min:1,max:72,value:customHours,
+        onChange:ev=>onChange('custom:'+ev.target.value),
+        onBlur:ev=>{
+          let n=parseInt(ev.target.value,10);
+          if(!Number.isFinite(n))n=6;
+          n=Math.max(1,Math.min(72,n));
+          onChange('custom:'+n);
+        },
+        style:{width:52,padding:'4px 6px',border:'1px solid #d1d5db',borderRadius:6,fontSize:13,textAlign:'right'}}),
+      e('span',{style:{fontSize:12,color:'#6b7280'}},'hours before')
+    )
+  );
+}
 // Signing in swaps this device's personal data (mileage, checklist, private
 // songs, unpaid marks) onto a stable account id instead of the random
 // per-device one, so it survives a new phone or cleared storage. Deliberately
@@ -1572,27 +1602,6 @@ function AccountSection({authUser,authBusy,authError,onSignUp,onSignIn,onSignOut
   );
 }
 
-function YourNameInput({settings,setSettings,theme,ensureOnRoster}){
-  const inputRef=useRef(null);
-  useEffect(()=>{if(inputRef.current)inputRef.current.value=settings.memberName||'';},[]);
-  const save=()=>{
-    if(inputRef.current){
-      const val=inputRef.current.value.trim();
-      setSettings(s=>({...s,memberName:val}));
-      ensureOnRoster(val);
-    }
-  };
-  return e('div',{style:{padding:'12px 14px',borderBottom:'1px solid #e5e7eb'}},
-    e('div',{style:{fontSize:14,color:'#111827',marginBottom:4}},'Your name'),
-    e('div',{style:{fontSize:12,color:'#9ca3af',marginBottom:10}},'Used to identify your responses in "Who\'s in?"'),
-    e('div',{style:{display:'flex',gap:8}},
-      e('input',{ref:inputRef,defaultValue:settings.memberName||'',onBlur:save,
-        onKeyDown:ev=>{if(ev.key==='Enter'){save();ev.target.blur();}},
-        placeholder:'e.g. Jamie',style:{flex:1,padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,fontSize:14}}),
-      e('button',{onClick:save,style:{padding:'8px 16px',borderRadius:8,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontSize:13,fontWeight:500}},'Save')
-    )
-  );
-}
 function HomeAddressInput({settings,setSettings,theme}){
   const inputRef=useRef(null);
   const [locating,setLocating]=useState(false);
@@ -1810,7 +1819,7 @@ function CustomColorSwatch({selected,customColor,onPick}){
   );
 }
 
-function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar,onAutoScrolled,syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,bandMessages,onNewBandMessage,onEditBandMessage,onDeleteBandMessage,bandMessageModal,bandMessageModalTarget,onCloseBandMessageModal,saveBandMessageModal,deleteBandMessageModal,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,ensureOnRoster,authUser,authBusy,authError,onSignUp,onSignIn,onSignOut}){
+function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar,onAutoScrolled,syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,bandMessages,onNewBandMessage,onEditBandMessage,onDeleteBandMessage,bandMessageModal,bandMessageModalTarget,onCloseBandMessageModal,saveBandMessageModal,deleteBandMessageModal,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,authUser,authBusy,authError,onSignUp,onSignIn,onSignOut}){
   const googleCalendarRowRef=useRef(null);
   const [confirmDeleteMsgId,setConfirmDeleteMsgId]=useState(null);
   const [showBandStatsModal,setShowBandStatsModal]=useState(false);
@@ -2052,7 +2061,6 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         e(AccountSection,{authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,theme})
       ),
       e(Section,{icon:'🏠',iconBg:'#E0EFFE',title:'Home',summary:homeSummary,isOpen:openSections.has('home'),onToggle:()=>toggleSection('home')},
-        e(YourNameInput,{settings,setSettings,theme,ensureOnRoster}),
         e(HomeAddressInput,{settings,setSettings,theme})
       ),
       e('div',{ref:notificationsSectionRef},
@@ -2076,41 +2084,11 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
           right:e(Toggle,{on:settings.bandMessageNotifs,label:'Band message notifications',
             onToggle:()=>setSettings(s=>({...s,bandMessageNotifs:!s.bandMessageNotifs}))})
         }),
-        pushToken&&e(Row,{label:'🙋 Gig response notifications',
-          sub:'Get pinged when someone responds Yes/Maybe/No on "Who\'s in?"',
-          border:true,
-          right:e(Toggle,{on:settings.gigResponseNotifs,label:'Gig response notifications',
-            onToggle:()=>setSettings(s=>({...s,gigResponseNotifs:!s.gigResponseNotifs}))})
-        }),
         pushToken&&e(Row,{label:'Upcoming gig reminder 1',sub:'First heads-up before a show',border:true,
-          right:e('select',{value:settings.gigReminder1,
-            onChange:ev=>setSettings(s=>({...s,gigReminder1:ev.target.value})),
-            style:{padding:'5px 8px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'auto'}},
-            e('option',{value:'off'},'Off'),
-            e('option',{value:'1h'},'1 hour before'),
-            e('option',{value:'2h'},'2 hours before'),
-            e('option',{value:'3h'},'3 hours before'),
-            e('option',{value:'4h'},'4 hours before'),
-            e('option',{value:'dayof'},'Time of event'),
-            e('option',{value:'1d'},'1 day before'),
-            e('option',{value:'2d'},'2 days before'),
-            e('option',{value:'3d'},'3 days before')
-          )
+          right:e(ReminderTimeSelect,{value:settings.gigReminder1,onChange:v=>setSettings(s=>({...s,gigReminder1:v}))})
         }),
         pushToken&&e(Row,{label:'Upcoming gig reminder 2',sub:'Optional second reminder, closer to showtime',border:true,
-          right:e('select',{value:settings.gigReminder2,
-            onChange:ev=>setSettings(s=>({...s,gigReminder2:ev.target.value})),
-            style:{padding:'5px 8px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'auto'}},
-            e('option',{value:'off'},'Off'),
-            e('option',{value:'1h'},'1 hour before'),
-            e('option',{value:'2h'},'2 hours before'),
-            e('option',{value:'3h'},'3 hours before'),
-            e('option',{value:'4h'},'4 hours before'),
-            e('option',{value:'dayof'},'Time of event'),
-            e('option',{value:'1d'},'1 day before'),
-            e('option',{value:'2d'},'2 days before'),
-            e('option',{value:'3d'},'3 days before')
-          )
+          right:e(ReminderTimeSelect,{value:settings.gigReminder2,onChange:v=>setSettings(s=>({...s,gigReminder2:v}))})
         }),
         pushToken&&e(Row,{label:'🔊 Different time for sound gigs',
           sub:'Override '+(settings.selfPaReminderTarget==='reminder1'?'reminder 1':'reminder 2')+' on gigs marked "doing sound" — those usually need more lead time',
@@ -2135,23 +2113,10 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         pushToken&&settings.selfPaReminderEnabled&&e(Row,{label:'🔊 Sound gig reminder',
           sub:'Replaces '+(settings.selfPaReminderTarget==='reminder1'?'reminder 1':'reminder 2')+' for sound gigs',
           border:false,
-          right:e('select',{value:settings.selfPaReminderTime,
-            onChange:ev=>{
-              const v=ev.target.value;
-              if(v==='off')setSettings(s=>({...s,selfPaReminderEnabled:false}));
-              else setSettings(s=>({...s,selfPaReminderTime:v}));
-            },
-            style:{padding:'5px 8px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'auto'}},
-            e('option',{value:'off'},'Off'),
-            e('option',{value:'1h'},'1 hour before'),
-            e('option',{value:'2h'},'2 hours before'),
-            e('option',{value:'3h'},'3 hours before'),
-            e('option',{value:'4h'},'4 hours before'),
-            e('option',{value:'dayof'},'Time of event'),
-            e('option',{value:'1d'},'1 day before'),
-            e('option',{value:'2d'},'2 days before'),
-            e('option',{value:'3d'},'3 days before')
-          )
+          right:e(ReminderTimeSelect,{value:settings.selfPaReminderTime,onChange:v=>{
+            if(v==='off')setSettings(s=>({...s,selfPaReminderEnabled:false}));
+            else setSettings(s=>({...s,selfPaReminderTime:v}));
+          }})
         })
       )
       ),
@@ -2561,7 +2526,7 @@ function friendlyAuthError(err){
 
 function App(){
   const [settings,setSettings]=useState(()=>{
-    const defaults={bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',stagePlotFile:null,calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com',gigReminder1:'off',gigReminder2:'off',selfPaReminderEnabled:false,selfPaReminderTime:'4h',selfPaReminderTarget:'reminder2',bandMessageNotifs:true,gigResponseNotifs:false,memberName:''};
+    const defaults={bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',stagePlotFile:null,calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com',gigReminder1:'off',gigReminder2:'off',selfPaReminderEnabled:false,selfPaReminderTime:'4h',selfPaReminderTarget:'reminder2',bandMessageNotifs:true};
     try{
       const s=localStorage.getItem('pmtf_settings');
       if(!s) return defaults;
@@ -2694,19 +2659,6 @@ function App(){
   const [editItemValue,setEditItemValue]=useState('');
   const [gigPopup,setGigPopup]=useState(null);
   const [dayPopup,setDayPopup]=useState(null);
-  // "Who's in?" availability polling — roster and responses both live as
-  // sub-docs of bandSettings (same one-doc-per-thing pattern as stagePlot),
-  // deliberately NOT written onto the gig doc itself: a gig synced in from
-  // Google Calendar (or added offline) may not have a corresponding
-  // Firestore doc in the gigs collection yet, and merging fields onto a
-  // doc that doesn't fully exist there would create a partial doc that
-  // clobbers the real gig data for everyone once it syncs back down.
-  const [roster,setRoster]=useState([]);
-  const [gigResponsesMap,setGigResponsesMap]=useState({});
-  const [whosInOpen,setWhosInOpen]=useState(false);
-  const [memberNameDraft,setMemberNameDraft]=useState('');
-  const [editingMemberName,setEditingMemberName]=useState(false);
-  const [editingResponse,setEditingResponse]=useState(false);
   const [googleAccessToken,setGoogleAccessToken]=useState(()=>loadStoredGoogleAuth().token);
   const [googleTokenExpiresAt,setGoogleTokenExpiresAt]=useState(()=>loadStoredGoogleAuth().expiresAt);
   const [googleAuthError,setGoogleAuthError]=useState('');
@@ -2904,7 +2856,7 @@ function App(){
         firebase.messaging().getToken({vapidKey:FCM_VAPID_KEY,serviceWorkerRegistration:registration})
       ).then(token=>{
         if(!token) throw new Error('No token returned.');
-        return db.collection('fcmTokens').doc(token).set({token,createdAt:todayStr,ua:navigator.userAgent,reminder1:settings.gigReminder1,reminder2:settings.gigReminder2,selfPaReminderEnabled:settings.selfPaReminderEnabled,selfPaReminderTime:settings.selfPaReminderTime,selfPaReminderTarget:settings.selfPaReminderTarget,bandMessageNotifs:settings.bandMessageNotifs,gigResponseNotifs:settings.gigResponseNotifs}).then(()=>token);
+        return db.collection('fcmTokens').doc(token).set({token,createdAt:todayStr,ua:navigator.userAgent,reminder1:settings.gigReminder1,reminder2:settings.gigReminder2,selfPaReminderEnabled:settings.selfPaReminderEnabled,selfPaReminderTime:settings.selfPaReminderTime,selfPaReminderTarget:settings.selfPaReminderTarget,bandMessageNotifs:settings.bandMessageNotifs}).then(()=>token);
       }).then(token=>{
         setPushToken(token);setPushEnabling(false);
       }).catch(err=>{
@@ -2926,10 +2878,9 @@ function App(){
       reminder1:settings.gigReminder1,reminder2:settings.gigReminder2,
       selfPaReminderEnabled:settings.selfPaReminderEnabled,selfPaReminderTime:settings.selfPaReminderTime,
       selfPaReminderTarget:settings.selfPaReminderTarget,
-      bandMessageNotifs:settings.bandMessageNotifs,
-      gigResponseNotifs:settings.gigResponseNotifs
+      bandMessageNotifs:settings.bandMessageNotifs
     }).catch(()=>{});
-  },[pushToken,settings.gigReminder1,settings.gigReminder2,settings.selfPaReminderEnabled,settings.selfPaReminderTime,settings.selfPaReminderTarget,settings.bandMessageNotifs,settings.gigResponseNotifs]);
+  },[pushToken,settings.gigReminder1,settings.gigReminder2,settings.selfPaReminderEnabled,settings.selfPaReminderTime,settings.selfPaReminderTarget,settings.bandMessageNotifs]);
   // The reminder Cloud Function can't read localStorage, so the calendar ID
   // needs a shared copy it can actually reach.
   useEffect(()=>{
@@ -2961,31 +2912,6 @@ function App(){
     },()=>{stagePlotHydratedRef.current=true;});
     return unsub;
   },[]);
-  // Roster for "Who's in?" — one shared list of names, same single-doc
-  // pattern as the stage plot above. No migration step needed since this
-  // is new data with nothing local to backfill from.
-  useEffect(()=>{
-    const unsub=db.collection('bandSettings').doc('roster').onSnapshot(doc=>{
-      if(doc.exists)setRoster(doc.data().names||[]);
-    },()=>{});
-    return unsub;
-  },[]);
-  // Poll responses, keyed by gig id, all in one doc alongside roster —
-  // see the comment on gigResponsesMap's declaration for why this isn't
-  // stored on the gig docs themselves.
-  useEffect(()=>{
-    const unsub=db.collection('bandSettings').doc('gigResponses').onSnapshot(doc=>{
-      if(doc.exists)setGigResponsesMap(doc.data()||{});
-    },()=>{});
-    return unsub;
-  },[]);
-  // Collapsed by default every time a different gig's popup opens, so the
-  // full roster isn't dumped on screen unless someone actually wants it.
-  useEffect(()=>{
-    setWhosInOpen(false);
-    setEditingMemberName(false);
-    setEditingResponse(false);
-  },[gigPopup&&gigPopup.id]);
   useEffect(()=>{
     if(!stagePlotHydratedRef.current)return;
     db.collection('bandSettings').doc('stagePlot').set({stagePlotUrl:settings.stagePlotUrl||'',stagePlotFile:settings.stagePlotFile||null}).catch(()=>{});
@@ -3988,44 +3914,8 @@ function App(){
   // doesn't pick up later Firestore updates (like a rotate) on its own —
   // re-resolve it against the live synced list every render instead.
   const liveViewingSong=viewingSong&&(songs.find(s=>s.id===viewingSong.id)||viewingSong);
-  const removeRosterName=name=>{
-    if(!window.confirm('Remove "'+name+'" from the roster?'))return;
-    db.collection('bandSettings').doc('roster').set({names:roster.filter(n=>n!==name)})
-      .catch(()=>alert('Could not save — check your connection and try again.'));
-  };
-  const startEditMemberName=()=>{
-    setMemberNameDraft(settings.memberName);
-    setEditingMemberName(true);
-  };
-  // Name can be set three different ways now (inline prompt, inline edit,
-  // Settings > Home) — every one of them needs to land you on the shared
-  // roster right away, not just whichever path happened to remember to add
-  // you. Without this, setting your name from Settings alone left you with
-  // no roster row at all until your first vote — and since the edit pencil
-  // now lives ON that roster row, that meant no way to fix a typo either.
-  const ensureOnRoster=name=>{
-    if(name&&!roster.includes(name)){
-      db.collection('bandSettings').doc('roster').set({names:[...roster,name]}).catch(()=>{});
-    }
-  };
-  const saveMemberName=()=>{
-    const trimmed=memberNameDraft.trim();
-    if(!trimmed)return;
-    setSettings(s=>({...s,memberName:trimmed}));
-    setMemberNameDraft('');
-    setEditingMemberName(false);
-    ensureOnRoster(trimmed);
-  };
-  const respondToGig=(gigId,status)=>{
-    if(!settings.memberName)return;
-    ensureOnRoster(settings.memberName);
-    db.collection('bandSettings').doc('gigResponses').set({[gigId]:{[settings.memberName]:status}},{merge:true})
-      .catch(()=>alert('Could not save — check your connection and try again.'));
-  };
-  const gigResponses=(gigPopup&&gigResponsesMap[gigPopup.id])||{};
-  const gigRespondedCount=roster.filter(n=>gigResponses[n]).length;
 
-  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,bandMessages,onNewBandMessage:()=>setBandMessageModal('new'),onEditBandMessage:msg=>setBandMessageModal(msg),onDeleteBandMessage:deleteBandMessageById,bandMessageModal,bandMessageModalTarget,onCloseBandMessageModal:()=>setBandMessageModal(null),saveBandMessageModal,deleteBandMessageModal,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,ensureOnRoster,authUser,authBusy,authError,onSignUp:signUpWithEmail,onSignIn:signInWithEmail,onSignOut:signOutOfAccount});
+  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,bandMessages,onNewBandMessage:()=>setBandMessageModal('new'),onEditBandMessage:msg=>setBandMessageModal(msg),onDeleteBandMessage:deleteBandMessageById,bandMessageModal,bandMessageModalTarget,onCloseBandMessageModal:()=>setBandMessageModal(null),saveBandMessageModal,deleteBandMessageModal,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,authUser,authBusy,authError,onSignUp:signUpWithEmail,onSignIn:signInWithEmail,onSignOut:signOutOfAccount});
 
   return e('div',{style:{maxWidth:720,margin:'0 auto',paddingBottom:'2rem'}},
     e('div',{style:{background:theme.primary,borderRadius:'0 0 20px 20px',padding:'1.25rem 1.25rem 1.5rem',marginBottom:'1.25rem'}},
@@ -4671,95 +4561,6 @@ function App(){
           gigPopup.notes&&e('div',null,
             e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:2}},'Notes'),
             e('div',{style:{fontSize:13,fontWeight:500,whiteSpace:'pre-wrap'}},gigPopup.notes)
-          )
-        ),
-        e('div',{style:{borderTop:'1px solid #e5e7eb',paddingTop:12,marginBottom:16}},
-          e('div',{onClick:()=>setWhosInOpen(v=>!v),style:{display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}},
-            e('span',{style:{fontSize:13,color:'#6b7280'}},"Who's in?"),
-            e('span',{style:{fontSize:11.5,fontWeight:600,color:theme.primary,display:'flex',alignItems:'center',gap:4}},
-              roster.length?gigRespondedCount+' of '+roster.length+' responded':'No members yet',
-              e('span',{style:{fontSize:9,transform:whosInOpen?'rotate(180deg)':'none',transition:'transform .15s',display:'inline-block'}},'▾')
-            )
-          ),
-          whosInOpen&&e('div',{style:{marginTop:10}},
-            e('div',{style:{display:'flex',flexDirection:'column',gap:6,marginBottom:8}},
-              roster.map(name=>{
-                const status=gigResponses[name]||'pending';
-                const s=RSVP_STYLE[status];
-                const isYou=name===settings.memberName;
-                return e('div',{key:name,style:{display:'flex',alignItems:'center',gap:9,padding:'6px 8px',borderRadius:9,background:isYou?theme.pale:'#f9fafb'}},
-                  // Edit pencil lives on your own row now, as a real button
-                  // (not just colored text) — it's the only row that ever
-                  // gets one, so it doubles as the "this one's you" signal
-                  // instead of a separate dot or tag.
-                  isYou&&e('span',{onClick:startEditMemberName,title:'Edit name',
-                    style:{width:22,height:22,borderRadius:'50%',background:theme.mid,color:'#fff',display:'flex',
-                      alignItems:'center',justifyContent:'center',fontSize:11,flexShrink:0,cursor:'pointer'}},'✎'),
-                  e('span',{style:{flex:1,fontSize:12.5,fontWeight:500}},name),
-                  e('span',{className:'badge',style:{background:s.bg,color:s.color}},s.label),
-                  // Second pencil, only once you've actually answered —
-                  // reopens the response buttons to change your answer.
-                  // Distinct from the name pencil (left vs. right of the
-                  // row) so there's no ambiguity about what each one edits.
-                  isYou&&status!=='pending'&&e('span',{onClick:()=>setEditingResponse(v=>!v),title:'Change response',
-                    style:{width:22,height:22,borderRadius:'50%',background:theme.mid,color:'#fff',display:'flex',
-                      alignItems:'center',justifyContent:'center',fontSize:11,flexShrink:0,cursor:'pointer'}},'✎'),
-                  // No remove (✕) on your own row — that's not how you'd
-                  // ever leave the roster; removing others is still fine.
-                  !isYou&&e('span',{onClick:()=>removeRosterName(name),title:'Remove from roster',
-                    style:{fontSize:11,color:'#9ca3af',cursor:'pointer',padding:'0 2px',flexShrink:0}},'✕')
-                );
-              })
-            ),
-            // No more "add someone else" prompt — that let you type in ANY
-            // name, which is how a typo'd or mismatched entry (e.g. "Jim"
-            // added here vs. "Jimmy" on Jim's own phone) could sit stuck on
-            // the roster forever. The only way onto the roster now is the
-            // block below, which only ever sets YOUR OWN device's name.
-            //
-            // Once you've actually answered, this whole box disappears —
-            // your roster row above already shows the badge, so repeating
-            // Yes/Maybe/No down here too is just noise. The "change
-            // response" pencil on your roster row brings it back.
-            (!settings.memberName||editingMemberName||!gigResponses[settings.memberName]||editingResponse)&&
-            e('div',{style:{marginTop:10,padding:10,borderRadius:10,background:theme.pale}},
-              !settings.memberName
-                ? e('div',null,
-                    e('div',{style:{fontSize:11.5,color:theme.primary,fontWeight:600,marginBottom:6}},"What's your name?"),
-                    e('div',{style:{display:'flex',gap:6}},
-                      e('input',{value:memberNameDraft,onChange:ev=>setMemberNameDraft(ev.target.value),placeholder:'Your name',
-                        onKeyDown:ev=>{if(ev.key==='Enter')saveMemberName();},style:{flex:1}}),
-                      e('button',{onClick:saveMemberName,style:{background:theme.mid,color:'#fff',border:'none',fontWeight:500,flexShrink:0}},'Save')
-                    )
-                  )
-                : editingMemberName
-                  ? e('div',null,
-                      e('div',{style:{fontSize:11.5,color:theme.primary,fontWeight:600,marginBottom:6}},'Edit your name'),
-                      e('div',{style:{display:'flex',gap:6}},
-                        e('input',{value:memberNameDraft,onChange:ev=>setMemberNameDraft(ev.target.value),placeholder:'Your name',
-                          onKeyDown:ev=>{if(ev.key==='Enter')saveMemberName();},style:{flex:1}}),
-                        e('button',{onClick:saveMemberName,style:{background:theme.mid,color:'#fff',border:'none',fontWeight:500,flexShrink:0}},'Save'),
-                        e('button',{onClick:()=>setEditingMemberName(false),style:{background:'#fff',color:'#6b7280',border:'1px solid #e5e7eb',fontWeight:500,flexShrink:0}},'Cancel')
-                      )
-                    )
-                  : e('div',null,
-                      // The edit pencil now lives on your own roster row
-                      // above (a real button there, with your name right
-                      // next to it) — no need to repeat your name or a
-                      // second edit control down here.
-                      e('div',{style:{fontSize:11.5,color:theme.primary,fontWeight:600,marginBottom:7}},'Your response'),
-                      e('div',{style:{display:'flex',gap:6}},
-                        ['yes','maybe','no'].map(v=>{
-                          const mine=gigResponses[settings.memberName]===v;
-                          const s=RSVP_STYLE[v];
-                          return e('button',{key:v,onClick:()=>{respondToGig(gigPopup.id,v);setEditingResponse(false);},
-                            style:{flex:1,padding:'7px 0',borderRadius:8,border:'1.5px solid '+(mine?s.color:'#e5e7eb'),
-                              background:mine?s.bg:'#fff',color:mine?s.color:'#6b7280',fontWeight:600,fontSize:12,cursor:'pointer'}
-                          },s.label);
-                        })
-                      )
-                    )
-            )
           )
         ),
         e('div',{style:{display:'flex',gap:8,flexDirection:'column'}},
