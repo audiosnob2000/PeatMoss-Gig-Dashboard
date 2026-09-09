@@ -1,4 +1,4 @@
-const {onDocumentCreated, onDocumentWritten} = require('firebase-functions/v2/firestore');
+const {onDocumentCreated} = require('firebase-functions/v2/firestore');
 const {onRequest} = require('firebase-functions/v2/https');
 const {onSchedule} = require('firebase-functions/v2/scheduler');
 const admin = require('firebase-admin');
@@ -182,74 +182,6 @@ exports.notifyOnBandMessage = onDocumentCreated('bandMessages/{messageId}', asyn
   }
 });
 
-// Roster + responses for "Who's in?" live in one shared doc
-// (bandSettings/gigResponses), not per-gig docs — see the comment on the
-// client's gigResponsesMap state for why. onDocumentWritten (not
-// onDocumentCreated) is needed here since the very first response ever
-// recorded is itself a create, but every one after that is an update to
-// the same doc; before/after are diffed to find exactly which gig+person
-// actually changed, since a single write only ever touches one of them.
-exports.notifyOnGigResponse = onDocumentWritten('bandSettings/gigResponses', async (event) => {
-  const before = (event.data.before.exists) ? event.data.before.data() : {};
-  const after = (event.data.after.exists) ? event.data.after.data() : {};
-
-  const changes = [];
-  for (const gigId of Object.keys(after)) {
-    const beforeGig = before[gigId] || {};
-    const afterGig = after[gigId] || {};
-    for (const name of Object.keys(afterGig)) {
-      if (beforeGig[name] !== afterGig[name]) changes.push({gigId, name, status: afterGig[name]});
-    }
-  }
-  if (!changes.length) return;
-
-  const tokensSnap = await admin.firestore().collection('fcmTokens').get();
-  if (tokensSnap.empty) return;
-
-  // Unlike bandMessageNotifs, this one defaults OFF — a routine "Yes" on
-  // every gig adds up to a lot more pings than the occasional band-wide
-  // message, so this is opt-in: only tokens that explicitly turned it on
-  // get notified, not just anything that isn't explicitly false.
-  const tokenDocs = tokensSnap.docs.filter(d => d.data().gigResponseNotifs === true);
-  if (!tokenDocs.length) return;
-  const tokens = tokenDocs.map(d => d.id);
-
-  const gigIds = [...new Set(changes.map(c => c.gigId))];
-  const gigSnaps = await admin.firestore().getAll(...gigIds.map(id => admin.firestore().collection('gigs').doc(id)));
-  const gigById = {};
-  gigSnaps.forEach((snap, i) => { if (snap.exists) gigById[gigIds[i]] = snap.data(); });
-
-  const STATUS_LABEL = {yes: 'Yes', maybe: 'Maybe', no: 'No'};
-  const staleTokens = new Set();
-  for (const c of changes) {
-    const gig = gigById[c.gigId];
-    const venue = gig ? (gig.venue || 'a gig') : 'a gig';
-    const dateLabel = gig && gig.date ? new Date(gig.date + 'T12:00:00').toLocaleDateString('en-US', {month: 'short', day: 'numeric'}) : '';
-    const label = STATUS_LABEL[c.status] || c.status;
-    const response = await admin.messaging().sendEachForMulticast({
-      notification: {
-        title: "Who's in?",
-        body: `${c.name} marked ${label} for ${venue}${dateLabel ? ' — ' + dateLabel : ''}`
-      },
-      data: { url: APP_URL },
-      tokens
-    });
-    response.responses.forEach((res, i) => {
-      if (!res.success) {
-        const code = res.error && res.error.code;
-        if (code === 'messaging/registration-token-not-registered' || code === 'messaging/invalid-registration-token') {
-          staleTokens.add(tokens[i]);
-        }
-      }
-    });
-  }
-  if (staleTokens.size) {
-    const batch = admin.firestore().batch();
-    staleTokens.forEach(t => batch.delete(admin.firestore().collection('fcmTokens').doc(t)));
-    await batch.commit();
-  }
-});
-
 // --- Gig reminders ---
 // Read straight from Firestore's `gigs` collection — the app's own data,
 // synced by every device regardless of whether anyone is signed into
@@ -273,6 +205,20 @@ const REMINDER_OFFSETS = {
   '2h': {kind: 'hours', hours: 2},
   '1h': {kind: 'hours', hours: 1}
 };
+
+// A preset key ('1h', 'dayof', ...) resolves straight out of
+// REMINDER_OFFSETS; a custom pick from the app's "Custom…" option arrives
+// as 'custom:<hours>' instead, so it isn't in that static map and needs
+// parsing into the same {kind:'hours', hours} shape the rest of this file
+// already expects.
+function resolveReminderOffset(pref) {
+  if (REMINDER_OFFSETS[pref]) return REMINDER_OFFSETS[pref];
+  const m = typeof pref === 'string' && pref.match(/^custom:(\d+(?:\.\d+)?)$/);
+  if (!m) return null;
+  const hours = parseFloat(m[1]);
+  if (!Number.isFinite(hours) || hours <= 0 || hours > 168) return null;
+  return {kind: 'hours', hours};
+}
 
 function nyOffsetMinutes(date) {
   const parts = new Intl.DateTimeFormat('en-US', {timeZone: 'America/New_York', timeZoneName: 'shortOffset'}).formatToParts(date);
@@ -339,7 +285,7 @@ function reminderText(gig, pref) {
   if (pref === '2d') return `${gig.venue} is in 2 days (${dateLabel})`;
   if (pref === '1d') return `${gig.venue} is tomorrow (${dateLabel})`;
   if (pref === 'dayof') return `${gig.venue} is starting now${gig.time ? ' (' + gig.time + ')' : ''}`;
-  const hours = REMINDER_OFFSETS[pref].hours;
+  const hours = resolveReminderOffset(pref).hours;
   return `${gig.venue} starts in ${hours} hour${hours > 1 ? 's' : ''}`;
 }
 
@@ -379,7 +325,7 @@ exports.sendGigReminders = onSchedule({schedule: 'every 5 minutes', timeZone: 'A
       const effectiveReminder2 = (selfPaOverrideActive && selfPaTarget === 'reminder2') ? data.selfPaReminderTime : data.reminder2;
       for (const [slotName, pref] of [['reminder1', effectiveReminder1], ['reminder2', effectiveReminder2]]) {
         if (!pref || pref === 'off') continue;
-        const offset = REMINDER_OFFSETS[pref];
+        const offset = resolveReminderOffset(pref);
         if (!offset) continue;
         let sendAt;
         if (offset.kind === 'date') {
