@@ -538,7 +538,7 @@ function GigWeatherRow({gig,compact}){
 }
 
 const SWIPE_DELETE_WIDTH=72;
-function SwipeableGigRow({g,bg,border,tc,onEdit,onDelete,onMap,pastUnpaid}){
+function SwipeableGigRow({g,bg,border,tc,onOpen,onDelete,onMap,pastUnpaid}){
   const [tx,setTx]=useState(0);
   const dragRef=useRef({startX:0,startTx:0,dragging:false,moved:false});
   const onPointerDown=ev=>{
@@ -558,12 +558,22 @@ function SwipeableGigRow({g,bg,border,tc,onEdit,onDelete,onMap,pastUnpaid}){
     d.dragging=false;
     setTx(prev=>prev<-SWIPE_DELETE_WIDTH/2?-SWIPE_DELETE_WIDTH:0);
   };
+  // A tap that ended a drag (moved) or landed while the row is swiped open
+  // shouldn't also open the gig — the first just finished dragging, and the
+  // second is much more likely to mean "close this" than "open the gig
+  // whose delete panel I just revealed."
+  const onRowClick=()=>{
+    const d=dragRef.current;
+    if(d.moved){d.moved=false;return;}
+    if(tx!==0){setTx(0);return;}
+    onOpen();
+  };
   return e('div',{style:{position:'relative',overflow:'hidden',borderBottom:border}},
     e('div',{onClick:()=>{if(window.confirm('Delete "'+g.venue+'"?'))onDelete(g.id);},
       style:{position:'absolute',top:0,right:0,bottom:0,width:SWIPE_DELETE_WIDTH,background:'#DC2626',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:600,cursor:'pointer'}},'Delete'),
     e('div',{
-      onPointerDown,onPointerMove,onPointerUp,onPointerCancel:onPointerUp,
-      style:{position:'relative',background:bg,padding:'12px 14px',display:'flex',alignItems:'center',gap:12,transform:`translateX(${tx}px)`,transition:dragRef.current.dragging?'none':'transform 0.2s ease',touchAction:'pan-y'}
+      onPointerDown,onPointerMove,onPointerUp,onPointerCancel:onPointerUp,onClick:onRowClick,
+      style:{position:'relative',background:bg,padding:'12px 14px',display:'flex',alignItems:'center',gap:12,transform:`translateX(${tx}px)`,transition:dragRef.current.dragging?'none':'transform 0.2s ease',touchAction:'pan-y',cursor:'pointer'}
     },
       // Opacity lives on this inner wrapper, not the row above — the row
       // itself must stay fully opaque so its solid background keeps hiding
@@ -581,11 +591,16 @@ function SwipeableGigRow({g,bg,border,tc,onEdit,onDelete,onMap,pastUnpaid}){
             e('span',{className:'badge',style:{background:tc.bg,color:tc.color}},g.type),
             e(Badge,{status:g.status}),
             pastUnpaid&&e('span',{style:{fontSize:10,padding:'2px 8px',borderRadius:99,fontWeight:600,background:'#FEE2E2',color:'#B91C1C',display:'inline-flex',alignItems:'center',gap:3}},'💲 Unpaid'),
-            g.location&&e('button',{onClick:ev=>{ev.stopPropagation();onMap();},
+            // onPointerDown here must also stop propagation, not just
+            // onClick — the row's own onPointerDown calls setPointerCapture,
+            // which (per the Pointer Events spec) retargets the eventual
+            // click to the row itself once capture is set, so stopping only
+            // the click comes too late to matter.
+            g.location&&e('button',{onPointerDown:ev=>ev.stopPropagation(),onClick:ev=>{ev.stopPropagation();onMap();},
               style:{fontSize:11,padding:'2px 8px',borderRadius:99,background:'#E0EFFE',color:'#1D4ED8',fontWeight:500,border:'none',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:3}},'📍 Map')
           )
         ),
-        e('button',{onClick:onEdit,style:{fontSize:12,padding:'5px 12px',flexShrink:0}},'Edit')
+        e('span',{style:{fontSize:18,color:'#9ca3af',flexShrink:0,paddingLeft:2}},'›')
       )
     )
   );
@@ -1911,8 +1926,13 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
     prevPushTokenRef.current=pushToken;
   },[pushToken]);
   const REMINDER_SHORT={'1h':'1h before','2h':'2h before','3h':'3h before','4h':'4h before',dayof:'Day of','1d':'1d before','2d':'2d before','3d':'3d before'};
+  const reminderShortLabel=v=>{
+    if(REMINDER_SHORT[v])return REMINDER_SHORT[v];
+    const m=typeof v==='string'&&v.match(/^custom:(\d+(?:\.\d+)?)$/);
+    return m?m[1]+'h before':null;
+  };
   const reminderSummary=()=>{
-    const parts=[settings.gigReminder1,settings.gigReminder2].map(v=>REMINDER_SHORT[v]).filter(Boolean);
+    const parts=[settings.gigReminder1,settings.gigReminder2].map(reminderShortLabel).filter(Boolean);
     if(settings.selfPaReminderEnabled)parts.push('🔊 sound override on');
     return parts.length?parts.join(', '):'No reminders set';
   };
@@ -2068,14 +2088,10 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         e(Row,{label:'Push notifications',
           sub:pushEnabling?'Enabling…':pushToken?reminderSummary():'Get notified on this device when you have upcoming gigs',
           border:pushToken,
-          right:e('button',{
-            onClick:()=>{
-              if(pushToken)disablePushNotifications();
-              else enablePushNotifications();
-            },
-            disabled:pushEnabling,
-            style:{border:'none',background:'none',padding:0,cursor:pushEnabling?'default':'pointer',fontSize:pushEnabling?13:17,fontWeight:800,color:pushToken?theme.mid:'#9ca3af'}
-          },pushEnabling?'…':pushToken?'ON':'OFF')
+          right:pushEnabling
+            ?e('span',{style:{fontSize:13,color:'#9ca3af'}},'…')
+            :e(Toggle,{on:!!pushToken,disabled:pushEnabling,label:'Push notifications',
+                onToggle:()=>{if(pushToken)disablePushNotifications();else enablePushNotifications();}})
         }),
         pushError&&e('div',{style:{padding:'0 14px 12px',fontSize:12,color:'#b91c1c'}},pushError),
         pushToken&&e(Row,{label:'📣 Band message notifications',
@@ -2084,34 +2100,25 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
           right:e(Toggle,{on:settings.bandMessageNotifs,label:'Band message notifications',
             onToggle:()=>setSettings(s=>({...s,bandMessageNotifs:!s.bandMessageNotifs}))})
         }),
-        pushToken&&e(Row,{label:'Upcoming gig reminder 1',sub:'First heads-up before a show',border:true,
+        pushToken&&e(Row,{label:'First reminder',sub:'Your early heads-up before a show',border:true,
           right:e(ReminderTimeSelect,{value:settings.gigReminder1,onChange:v=>setSettings(s=>({...s,gigReminder1:v}))})
         }),
-        pushToken&&e(Row,{label:'Upcoming gig reminder 2',sub:'Optional second reminder, closer to showtime',border:true,
+        pushToken&&e(Row,{label:'Second reminder',sub:'Closer to showtime · optional',border:true,
           right:e(ReminderTimeSelect,{value:settings.gigReminder2,onChange:v=>setSettings(s=>({...s,gigReminder2:v}))})
         }),
-        pushToken&&e(Row,{label:'🔊 Different time for sound gigs',
-          sub:'Override '+(settings.selfPaReminderTarget==='reminder1'?'reminder 1':'reminder 2')+' on gigs marked "doing sound" — those usually need more lead time',
+        pushToken&&e(Row,{label:'🔊 Sound gigs need more lead time',
+          sub:'For gigs marked "we\'re bringing the PA" — those usually need more lead time',
           border:settings.selfPaReminderEnabled,
-          right:e(Toggle,{on:settings.selfPaReminderEnabled,label:'Different time for sound gigs',
+          right:e(Toggle,{on:settings.selfPaReminderEnabled,label:'Sound gigs need more lead time',
             onToggle:()=>setSettings(s=>({...s,selfPaReminderEnabled:!s.selfPaReminderEnabled}))})
         }),
-        pushToken&&settings.selfPaReminderEnabled&&e(Row,{label:'🔊 Replaces',sub:'Which reminder gets the sound-gig time',border:true,
-          right:e('div',{style:{display:'flex',background:'#f1f3f4',borderRadius:9,padding:2,gap:2}},
-            e('button',{onClick:()=>setSettings(s=>({...s,selfPaReminderTarget:'reminder1'})),
-              style:{fontSize:11.5,padding:'5px 11px',borderRadius:7,border:'none',fontWeight:600,cursor:'pointer',
-                background:settings.selfPaReminderTarget==='reminder1'?'#fff':'transparent',
-                color:settings.selfPaReminderTarget==='reminder1'?'#111827':'#6b7280',
-                boxShadow:settings.selfPaReminderTarget==='reminder1'?'0 1px 2px rgba(0,0,0,.08)':'none'}},'Reminder 1'),
-            e('button',{onClick:()=>setSettings(s=>({...s,selfPaReminderTarget:'reminder2'})),
-              style:{fontSize:11.5,padding:'5px 11px',borderRadius:7,border:'none',fontWeight:600,cursor:'pointer',
-                background:settings.selfPaReminderTarget!=='reminder1'?'#fff':'transparent',
-                color:settings.selfPaReminderTarget!=='reminder1'?'#111827':'#6b7280',
-                boxShadow:settings.selfPaReminderTarget!=='reminder1'?'0 1px 2px rgba(0,0,0,.08)':'none'}},'Reminder 2')
-          )
-        }),
-        pushToken&&settings.selfPaReminderEnabled&&e(Row,{label:'🔊 Sound gig reminder',
-          sub:'Replaces '+(settings.selfPaReminderTarget==='reminder1'?'reminder 1':'reminder 2')+' for sound gigs',
+        // The reminder-slot picker used to be its own row of two buttons;
+        // folding it into this row's subtitle (tap to flip) keeps the same
+        // capability in one row instead of two.
+        pushToken&&settings.selfPaReminderEnabled&&e(Row,{label:'Remind me instead',
+          sub:e('span',{onClick:()=>setSettings(s=>({...s,selfPaReminderTarget:s.selfPaReminderTarget==='reminder1'?'reminder2':'reminder1'})),
+              style:{cursor:'pointer',textDecoration:'underline',textDecorationStyle:'dotted',textDecorationColor:'#d1d5db'}},
+            'Replaces your '+(settings.selfPaReminderTarget==='reminder1'?'first':'second')+' reminder — tap to change'),
           border:false,
           right:e(ReminderTimeSelect,{value:settings.selfPaReminderTime,onChange:v=>{
             if(v==='off')setSettings(s=>({...s,selfPaReminderEnabled:false}));
@@ -3932,7 +3939,7 @@ function App(){
           },
             e('span',{style:{width:6,height:6,borderRadius:'50%',flexShrink:0,
               background:googleAccessToken?'#4ADE80':`rgba(${theme.headerBase},0.4)`}}),
-            googleAccessToken?'Synced':'Offline'
+            googleAccessToken?'📅 Synced':'📅 Not linked'
           ),
           e('button',{onClick:()=>setShowSettings(true),style:{background:'none',border:'none',cursor:'pointer',fontSize:18,opacity:0.6,padding:0}},'⚙️'),
           e('button',{onClick:openAdd,style:{background:theme.mid,color:theme.midText,border:`1px solid ${theme.light}`,borderRadius:10,padding:'7px 14px',cursor:'pointer',fontWeight:500,fontSize:13,whiteSpace:'nowrap'}},'+ Add gig')
@@ -4043,7 +4050,7 @@ function App(){
             return e(SwipeableGigRow,{key:g.id,g,tc,
               bg:idx%2===0?'#fff':'#f9fafb',
               border:idx<filteredUpcoming.length-1?'1px solid #e5e7eb':'none',
-              onEdit:()=>openEdit(g),
+              onOpen:()=>openGigPopup(g),
               onDelete:deleteGig,
               onMap:()=>openMaps(g.venue,g.location),
               pastUnpaid:g.date<todayStr&&unpaidGigIds.includes(g.id)
@@ -4564,27 +4571,37 @@ function App(){
           )
         ),
         e('div',{style:{display:'flex',gap:8,flexDirection:'column'}},
-          // Icon-only now, not full-width labeled buttons — these matter
-          // less than the response buttons above, so they get less visual
-          // weight. title= keeps a text label available on hover/long-press.
+          // Each button now carries a small text label under its icon — an
+          // icon alone (especially 🏠, "drive home from the gig") isn't
+          // self-explanatory on first look. Delete moved out of this row
+          // entirely (see below) so it's never one mis-tap away from Edit.
           e('div',{style:{display:'flex',gap:8}},
             gigPopup.location&&e('button',{onClick:()=>{setAskTrack(gigPopup);setGigPopup(null);},title:'Map',
-              style:{flex:1,padding:'9px 0',borderRadius:10,background:'#E0EFFE',color:'#1D4ED8',fontWeight:500,border:'none',cursor:'pointer',fontSize:16}},'📍'),
+              style:{flex:1,padding:'8px 0 7px',borderRadius:10,background:'#E0EFFE',color:'#1D4ED8',fontWeight:500,border:'none',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:2}},
+              e('span',{style:{fontSize:16}},'📍'),e('span',{style:{fontSize:10,fontWeight:600}},'Map')
+            ),
             // Always shown now — if there's no address yet, tapping it
             // asks for one right here instead of just silently doing
             // nothing (the old behavior, if this were still hidden).
-            e('button',{onClick:()=>{if(settings.homeAddress){goHome(gigPopup);}else{setAskHomeAddress(gigPopup);setGigPopup(null);}},title:'Home',
-              style:{flex:1,padding:'9px 0',borderRadius:10,background:'#E1F5EE',color:'#0F6E56',fontWeight:500,border:'none',cursor:'pointer',fontSize:16}},'🏠'),
+            e('button',{onClick:()=>{if(settings.homeAddress){goHome(gigPopup);}else{setAskHomeAddress(gigPopup);setGigPopup(null);}},title:'Drive home',
+              style:{flex:1,padding:'8px 0 7px',borderRadius:10,background:'#E1F5EE',color:'#0F6E56',fontWeight:500,border:'none',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:2}},
+              e('span',{style:{fontSize:16}},'🏠'),e('span',{style:{fontSize:10,fontWeight:600}},'Drive home')
+            ),
             e('button',{onClick:()=>shareGig(gigPopup),title:'Share',
-              style:{flex:1,padding:'9px 0',borderRadius:10,background:'#EEF2FF',color:'#4338CA',fontWeight:500,border:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}},
+              style:{flex:1,padding:'8px 0 7px',borderRadius:10,background:'#EEF2FF',color:'#4338CA',fontWeight:500,border:'none',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:2}},
               e('svg',{width:16,height:16,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:2.2,strokeLinecap:'round',strokeLinejoin:'round'},
                 e('path',{d:'M12 3v12'}),e('path',{d:'M7 8l5-5 5 5'}),e('path',{d:'M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6'})
-              )
+              ),
+              e('span',{style:{fontSize:10,fontWeight:600}},'Share')
             ),
             e('button',{onClick:()=>{setGigPopup(null);openEdit(gigPopup);},title:'Edit',
-              style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:16}},'✏️'),
-            e('button',{onClick:()=>{if(window.confirm('Delete "'+gigPopup.venue+'"?')){const id=gigPopup.id;setGigPopup(null);deleteGig(id);}},title:'Delete',
-              style:{flex:'0 0 42px',padding:'9px 0',borderRadius:10,background:'#FEE2E2',color:'#B91C1C',border:'none',cursor:'pointer',fontSize:16}},'🗑️')
+              style:{flex:1,padding:'8px 0 7px',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:2}},
+              e('span',{style:{fontSize:16}},'✏️'),e('span',{style:{fontSize:10,fontWeight:600}},'Edit')
+            )
+          ),
+          e('div',{style:{textAlign:'center',paddingTop:8,borderTop:'1px solid #e5e7eb'}},
+            e('span',{onClick:()=>{if(window.confirm('Delete "'+gigPopup.venue+'"?')){const id=gigPopup.id;setGigPopup(null);deleteGig(id);}},
+              style:{fontSize:12.5,fontWeight:600,color:'#B91C1C',cursor:'pointer'}},'Delete gig')
           ),
           e('button',{onClick:()=>{const d=gigPopup.date;setGigPopup(null);openAdd(d);},
             style:{padding:'9px 0',borderRadius:10,border:'1px solid #d1d5db',background:'#fff',color:'#374151',fontWeight:500,cursor:'pointer',fontSize:14}},'+ Add another gig this day')
