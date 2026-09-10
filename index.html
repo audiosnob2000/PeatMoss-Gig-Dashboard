@@ -1210,6 +1210,11 @@ function StageMeterModal({onClose}){
   });
   const [showCalibrate,setShowCalibrate]=useState(false);
   const [calInput,setCalInput]=useState('');
+  // How long the peak-hold tick takes to fall through a 20 dB span — the
+  // fixed rate this shipped with (~2.8s for 20dB) was still too fast to
+  // read at a glance, so this is now adjustable instead of hardcoded.
+  const [peakDecaySec,setPeakDecaySec]=useState(()=>{try{const s=localStorage.getItem('pmtf_spl_peak_decay_sec');return s===null?3:parseFloat(s);}catch{return 3;}});
+  useEffect(()=>{try{localStorage.setItem('pmtf_spl_peak_decay_sec',String(peakDecaySec));}catch{}},[peakDecaySec]);
 
   const canvasRef=useRef(null);
   const bigNumRef=useRef(null);
@@ -1231,6 +1236,8 @@ function StageMeterModal({onClose}){
   useEffect(()=>{calOffsetRef.current=calOffset;},[calOffset]);
   const baseOffsetAtCalRef=useRef(baseOffsetAtCal);
   useEffect(()=>{baseOffsetAtCalRef.current=baseOffsetAtCal;},[baseOffsetAtCal]);
+  const peakDecaySecRef=useRef(peakDecaySec);
+  useEffect(()=>{peakDecaySecRef.current=peakDecaySec;},[peakDecaySec]);
 
   useEffect(()=>{
     let cancelled=false;
@@ -1308,6 +1315,11 @@ function StageMeterModal({onClose}){
     // whatever the mic is actually producing is the right default
     // regardless of whether this phone has been calibrated yet.
     let rangeMin=null,rangeMax=null;
+    // Real elapsed time between frames, not a fixed per-frame assumption —
+    // needed so the peak-decay setting means actual seconds regardless of
+    // the display's refresh rate (a 120Hz screen would otherwise decay
+    // peaks twice as fast in real time as a 60Hz one).
+    let lastFrameTime=performance.now();
 
     let dims={w:0,h:0};
     const resize=()=>{
@@ -1412,6 +1424,16 @@ function StageMeterModal({onClose}){
     }
 
     function tick(){
+      const now=performance.now();
+      // Clamp so a tab that was backgrounded (and just resumed via the
+      // visibilitychange handler above) doesn't compute one giant catch-up
+      // decay step from however many seconds it was away.
+      const dtSec=Math.min(0.25,Math.max(0,(now-lastFrameTime)/1000));
+      lastFrameTime=now;
+      // "Decay time" = seconds for the peak-hold tick to fall through a
+      // 20 dB span — a longer time reads as a slower, easier-to-see fall.
+      const peakDecayPerSec=20/Math.max(0.1,peakDecaySecRef.current);
+
       analyser.getFloatFrequencyData(freqData);
       let energySum=0,peakVal=-999,peakIdx=0;
       let frameMin=Infinity,frameMax=-Infinity;
@@ -1435,7 +1457,7 @@ function StageMeterModal({onClose}){
         if(smoothed<frameMin)frameMin=smoothed;
         if(smoothed>frameMax)frameMax=smoothed;
         if(smoothed>peaksRef.current[i])peaksRef.current[i]=smoothed;
-        else peaksRef.current[i]-=0.12;
+        else peaksRef.current[i]-=peakDecayPerSec*dtSec;
         energySum+=Math.pow(10,smoothed/10);
         if(smoothed>peakVal){peakVal=smoothed;peakIdx=i;}
       }
@@ -1577,7 +1599,18 @@ function StageMeterModal({onClose}){
             e('div',{ref:inspLevelRef,style:{fontFamily:'Archivo,sans-serif',fontWeight:600,fontSize:17,fontVariantNumeric:'tabular-nums'}},'— dB')
           )
         ),
-        e('div',{style:{display:'flex',justifyContent:'center',padding:'12px 18px 18px',flexShrink:0,borderTop:'1px solid '+DARK_METER.panelBorder,marginTop:11}},
+        e('div',{style:{display:'flex',alignItems:'center',justifyContent:'center',gap:12,padding:'12px 18px 18px',flexShrink:0,borderTop:'1px solid '+DARK_METER.panelBorder,marginTop:11,flexWrap:'wrap'}},
+          e('div',{style:{display:'flex',alignItems:'center',gap:7}},
+            e('span',{style:{fontSize:12,color:DARK_METER.textMuted}},'Peak decay'),
+            e('select',{value:peakDecaySec,onChange:ev=>setPeakDecaySec(parseFloat(ev.target.value)),
+              style:{fontSize:13,padding:'7px 9px',borderRadius:8,border:'1px solid rgba(255,255,255,.16)',background:'rgba(255,255,255,.06)',color:DARK_METER.text}},
+              e('option',{value:'0.5'},'0.5s'),
+              e('option',{value:'1'},'1s'),
+              e('option',{value:'2'},'2s'),
+              e('option',{value:'3'},'3s'),
+              e('option',{value:'5'},'5s')
+            )
+          ),
           e('button',{onClick:resetPeaks,style:{fontSize:14,fontWeight:600,padding:'10px 22px',borderRadius:99,border:'1px solid rgba(255,255,255,.14)',background:'none',color:'rgba(230,239,234,.75)',cursor:'pointer'}},'↺ Reset peaks')
         )
       )
