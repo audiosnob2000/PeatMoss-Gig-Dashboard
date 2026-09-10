@@ -1187,8 +1187,27 @@ const DARK_METER={
 function StageMeterModal({onClose}){
   const [ready,setReady]=useState(false);
   const [micError,setMicError]=useState('');
+  // Bumped to force the mic-acquisition effect to run again — used both
+  // for the manual "Reconnect" button and automatically if the mic
+  // connection is found dead after the app comes back from the
+  // background (see the visibilitychange handling below).
+  const [retryTick,setRetryTick]=useState(0);
   const [calibrated,setCalibrated]=useState(()=>{try{return localStorage.getItem('pmtf_spl_calibrated')==='1';}catch{return false;}});
   const [calOffset,setCalOffset]=useState(()=>{try{const s=localStorage.getItem('pmtf_spl_calibration_offset');return s===null?0:parseFloat(s);}catch{return 0;}});
+  // What STAGE_METER_BASE_OFFSET was at the moment of calibration — a
+  // calibration offset only means what it meant relative to that base, so
+  // tuning the base later (as happened once already, 100 -> 142) must not
+  // silently double-count on top of an existing calibration. Any stored
+  // offset with no recorded base predates this tracking entirely, which
+  // only ever shipped with base=100, so that's the correct assumption for
+  // it rather than the current constant.
+  const [baseOffsetAtCal,setBaseOffsetAtCal]=useState(()=>{
+    try{
+      const stored=localStorage.getItem('pmtf_spl_base_offset_at_calibration');
+      if(stored!==null)return parseFloat(stored);
+      return localStorage.getItem('pmtf_spl_calibration_offset')!==null?100:STAGE_METER_BASE_OFFSET;
+    }catch{return STAGE_METER_BASE_OFFSET;}
+  });
   const [showCalibrate,setShowCalibrate]=useState(false);
   const [calInput,setCalInput]=useState('');
 
@@ -1210,9 +1229,13 @@ function StageMeterModal({onClose}){
   const heldRef=useRef(false);
   const calOffsetRef=useRef(calOffset);
   useEffect(()=>{calOffsetRef.current=calOffset;},[calOffset]);
+  const baseOffsetAtCalRef=useRef(baseOffsetAtCal);
+  useEffect(()=>{baseOffsetAtCalRef.current=baseOffsetAtCal;},[baseOffsetAtCal]);
 
   useEffect(()=>{
     let cancelled=false;
+    setMicError('');
+    setReady(false);
     if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
       setMicError('This browser doesn\'t support microphone access, so the Stage Meter can\'t run here.');
       return;
@@ -1252,7 +1275,7 @@ function StageMeterModal({onClose}){
       if(streamRef.current)streamRef.current.getTracks().forEach(t=>t.stop());
       if(audioCtxRef.current)audioCtxRef.current.close().catch(()=>{});
     };
-  },[]);
+  },[retryTick]);
 
   // Analysis + draw loop — deliberately NOT React state for the per-frame
   // numbers (spl, band levels, peak band). At ~60fps that would mean 60
@@ -1296,6 +1319,27 @@ function StageMeterModal({onClose}){
     };
     resize();
     window.addEventListener('resize',resize);
+
+    // Mobile browsers (iOS Safari in particular) suspend an AudioContext
+    // when the page goes to the background — rAF itself resumes fine on
+    // its own once the page is visible again, but the analyser just keeps
+    // handing back stale data from a suspended context, which is what
+    // "the RTA and dBA freeze after I leave and come back" actually was.
+    // Explicitly resuming on visibilitychange is the standard fix. If the
+    // mic track itself died while backgrounded (a more aggressive OS
+    // reclaim, usually after a longer time away), resuming the context
+    // alone won't bring back real audio — bump retryTick instead to redo
+    // the whole getUserMedia handshake from scratch.
+    const onVisible=()=>{
+      if(document.visibilityState!=='visible')return;
+      const track=streamRef.current&&streamRef.current.getAudioTracks()[0];
+      if(!track||track.readyState==='ended'){
+        setRetryTick(t=>t+1);
+        return;
+      }
+      if(ctx.state==='suspended')ctx.resume().catch(()=>{});
+    };
+    document.addEventListener('visibilitychange',onVisible);
 
     function pick(clientX){
       const r=canvas.getBoundingClientRect();
@@ -1379,7 +1423,12 @@ function StageMeterModal({onClose}){
           if(Number.isFinite(dbfs)){sum+=Math.pow(10,dbfs/10);count++;}
         }
         const avgDbfs=count>0?10*Math.log10(sum/count):-100;
-        const weighted=avgDbfs+aWeights[i]+STAGE_METER_BASE_OFFSET+calOffsetRef.current;
+        // Use the base that was in effect when this device last calibrated
+        // (or the current base, if it never has) rather than always the
+        // current constant — that's what keeps a stored calibration
+        // meaningful across future tuning of STAGE_METER_BASE_OFFSET
+        // instead of stacking on top of it.
+        const weighted=avgDbfs+aWeights[i]+baseOffsetAtCalRef.current+calOffsetRef.current;
         const prev=levelsRef.current[i];
         const smoothed=prev+(weighted-prev)*0.35;
         levelsRef.current[i]=smoothed;
@@ -1417,6 +1466,7 @@ function StageMeterModal({onClose}){
     return ()=>{
       cancelAnimationFrame(rafRef.current);
       window.removeEventListener('resize',resize);
+      document.removeEventListener('visibilitychange',onVisible);
       canvas.removeEventListener('pointerdown',onPointerDown);
       canvas.removeEventListener('pointermove',onPointerMove);
       canvas.removeEventListener('pointerup',onPointerUp);
@@ -1433,9 +1483,14 @@ function StageMeterModal({onClose}){
     const newOffset=calOffset+(entered-splRef.current);
     setCalOffset(newOffset);
     setCalibrated(true);
+    // Record the base this calibration was made against, so a future
+    // change to STAGE_METER_BASE_OFFSET (like the 100 -> 142 tune) can't
+    // silently stack on top of it again.
+    setBaseOffsetAtCal(STAGE_METER_BASE_OFFSET);
     try{
       localStorage.setItem('pmtf_spl_calibration_offset',String(newOffset));
       localStorage.setItem('pmtf_spl_calibrated','1');
+      localStorage.setItem('pmtf_spl_base_offset_at_calibration',String(STAGE_METER_BASE_OFFSET));
     }catch{}
     setShowCalibrate(false);
     setCalInput('');
@@ -1443,9 +1498,11 @@ function StageMeterModal({onClose}){
   const resetCalibration=()=>{
     setCalOffset(0);
     setCalibrated(false);
+    setBaseOffsetAtCal(STAGE_METER_BASE_OFFSET);
     try{
       localStorage.setItem('pmtf_spl_calibration_offset','0');
       localStorage.setItem('pmtf_spl_calibrated','0');
+      localStorage.setItem('pmtf_spl_base_offset_at_calibration',String(STAGE_METER_BASE_OFFSET));
     }catch{}
   };
 
@@ -1475,7 +1532,10 @@ function StageMeterModal({onClose}){
         ),
         calibrated&&e('div',{onClick:resetCalibration,style:{marginTop:8,fontSize:10.5,color:'rgba(230,239,234,.4)',cursor:'pointer',textDecoration:'underline'}},'Reset calibration')
       ),
-      micError&&e('div',{style:{margin:16,padding:14,borderRadius:10,background:'rgba(229,72,77,.1)',border:'1px solid rgba(229,72,77,.3)',fontSize:13,lineHeight:1.5,color:'#F2A29B'}},micError),
+      micError&&e('div',{style:{margin:16,padding:14,borderRadius:10,background:'rgba(229,72,77,.1)',border:'1px solid rgba(229,72,77,.3)',display:'flex',flexDirection:'column',gap:10}},
+        e('div',{style:{fontSize:13,lineHeight:1.5,color:'#F2A29B'}},micError),
+        e('button',{onClick:()=>setRetryTick(t=>t+1),style:{alignSelf:'flex-start',fontSize:12.5,fontWeight:600,padding:'7px 16px',borderRadius:99,border:'1px solid rgba(242,162,155,.4)',background:'none',color:'#F2A29B',cursor:'pointer'}},'↻ Reconnect')
+      ),
       !ready&&!micError&&e('div',{style:{flex:1,display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,color:DARK_METER.textMuted}},'Requesting microphone access…'),
       ready&&e('div',{style:{display:'flex',flexDirection:'column',flex:1,minHeight:0}},
         e('div',{style:{display:'flex',alignItems:'flex-end',justifyContent:'space-between',padding:'10px 16px 0',gap:10,flexShrink:0}},
