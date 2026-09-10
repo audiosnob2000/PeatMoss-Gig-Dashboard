@@ -1174,8 +1174,10 @@ function stageMeterAWeightDb(f){
 // sensitivity and gain vary by phone. This constant is just a plausible
 // starting point so an uncalibrated reading lands somewhere in a believable
 // range; the one-time calibration step is what actually corrects it for a
-// specific phone.
-const STAGE_METER_BASE_OFFSET=100;
+// specific phone. Tuned from a real side-by-side reading: this app was
+// reading ~28 dBA against other SPL apps averaging ~70 dBA in the same
+// room, so the base is shifted up by that ~42 dB gap (100 -> 142).
+const STAGE_METER_BASE_OFFSET=142;
 const DARK_METER={
   bg:'#0A100E',panel:'rgba(255,255,255,.05)',panelBorder:'rgba(255,255,255,.08)',
   text:'#E6EFEA',textMuted:'rgba(230,239,234,.5)',textFaint:'rgba(230,239,234,.35)',
