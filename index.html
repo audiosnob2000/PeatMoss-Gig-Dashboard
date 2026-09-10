@@ -1187,11 +1187,13 @@ const DARK_METER={
 function StageMeterModal({onClose}){
   const [ready,setReady]=useState(false);
   const [micError,setMicError]=useState('');
-  // Bumped to force the mic-acquisition effect to run again — used both
-  // for the manual "Reconnect" button and automatically if the mic
-  // connection is found dead after the app comes back from the
-  // background (see the visibilitychange handling below).
+  // Bumped to force the mic-acquisition effect to run again. Only ever
+  // triggered by an explicit tap (Reconnect, or tap-to-resume) — never
+  // automatically, since re-running it re-requests the microphone and
+  // that is what made the phone ask for permission on every return.
   const [retryTick,setRetryTick]=useState(0);
+  const [stalled,setStalled]=useState(false);
+  const stalledRef=useRef(false);
   const [calibrated,setCalibrated]=useState(()=>{try{return localStorage.getItem('pmtf_spl_calibrated')==='1';}catch{return false;}});
   const [calOffset,setCalOffset]=useState(()=>{try{const s=localStorage.getItem('pmtf_spl_calibration_offset');return s===null?0:parseFloat(s);}catch{return 0;}});
   // What STAGE_METER_BASE_OFFSET was at the moment of calibration — a
@@ -1320,6 +1322,11 @@ function StageMeterModal({onClose}){
     // the display's refresh rate (a 120Hz screen would otherwise decay
     // peaks twice as fast in real time as a 60Hz one).
     let lastFrameTime=performance.now();
+    // The audio clock is the honest test of whether audio is really
+    // flowing: if ctx.currentTime stops advancing while rAF keeps firing,
+    // the context is stopped and every reading on screen is stale, no
+    // matter how alive the page looks.
+    let lastAudioTime=-1,stalledMs=0;
 
     let dims={w:0,h:0};
     const resize=()=>{
@@ -1332,26 +1339,31 @@ function StageMeterModal({onClose}){
     resize();
     window.addEventListener('resize',resize);
 
-    // Mobile browsers (iOS Safari in particular) suspend an AudioContext
-    // when the page goes to the background — rAF itself resumes fine on
-    // its own once the page is visible again, but the analyser just keeps
-    // handing back stale data from a suspended context, which is what
-    // "the RTA and dBA freeze after I leave and come back" actually was.
-    // Explicitly resuming on visibilitychange is the standard fix. If the
-    // mic track itself died while backgrounded (a more aggressive OS
-    // reclaim, usually after a longer time away), resuming the context
-    // alone won't bring back real audio — bump retryTick instead to redo
-    // the whole getUserMedia handshake from scratch.
+    // Mobile browsers (iOS Safari in particular) stop an AudioContext when
+    // the page goes to the background. Try to resume on the way back in —
+    // but deliberately do NOT re-request the microphone here: tearing the
+    // stream down and calling getUserMedia again is what made the phone
+    // ask for mic permission every single time you returned to the app.
+    // Safari also uses a non-standard 'interrupted' state alongside
+    // 'suspended', so this checks "not running" rather than one state.
+    // A resume() outside a user gesture is frequently ignored on iOS, so
+    // this is best-effort only — the stall detector in tick() is what
+    // actually guarantees recovery, by surfacing a tap-to-resume button
+    // (a real user gesture, which iOS does honor).
+    const tryResume=()=>{
+      const c=audioCtxRef.current;
+      if(c&&c.state!=='running')c.resume().catch(()=>{});
+    };
     const onVisible=()=>{
       if(document.visibilityState!=='visible')return;
-      const track=streamRef.current&&streamRef.current.getAudioTracks()[0];
-      if(!track||track.readyState==='ended'){
-        setRetryTick(t=>t+1);
-        return;
-      }
-      if(ctx.state==='suspended')ctx.resume().catch(()=>{});
+      tryResume();
+      // iOS often isn't ready to resume on the very first attempt after
+      // coming forward; one delayed retry costs nothing and frequently
+      // catches it without the user having to tap anything.
+      setTimeout(tryResume,300);
     };
     document.addEventListener('visibilitychange',onVisible);
+    window.addEventListener('pageshow',onVisible);
 
     function pick(clientX){
       const r=canvas.getBoundingClientRect();
@@ -1430,12 +1442,28 @@ function StageMeterModal({onClose}){
       // decay step from however many seconds it was away.
       const dtSec=Math.min(0.25,Math.max(0,(now-lastFrameTime)/1000));
       lastFrameTime=now;
-      // "Decay time" = seconds for the peak-hold tick to fall through a
-      // 20 dB span — a longer time reads as a slower, easier-to-see fall.
-      const peakDecayPerSec=20/Math.max(0.1,peakDecaySecRef.current);
+
+      if(ctx.currentTime===lastAudioTime){
+        stalledMs+=dtSec*1000;
+        // ~700ms of frames with a frozen audio clock is well past any
+        // normal hiccup, and short enough that you aren't left staring at
+        // stale numbers wondering whether the room really went quiet.
+        if(stalledMs>700&&!stalledRef.current){stalledRef.current=true;setStalled(true);}
+      }else{
+        lastAudioTime=ctx.currentTime;
+        stalledMs=0;
+        if(stalledRef.current){stalledRef.current=false;setStalled(false);}
+      }
+      // Meter ballistics: fast attack, controlled release. "Decay time" is
+      // the seconds a bar takes to fall through a 20 dB span, so 5s reads
+      // as a slow, easy-to-follow fall and 0.5s as a snappy one. This
+      // governs the BARS, not just the peak ticks — the bars are what
+      // you're actually watching, and leaving them on a fixed smoothing
+      // factor is why changing this setting looked like it did nothing.
+      const decayPerSec=20/Math.max(0.1,peakDecaySecRef.current);
 
       analyser.getFloatFrequencyData(freqData);
-      let energySum=0,peakVal=-999,peakIdx=0;
+      let energySumRaw=0,peakVal=-999,peakIdx=0;
       let frameMin=Infinity,frameMax=-Infinity;
       for(let i=0;i<STAGE_METER_BANDS.length;i++){
         const [lo,hi]=bandBinRanges[i];
@@ -1452,14 +1480,20 @@ function StageMeterModal({onClose}){
         // instead of stacking on top of it.
         const weighted=avgDbfs+aWeights[i]+baseOffsetAtCalRef.current+calOffsetRef.current;
         const prev=levelsRef.current[i];
-        const smoothed=prev+(weighted-prev)*0.35;
-        levelsRef.current[i]=smoothed;
-        if(smoothed<frameMin)frameMin=smoothed;
-        if(smoothed>frameMax)frameMax=smoothed;
-        if(smoothed>peaksRef.current[i])peaksRef.current[i]=smoothed;
-        else peaksRef.current[i]-=peakDecayPerSec*dtSec;
-        energySum+=Math.pow(10,smoothed/10);
-        if(smoothed>peakVal){peakVal=smoothed;peakIdx=i;}
+        const next=weighted>=prev
+          ? prev+(weighted-prev)*0.5
+          : Math.max(weighted,prev-decayPerSec*dtSec);
+        levelsRef.current[i]=next;
+        if(next<frameMin)frameMin=next;
+        if(next>frameMax)frameMax=next;
+        if(next>peaksRef.current[i])peaksRef.current[i]=next;
+        else peaksRef.current[i]=Math.max(next,peaksRef.current[i]-decayPerSec*dtSec);
+        // The headline dB reading comes from the RAW band levels, not the
+        // visually-decayed ones — a slow decay is a display choice and
+        // must not hold the actual SPL number up above what the room is
+        // really doing.
+        energySumRaw+=Math.pow(10,weighted/10);
+        if(next>peakVal){peakVal=next;peakIdx=i;}
       }
       // Expand the RTA's visible range instantly to include a new extreme
       // (so a sudden loud hit is never clipped off-canvas) but contract it
@@ -1469,7 +1503,7 @@ function StageMeterModal({onClose}){
         rangeMin=frameMin<rangeMin?frameMin:rangeMin+(frameMin-rangeMin)*0.01;
         rangeMax=frameMax>rangeMax?frameMax:rangeMax+(frameMax-rangeMax)*0.01;
       }
-      const overall=10*Math.log10(energySum);
+      const overall=10*Math.log10(energySumRaw);
       splRef.current+=(overall-splRef.current)*0.25;
 
       if(bigNumRef.current)bigNumRef.current.textContent=splRef.current.toFixed(1);
@@ -1489,6 +1523,7 @@ function StageMeterModal({onClose}){
       cancelAnimationFrame(rafRef.current);
       window.removeEventListener('resize',resize);
       document.removeEventListener('visibilitychange',onVisible);
+      window.removeEventListener('pageshow',onVisible);
       canvas.removeEventListener('pointerdown',onPointerDown);
       canvas.removeEventListener('pointermove',onPointerMove);
       canvas.removeEventListener('pointerup',onPointerUp);
@@ -1496,6 +1531,26 @@ function StageMeterModal({onClose}){
     };
   },[ready]);
 
+  // Runs from a real tap, which is the whole point: iOS honors resume()
+  // from a user gesture where it ignores one fired from a visibility
+  // event. Only falls back to a full mic re-handshake (which re-prompts
+  // for permission) if the track is genuinely dead or the context still
+  // refuses to start — so the permission prompt can only ever appear
+  // right after you deliberately tapped, never on its own.
+  const resumeMeter=async()=>{
+    const ctx=audioCtxRef.current;
+    const track=streamRef.current&&streamRef.current.getAudioTracks()[0];
+    try{if(ctx&&ctx.state!=='running')await ctx.resume();}catch{}
+    const trackDead=!track||track.readyState==='ended';
+    if(trackDead||!ctx||ctx.state!=='running'){
+      stalledRef.current=false;
+      setStalled(false);
+      setRetryTick(t=>t+1);
+      return;
+    }
+    stalledRef.current=false;
+    setStalled(false);
+  };
   const resetPeaks=()=>{
     peaksRef.current=levelsRef.current.slice();
   };
@@ -1559,7 +1614,17 @@ function StageMeterModal({onClose}){
         e('button',{onClick:()=>setRetryTick(t=>t+1),style:{alignSelf:'flex-start',fontSize:12.5,fontWeight:600,padding:'7px 16px',borderRadius:99,border:'1px solid rgba(242,162,155,.4)',background:'none',color:'#F2A29B',cursor:'pointer'}},'↻ Reconnect')
       ),
       !ready&&!micError&&e('div',{style:{flex:1,display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,color:DARK_METER.textMuted}},'Requesting microphone access…'),
-      ready&&e('div',{style:{display:'flex',flexDirection:'column',flex:1,minHeight:0}},
+      ready&&e('div',{style:{display:'flex',flexDirection:'column',flex:1,minHeight:0,position:'relative'}},
+        stalled&&e('div',{onClick:resumeMeter,
+          style:{position:'absolute',inset:0,zIndex:5,background:'rgba(10,16,14,.93)',display:'flex',
+            flexDirection:'column',alignItems:'center',justifyContent:'center',gap:14,cursor:'pointer',padding:24,textAlign:'center'}},
+          e('div',{style:{fontSize:15,fontWeight:600,color:DARK_METER.text}},'Meter paused'),
+          e('div',{style:{fontSize:13,lineHeight:1.5,color:DARK_METER.textMuted,maxWidth:280}},
+            'Your phone stopped the mic while the app was in the background. Tap to pick it back up.'),
+          e('button',{onClick:resumeMeter,
+            style:{marginTop:4,fontSize:15,fontWeight:700,padding:'13px 30px',borderRadius:99,border:'none',
+              background:DARK_METER.green,color:'#06120E',cursor:'pointer'}},'▶ Resume')
+        ),
         e('div',{style:{display:'flex',alignItems:'flex-end',justifyContent:'space-between',padding:'10px 16px 0',gap:10,flexShrink:0}},
           e('div',{style:{display:'flex',alignItems:'baseline',gap:9}},
             e('span',{ref:bigNumRef,style:{fontFamily:'Archivo,system-ui,sans-serif',fontWeight:700,fontSize:'clamp(64px, 15vw, 110px)',lineHeight:1,letterSpacing:'-.02em',fontVariantNumeric:'tabular-nums'}},'—'),
@@ -1601,7 +1666,7 @@ function StageMeterModal({onClose}){
         ),
         e('div',{style:{display:'flex',alignItems:'center',justifyContent:'center',gap:12,padding:'12px 18px 18px',flexShrink:0,borderTop:'1px solid '+DARK_METER.panelBorder,marginTop:11,flexWrap:'wrap'}},
           e('div',{style:{display:'flex',alignItems:'center',gap:7}},
-            e('span',{style:{fontSize:12,color:DARK_METER.textMuted}},'Peak decay'),
+            e('span',{style:{fontSize:12,color:DARK_METER.textMuted}},'Decay'),
             e('select',{value:peakDecaySec,onChange:ev=>setPeakDecaySec(parseFloat(ev.target.value)),
               style:{fontSize:13,padding:'7px 9px',borderRadius:8,border:'1px solid rgba(255,255,255,.16)',background:'rgba(255,255,255,.06)',color:DARK_METER.text}},
               e('option',{value:'0.5'},'0.5s'),
