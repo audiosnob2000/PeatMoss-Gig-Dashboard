@@ -995,8 +995,13 @@ function MetronomeAdd({name,setName,bpm,setBpm,onTap,onSave,onBack,theme,volume,
 // a setTimeout sized to the gap between now and the note's audio time), so
 // click and flash stay in sync with each other, not just individually
 // accurate.
-function MetronomeRun({tempo,soundOn,setSoundOn,flashOn,setFlashOn,volume,setVolume,onBack,theme}){
+function MetronomeRun({tempo,soundOn,setSoundOn,flashOn,setFlashOn,volume,setVolume,onBack,onSaveTempo,theme}){
   const [bpm,setBpm]=useState(tempo.bpm);
+  // Tracks what's actually saved to this tempo, separately from tempo.bpm
+  // (a snapshot taken when Start was tapped, which never changes while
+  // this screen is open) — that's what lets the Save button disappear
+  // right after saving instead of staying stuck "unsaved" forever.
+  const [savedBpm,setSavedBpm]=useState(tempo.bpm);
   const [flashPulse,setFlashPulse]=useState(false);
   const [beatIndex,setBeatIndex]=useState(0);
   const audioCtxRef=useRef(null);
@@ -1054,7 +1059,11 @@ function MetronomeRun({tempo,soundOn,setSoundOn,flashOn,setFlashOn,volume,setVol
   return e('div',{style:{display:'flex',flexDirection:'column',alignItems:'center',height:'100%'}},
     e('div',{style:{textAlign:'center',flexShrink:0}},
       e('div',{style:{fontSize:17,fontWeight:600}},tempo.name),
-      e('div',{style:{fontSize:13,color:'#9ca3af'}},bpm+' BPM')
+      e('div',{style:{fontSize:13,color:'#9ca3af'}},bpm+' BPM'),
+      bpm!==savedBpm&&e('button',{onClick:()=>{onSaveTempo(tempo.id,bpm);setSavedBpm(bpm);},
+        style:{marginTop:8,fontSize:12.5,fontWeight:600,padding:'6px 14px',borderRadius:99,
+          border:'none',background:theme.pale||'#E1F5EE',color:theme.mid||'#0F6E56',cursor:'pointer'}},
+        '💾 Save '+bpm+' BPM')
     ),
     e('div',{style:{flex:1,display:'flex',alignItems:'center',justifyContent:'center',width:'100%',minHeight:0}},
       e('div',{style:{width:'min(64vw, 300px)',height:'min(64vw, 300px)',maxWidth:'100%',aspectRatio:'1',borderRadius:'50%',
@@ -1107,6 +1116,7 @@ function MetronomeModal({tempos,setTempos,soundOn,setSoundOn,flashOn,setFlashOn,
     setView('list');
   };
   const deleteTempo=id=>setTempos(prev=>prev.filter(t=>t.id!==id));
+  const saveTempoBpm=(id,bpm)=>setTempos(prev=>prev.map(t=>t.id===id?{...t,bpm}:t));
   const startTempo=t=>{
     setTempos(prev=>prev.map(x=>x.id===t.id?{...x,lastUsed:Date.now()}:x));
     setRunningTempo(t);
@@ -1132,10 +1142,361 @@ function MetronomeModal({tempos,setTempos,soundOn,setSoundOn,flashOn,setFlashOn,
       style:{width:'100%',maxWidth:480,height:'min(88vh, 720px)',display:'flex',flexDirection:'column'}},
       view==='list'&&e(MetronomeList,{tempos,onStart:startTempo,onDelete:deleteTempo,onAdd:()=>setView('add'),onClose}),
       view==='add'&&e(MetronomeAdd,{name:newName,setName:setNewName,bpm:newBpm,setBpm:setNewBpm,onTap:handleTap,onSave:addTempo,onBack:()=>setView('list'),theme,volume,tapClickOn,setTapClickOn}),
-      view==='run'&&runningTempo&&e(MetronomeRun,{tempo:runningTempo,soundOn,setSoundOn,flashOn,setFlashOn,volume,setVolume,onBack:()=>setView('list'),theme})
+      view==='run'&&runningTempo&&e(MetronomeRun,{tempo:runningTempo,soundOn,setSoundOn,flashOn,setFlashOn,volume,setVolume,onBack:()=>setView('list'),onSaveTempo:saveTempoBpm,theme})
     )
   );
 }
+
+// ── Stage Meter (SPL + third-octave RTA) ────────────────────────────────
+// Real ISO third-octave band centers (16 Hz–20 kHz, 32 bands) — not 32
+// arbitrary slices, so a reading here lines up with what a console's RTA
+// or an outboard analyzer would show. Adjacent-band ratio is 2^(1/3); each
+// band's edges sit at center × 2^(∓1/6).
+const STAGE_METER_BANDS=[16,20,25,31.5,40,50,63,80,100,125,160,200,250,315,400,500,630,800,1000,1250,1600,2000,2500,3150,4000,5000,6300,8000,10000,12500,16000,20000];
+const STAGE_METER_OCTAVES=new Set([63,125,250,500,1000,2000,4000,8000,16000]);
+function stageMeterBandLabel(f){
+  if(f>=1000){const k=f/1000;return (Number.isInteger(k)?k:k)+'k';}
+  return String(f);
+}
+function stageMeterBandLabelFull(f){
+  return f>=1000?(f/1000)+' kHz':f+' Hz';
+}
+// Standard A-weighting curve (IEC 61672), normalized so 1 kHz = 0 dB —
+// this is what makes a reading correspond to how loud something actually
+// sounds to human ears, rather than just a raw energy number.
+function stageMeterAWeightDb(f){
+  const f2=f*f;
+  const ra=(12194*12194*f2*f2)/((f2+20.6*20.6)*Math.sqrt((f2+107.7*107.7)*(f2+737.9*737.9))*(f2+12194*12194));
+  return 20*Math.log10(ra)+2.00;
+}
+// getFloatFrequencyData returns dBFS (relative to digital full scale, always
+// negative), which has no fixed relationship to real-world dB SPL — mic
+// sensitivity and gain vary by phone. This constant is just a plausible
+// starting point so an uncalibrated reading lands somewhere in a believable
+// range; the one-time calibration step is what actually corrects it for a
+// specific phone.
+const STAGE_METER_BASE_OFFSET=100;
+const DARK_METER={
+  bg:'#0A100E',panel:'rgba(255,255,255,.05)',panelBorder:'rgba(255,255,255,.08)',
+  text:'#E6EFEA',textMuted:'rgba(230,239,234,.5)',textFaint:'rgba(230,239,234,.35)',
+  green:'#5DCAA5',amber:'#E0A93B',red:'#E5484D',
+  grid:'rgba(255,255,255,.055)',cap:'rgba(255,255,255,.4)',selGlow:'rgba(93,202,165,.14)'
+};
+function StageMeterModal({onClose}){
+  const [ready,setReady]=useState(false);
+  const [micError,setMicError]=useState('');
+  const [calibrated,setCalibrated]=useState(()=>{try{return localStorage.getItem('pmtf_spl_calibrated')==='1';}catch{return false;}});
+  const [calOffset,setCalOffset]=useState(()=>{try{const s=localStorage.getItem('pmtf_spl_calibration_offset');return s===null?0:parseFloat(s);}catch{return 0;}});
+  const [showCalibrate,setShowCalibrate]=useState(false);
+  const [calInput,setCalInput]=useState('');
+
+  const canvasRef=useRef(null);
+  const bigNumRef=useRef(null);
+  const peakBandRef=useRef(null);
+  const levelBarRef=useRef(null);
+  const inspFreqRef=useRef(null);
+  const inspLevelRef=useRef(null);
+
+  const audioCtxRef=useRef(null);
+  const streamRef=useRef(null);
+  const analyserRef=useRef(null);
+  const rafRef=useRef(null);
+  const levelsRef=useRef(STAGE_METER_BANDS.map(()=>50));
+  const peaksRef=useRef(STAGE_METER_BANDS.map(()=>50));
+  const splRef=useRef(50);
+  const selIndexRef=useRef(-1);
+  const heldRef=useRef(false);
+  const calOffsetRef=useRef(calOffset);
+  useEffect(()=>{calOffsetRef.current=calOffset;},[calOffset]);
+
+  useEffect(()=>{
+    let cancelled=false;
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+      setMicError('This browser doesn\'t support microphone access, so the Stage Meter can\'t run here.');
+      return;
+    }
+    (async()=>{
+      try{
+        // AGC/noise suppression/echo cancellation are all speech-call
+        // features that actively fight an SPL reading — AGC alone will
+        // flatten out a loud sustained mix, which is the exact thing this
+        // tool needs to see. Turning them off is what makes the rest of
+        // this (A-weighting, calibration) mean anything.
+        const stream=await navigator.mediaDevices.getUserMedia({audio:{
+          echoCancellation:false,noiseSuppression:false,autoGainControl:false
+        }});
+        if(cancelled){stream.getTracks().forEach(t=>t.stop());return;}
+        streamRef.current=stream;
+        const AudioCtx=window.AudioContext||window.webkitAudioContext;
+        const ctx=new AudioCtx();
+        audioCtxRef.current=ctx;
+        const source=ctx.createMediaStreamSource(stream);
+        const analyser=ctx.createAnalyser();
+        analyser.fftSize=8192;
+        analyser.smoothingTimeConstant=0;
+        source.connect(analyser);
+        analyserRef.current=analyser;
+        setReady(true);
+      }catch(err){
+        if(cancelled)return;
+        setMicError(err.name==='NotAllowedError'||err.name==='PermissionDeniedError'
+          ?'Microphone access was denied. Allow microphone access for this app in your phone\'s settings, then reopen the Stage Meter.'
+          :'Could not access the microphone: '+err.message);
+      }
+    })();
+    return ()=>{
+      cancelled=true;
+      if(rafRef.current)cancelAnimationFrame(rafRef.current);
+      if(streamRef.current)streamRef.current.getTracks().forEach(t=>t.stop());
+      if(audioCtxRef.current)audioCtxRef.current.close().catch(()=>{});
+    };
+  },[]);
+
+  // Analysis + draw loop — deliberately NOT React state for the per-frame
+  // numbers (spl, band levels, peak band). At ~60fps that would mean 60
+  // re-renders a second of this whole modal; writing straight to the DOM
+  // via refs (and drawing the canvas directly) keeps the hot path outside
+  // React entirely. React state is reserved for things that change on user
+  // action instead — calibration, mic errors.
+  useEffect(()=>{
+    if(!ready)return;
+    const analyser=analyserRef.current;
+    const ctx=audioCtxRef.current;
+    const canvas=canvasRef.current;
+    const cctx=canvas.getContext('2d');
+    const binHz=ctx.sampleRate/analyser.fftSize;
+    const freqData=new Float32Array(analyser.frequencyBinCount);
+    const bandBinRanges=STAGE_METER_BANDS.map(f=>{
+      const lo=f/Math.pow(2,1/6),hi=f*Math.pow(2,1/6);
+      let loBin=Math.max(0,Math.round(lo/binHz));
+      let hiBin=Math.min(freqData.length-1,Math.round(hi/binHz));
+      if(hiBin<loBin)hiBin=loBin;
+      return [loBin,hiBin];
+    });
+    const aWeights=STAGE_METER_BANDS.map(stageMeterAWeightDb);
+
+    let dims={w:0,h:0};
+    const resize=()=>{
+      const w=canvas.clientWidth,h=canvas.clientHeight;
+      const dpr=Math.min(window.devicePixelRatio||1,2);
+      canvas.width=Math.max(1,w*dpr);canvas.height=Math.max(1,h*dpr);
+      cctx.setTransform(dpr,0,0,dpr,0,0);
+      dims={w,h};
+    };
+    resize();
+    window.addEventListener('resize',resize);
+
+    function pick(clientX){
+      const r=canvas.getBoundingClientRect();
+      const x=clientX-r.left;
+      const i=Math.floor(x/(r.width/STAGE_METER_BANDS.length));
+      return Math.max(0,Math.min(STAGE_METER_BANDS.length-1,i));
+    }
+    function updateInspectDOM(i){
+      if(inspFreqRef.current)inspFreqRef.current.textContent=stageMeterBandLabelFull(STAGE_METER_BANDS[i]);
+      if(inspLevelRef.current)inspLevelRef.current.textContent=levelsRef.current[i].toFixed(1)+' dB';
+    }
+    const onPointerDown=ev=>{
+      ev.preventDefault();
+      canvas.setPointerCapture(ev.pointerId);
+      heldRef.current=true;
+      selIndexRef.current=pick(ev.clientX);
+      updateInspectDOM(selIndexRef.current);
+    };
+    const onPointerMove=ev=>{
+      if(!heldRef.current)return;
+      selIndexRef.current=pick(ev.clientX);
+      updateInspectDOM(selIndexRef.current);
+    };
+    const onPointerUp=()=>{heldRef.current=false;};
+    canvas.addEventListener('pointerdown',onPointerDown);
+    canvas.addEventListener('pointermove',onPointerMove);
+    canvas.addEventListener('pointerup',onPointerUp);
+    canvas.addEventListener('pointercancel',onPointerUp);
+
+    function draw(){
+      const {w,h}=dims;
+      cctx.clearRect(0,0,w,h);
+      cctx.fillStyle=DARK_METER.bg;cctx.fillRect(0,0,w,h);
+      const top=6,bot=h-4,plot=bot-top;
+      const dbMin=40,dbMax=115;
+      const y=v=>bot-((v-dbMin)/(dbMax-dbMin))*plot;
+      cctx.strokeStyle=DARK_METER.grid;cctx.lineWidth=1;
+      for(let db=50;db<=110;db+=10){
+        const yy=Math.round(y(db))+.5;
+        cctx.beginPath();cctx.moveTo(0,yy);cctx.lineTo(w,yy);cctx.stroke();
+      }
+      const slot=w/STAGE_METER_BANDS.length,bw=Math.max(2,slot*0.62);
+      for(let i=0;i<STAGE_METER_BANDS.length;i++){
+        const v=levelsRef.current[i];
+        const x=i*slot+(slot-bw)/2;
+        const yy=y(v);
+        const isSel=i===selIndexRef.current;
+        if(isSel){
+          cctx.fillStyle=DARK_METER.selGlow;
+          cctx.fillRect(i*slot,top,slot,plot);
+        }
+        cctx.fillStyle=isSel?DARK_METER.green:(v>=100?DARK_METER.red:v>=92?DARK_METER.amber:DARK_METER.green);
+        cctx.fillRect(x,yy,bw,bot-yy);
+        const py=y(peaksRef.current[i]);
+        cctx.fillStyle=isSel?DARK_METER.green:DARK_METER.cap;
+        cctx.fillRect(x,py-2,bw,2);
+      }
+      if(selIndexRef.current>=0){
+        const cx=selIndexRef.current*slot+slot/2;
+        cctx.strokeStyle=DARK_METER.green;cctx.lineWidth=1;cctx.globalAlpha=.5;
+        cctx.beginPath();cctx.moveTo(cx,top);cctx.lineTo(cx,bot);cctx.stroke();
+        cctx.globalAlpha=1;
+      }
+    }
+
+    function tick(){
+      analyser.getFloatFrequencyData(freqData);
+      let energySum=0,peakVal=-999,peakIdx=0;
+      for(let i=0;i<STAGE_METER_BANDS.length;i++){
+        const [lo,hi]=bandBinRanges[i];
+        let sum=0,count=0;
+        for(let b=lo;b<=hi;b++){
+          const dbfs=freqData[b];
+          if(Number.isFinite(dbfs)){sum+=Math.pow(10,dbfs/10);count++;}
+        }
+        const avgDbfs=count>0?10*Math.log10(sum/count):-100;
+        const weighted=avgDbfs+aWeights[i]+STAGE_METER_BASE_OFFSET+calOffsetRef.current;
+        const prev=levelsRef.current[i];
+        const smoothed=prev+(weighted-prev)*0.35;
+        levelsRef.current[i]=smoothed;
+        if(smoothed>peaksRef.current[i])peaksRef.current[i]=smoothed;
+        else peaksRef.current[i]-=0.12;
+        energySum+=Math.pow(10,smoothed/10);
+        if(smoothed>peakVal){peakVal=smoothed;peakIdx=i;}
+      }
+      const overall=10*Math.log10(energySum);
+      splRef.current+=(overall-splRef.current)*0.25;
+
+      if(bigNumRef.current)bigNumRef.current.textContent=splRef.current.toFixed(1);
+      if(peakBandRef.current)peakBandRef.current.textContent=stageMeterBandLabelFull(STAGE_METER_BANDS[peakIdx]);
+      if(levelBarRef.current){
+        const pct=Math.max(0,Math.min(100,((splRef.current-55)/(120-55))*100));
+        levelBarRef.current.style.width=pct+'%';
+      }
+      if(heldRef.current&&selIndexRef.current>=0)updateInspectDOM(selIndexRef.current);
+
+      draw();
+      rafRef.current=requestAnimationFrame(tick);
+    }
+    rafRef.current=requestAnimationFrame(tick);
+
+    return ()=>{
+      cancelAnimationFrame(rafRef.current);
+      window.removeEventListener('resize',resize);
+      canvas.removeEventListener('pointerdown',onPointerDown);
+      canvas.removeEventListener('pointermove',onPointerMove);
+      canvas.removeEventListener('pointerup',onPointerUp);
+      canvas.removeEventListener('pointercancel',onPointerUp);
+    };
+  },[ready]);
+
+  const resetPeaks=()=>{
+    peaksRef.current=levelsRef.current.slice();
+  };
+  const applyCalibration=()=>{
+    const entered=parseFloat(calInput);
+    if(!Number.isFinite(entered))return;
+    const newOffset=calOffset+(entered-splRef.current);
+    setCalOffset(newOffset);
+    setCalibrated(true);
+    try{
+      localStorage.setItem('pmtf_spl_calibration_offset',String(newOffset));
+      localStorage.setItem('pmtf_spl_calibrated','1');
+    }catch{}
+    setShowCalibrate(false);
+    setCalInput('');
+  };
+  const resetCalibration=()=>{
+    setCalOffset(0);
+    setCalibrated(false);
+    try{
+      localStorage.setItem('pmtf_spl_calibration_offset','0');
+      localStorage.setItem('pmtf_spl_calibrated','0');
+    }catch{}
+  };
+
+  return e('div',{onClick:onClose,className:'overlay'},
+    e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',
+      style:{width:'100%',maxWidth:480,height:'min(88vh, 720px)',display:'flex',flexDirection:'column',
+        background:DARK_METER.bg,color:DARK_METER.text,padding:0,borderRadius:20,overflow:'hidden'}},
+      e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'14px 16px 0',flexShrink:0}},
+        e('div',{style:{fontSize:15,fontWeight:600}},'Stage Meter'),
+        e('div',{style:{display:'flex',alignItems:'center',gap:8}},
+          e('span',{onClick:()=>setShowCalibrate(v=>!v),
+            style:{fontSize:9.5,fontFamily:'ui-monospace,monospace',letterSpacing:'.08em',padding:'3px 9px',borderRadius:99,cursor:'pointer',
+              background:calibrated?'rgba(93,202,165,.14)':'rgba(224,169,59,.15)',color:calibrated?DARK_METER.green:DARK_METER.amber}},
+            calibrated?'CALIBRATED':'UNCALIBRATED'),
+          e('button',{onClick:onClose,style:{border:'none',background:'none',color:'rgba(230,239,234,.6)',fontSize:22,cursor:'pointer',padding:'0 2px',lineHeight:1}},'×')
+        )
+      ),
+      showCalibrate&&e('div',{style:{margin:'10px 16px 0',padding:'10px 12px',borderRadius:10,background:DARK_METER.panel,border:'1px solid '+DARK_METER.panelBorder,flexShrink:0}},
+        e('div',{style:{fontSize:11.5,fontWeight:600,marginBottom:6}},'Calibrate against a reference'),
+        e('div',{style:{fontSize:11,color:DARK_METER.textMuted,marginBottom:8,lineHeight:1.4}},'Hold this phone next to a trusted SPL meter (or app) and enter what it reads right now.'),
+        e('div',{style:{display:'flex',gap:6}},
+          e('input',{type:'number',inputMode:'decimal',value:calInput,onChange:ev=>setCalInput(ev.target.value),placeholder:'e.g. 85',
+            style:{flex:1,minWidth:0,padding:'7px 9px',borderRadius:8,border:'1px solid rgba(255,255,255,.15)',background:'rgba(255,255,255,.06)',color:DARK_METER.text,fontSize:13}}),
+          e('button',{onClick:applyCalibration,disabled:!calInput.trim(),style:{padding:'7px 14px',borderRadius:8,border:'none',flexShrink:0,
+            background:calInput.trim()?DARK_METER.green:'rgba(255,255,255,.12)',color:calInput.trim()?'#06120E':'rgba(230,239,234,.4)',fontWeight:600,fontSize:12.5,cursor:calInput.trim()?'pointer':'default'}},'Save'),
+          e('button',{onClick:()=>{setShowCalibrate(false);setCalInput('');},style:{padding:'7px 12px',borderRadius:8,border:'1px solid rgba(255,255,255,.15)',background:'none',color:'rgba(230,239,234,.7)',fontSize:12.5,cursor:'pointer',flexShrink:0}},'Cancel')
+        ),
+        calibrated&&e('div',{onClick:resetCalibration,style:{marginTop:8,fontSize:10.5,color:'rgba(230,239,234,.4)',cursor:'pointer',textDecoration:'underline'}},'Reset calibration')
+      ),
+      micError&&e('div',{style:{margin:16,padding:14,borderRadius:10,background:'rgba(229,72,77,.1)',border:'1px solid rgba(229,72,77,.3)',fontSize:13,lineHeight:1.5,color:'#F2A29B'}},micError),
+      !ready&&!micError&&e('div',{style:{flex:1,display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,color:DARK_METER.textMuted}},'Requesting microphone access…'),
+      ready&&e('div',{style:{display:'flex',flexDirection:'column',flex:1,minHeight:0}},
+        e('div',{style:{display:'flex',alignItems:'flex-end',justifyContent:'space-between',padding:'10px 16px 0',gap:10,flexShrink:0}},
+          e('div',{style:{display:'flex',alignItems:'baseline',gap:7}},
+            e('span',{ref:bigNumRef,style:{fontFamily:'Archivo,system-ui,sans-serif',fontWeight:700,fontSize:58,lineHeight:1,letterSpacing:'-.02em',fontVariantNumeric:'tabular-nums'}},'—'),
+            e('span',{style:{fontSize:12,letterSpacing:'.14em',color:DARK_METER.textMuted}},'dBA')
+          ),
+          e('div',{style:{textAlign:'right'}},
+            e('div',{style:{fontSize:9,letterSpacing:'.08em',textTransform:'uppercase',color:DARK_METER.textFaint}},'Peak band'),
+            e('div',{ref:peakBandRef,style:{fontFamily:'Archivo,sans-serif',fontWeight:700,fontSize:16,color:DARK_METER.amber}},'—')
+          )
+        ),
+        e('div',{style:{padding:'10px 16px 0',flexShrink:0}},
+          e('div',{style:{height:6,borderRadius:99,background:'rgba(255,255,255,.08)',overflow:'hidden'}},
+            e('div',{ref:levelBarRef,style:{height:'100%',width:'0%',borderRadius:99,background:`linear-gradient(90deg, ${DARK_METER.green}, ${DARK_METER.amber})`}})
+          ),
+          e('div',{style:{display:'flex',justifyContent:'space-between',fontFamily:'ui-monospace,monospace',fontSize:8,color:DARK_METER.textFaint,paddingTop:4}},
+            e('span',null,'60'),e('span',null,'85 OSHA'),e('span',null,'100'),e('span',null,'120')
+          )
+        ),
+        e('div',{style:{padding:'12px 10px 0',flex:1,display:'flex',flexDirection:'column',minHeight:0}},
+          e('div',{style:{display:'flex',justifyContent:'space-between',padding:'0 4px 5px',fontFamily:'ui-monospace,monospace',fontSize:8,letterSpacing:'.09em',textTransform:'uppercase',color:DARK_METER.textMuted,flexShrink:0}},
+            e('span',null,'Third-octave RTA'),e('span',null,'32 bands · press & hold')
+          ),
+          e('canvas',{ref:canvasRef,style:{width:'100%',flex:1,minHeight:0,touchAction:'none',cursor:'crosshair',borderRadius:8,display:'block'}}),
+          e('div',{style:{display:'flex',padding:'4px 0 0',height:30,flexShrink:0}},
+            STAGE_METER_BANDS.map(f=>e('span',{key:f,style:{flex:1,fontFamily:'ui-monospace,monospace',fontSize:6.5,writingMode:'vertical-rl',textAlign:'right',letterSpacing:'.02em',display:'flex',justifyContent:'flex-end',
+              color:STAGE_METER_OCTAVES.has(f)?DARK_METER.green:DARK_METER.textFaint,fontWeight:STAGE_METER_OCTAVES.has(f)?600:400}},stageMeterBandLabel(f)))
+          )
+        ),
+        e('div',{style:{margin:'9px 10px 0',borderRadius:10,padding:'8px 11px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,minHeight:44,flexShrink:0,
+            background:DARK_METER.panel,border:'1px solid '+DARK_METER.panelBorder}},
+          e('div',{style:{display:'flex',flexDirection:'column',gap:1}},
+            e('div',{style:{fontFamily:'ui-monospace,monospace',fontSize:7,letterSpacing:'.1em',textTransform:'uppercase',opacity:.55}},'Band'),
+            e('div',{ref:inspFreqRef,style:{fontFamily:'Archivo,sans-serif',fontWeight:700,fontSize:16,fontVariantNumeric:'tabular-nums'}},'— Hz')
+          ),
+          e('div',{style:{textAlign:'right'}},
+            e('div',{style:{fontFamily:'ui-monospace,monospace',fontSize:7,letterSpacing:'.1em',textTransform:'uppercase',opacity:.55}},'Level'),
+            e('div',{ref:inspLevelRef,style:{fontFamily:'Archivo,sans-serif',fontWeight:600,fontSize:14,fontVariantNumeric:'tabular-nums'}},'— dB')
+          )
+        ),
+        e('div',{style:{display:'flex',justifyContent:'center',padding:'10px 16px 14px',flexShrink:0,borderTop:'1px solid '+DARK_METER.panelBorder,marginTop:9}},
+          e('button',{onClick:resetPeaks,style:{fontSize:12.5,fontWeight:600,padding:'8px 18px',borderRadius:99,border:'1px solid rgba(255,255,255,.14)',background:'none',color:'rgba(230,239,234,.75)',cursor:'pointer'}},'↺ Reset peaks')
+        )
+      )
+    )
+  );
+}
+
 function tryPrint(setStandaloneHelp){
   if(window.navigator.standalone===true){setStandaloneHelp(true);return;}
   window.print();
@@ -1843,6 +2204,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
   // see. Sound/flash are global toggles (not per-tempo) since in practice
   // you pick one mode for a given room/stage, not per song.
   const [showMetronomeModal,setShowMetronomeModal]=useState(false);
+  const [showStageMeterModal,setShowStageMeterModal]=useState(false);
   const [metronomeTempos,setMetronomeTempos]=useState(()=>{try{const s=localStorage.getItem('pmtf_metronome_tempos');return s?JSON.parse(s):[];}catch{return [];}});
   const [metronomeSound,setMetronomeSound]=useState(()=>{try{const s=localStorage.getItem('pmtf_metronome_sound');return s===null?true:s==='1';}catch{return true;}});
   const [metronomeFlash,setMetronomeFlash]=useState(()=>{try{const s=localStorage.getItem('pmtf_metronome_flash');return s===null?false:s==='1';}catch{return false;}});
@@ -2297,6 +2659,11 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
           right:e('button',{onClick:()=>setShowMetronomeModal(true),style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'Open')
         })
       ),
+      e(Section,{icon:'🎚️',iconBg:'#111827',title:'Stage Meter',summary:'SPL + 32-band RTA, mic-based',isOpen:openSections.has('stagemeter'),onToggle:()=>toggleSection('stagemeter')},
+        e(Row,{label:'Decibel meter & analyzer',sub:'Live dBA reading and a third-octave RTA — press a band to identify its frequency',border:false,
+          right:e('button',{onClick:()=>setShowStageMeterModal(true),style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'Open')
+        })
+      ),
       e(Section,{icon:'ℹ️',iconBg:'#E5E7EB',title:'About',summary:'v1.0.0',isOpen:openSections.has('about'),onToggle:()=>toggleSection('about')},
         e(Row,{label:'Version',sub:'1.0.0',border:true,right:null}),
         e(Row,{label:'Share app',sub:'Coming soon',border:false,right:e('button',{disabled:true,style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #e5e7eb',color:'#9ca3af',cursor:'not-allowed',background:'#f9fafb'}},'Coming soon')})
@@ -2318,6 +2685,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
       tapClickOn:metronomeTapClick,setTapClickOn:setMetronomeTapClick,
       theme,onClose:()=>setShowMetronomeModal(false)
     }),
+    showStageMeterModal&&e(StageMeterModal,{onClose:()=>setShowStageMeterModal(false)}),
     showSchedulePreview&&e('div',{onClick:()=>setShowSchedulePreview(false),className:'overlay'},
       e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:460,maxHeight:'90vh',overflowY:'auto',padding:0}},
         e('div',{className:'no-print',style:{display:'flex',gap:8,padding:'14px 20px',borderBottom:'1px solid #e5e7eb'}},
