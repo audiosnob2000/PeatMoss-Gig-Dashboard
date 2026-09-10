@@ -1274,6 +1274,15 @@ function StageMeterModal({onClose}){
       return [loBin,hiBin];
     });
     const aWeights=STAGE_METER_BANDS.map(stageMeterAWeightDb);
+    // Auto-ranged rather than a fixed absolute dB window — mic gain and
+    // the pre-calibration base offset vary enough between phones that a
+    // fixed window can push every band's bar off the visible canvas on
+    // some devices, which is what "the RTA isn't showing up" actually
+    // was. The RTA's job is spectral shape, not a second absolute SPL
+    // readout (the big number above already does that), so scaling to
+    // whatever the mic is actually producing is the right default
+    // regardless of whether this phone has been calibrated yet.
+    let rangeMin=null,rangeMax=null;
 
     let dims={w:0,h:0};
     const resize=()=>{
@@ -1319,11 +1328,14 @@ function StageMeterModal({onClose}){
       cctx.clearRect(0,0,w,h);
       cctx.fillStyle=DARK_METER.bg;cctx.fillRect(0,0,w,h);
       const top=6,bot=h-4,plot=bot-top;
-      const dbMin=40,dbMax=115;
-      const y=v=>bot-((v-dbMin)/(dbMax-dbMin))*plot;
+      const pad=5;
+      const dbMin=(rangeMin==null?30:rangeMin)-pad;
+      const dbMax=(rangeMax==null?90:rangeMax)+pad;
+      const span=Math.max(1,dbMax-dbMin);
+      const y=v=>Math.max(top,Math.min(bot,bot-((v-dbMin)/span)*plot));
       cctx.strokeStyle=DARK_METER.grid;cctx.lineWidth=1;
-      for(let db=50;db<=110;db+=10){
-        const yy=Math.round(y(db))+.5;
+      for(let k=1;k<4;k++){
+        const yy=Math.round(top+plot*k/4)+.5;
         cctx.beginPath();cctx.moveTo(0,yy);cctx.lineTo(w,yy);cctx.stroke();
       }
       const slot=w/STAGE_METER_BANDS.length,bw=Math.max(2,slot*0.62);
@@ -1337,7 +1349,10 @@ function StageMeterModal({onClose}){
           cctx.fillRect(i*slot,top,slot,plot);
         }
         cctx.fillStyle=isSel?DARK_METER.green:(v>=100?DARK_METER.red:v>=92?DARK_METER.amber:DARK_METER.green);
-        cctx.fillRect(x,yy,bw,bot-yy);
+        // A hard floor on bar height means a very quiet band still shows a
+        // visible sliver instead of disappearing — silence should read as
+        // "quiet," not as "broken."
+        cctx.fillRect(x,yy,bw,Math.max(2,bot-yy));
         const py=y(peaksRef.current[i]);
         cctx.fillStyle=isSel?DARK_METER.green:DARK_METER.cap;
         cctx.fillRect(x,py-2,bw,2);
@@ -1353,6 +1368,7 @@ function StageMeterModal({onClose}){
     function tick(){
       analyser.getFloatFrequencyData(freqData);
       let energySum=0,peakVal=-999,peakIdx=0;
+      let frameMin=Infinity,frameMax=-Infinity;
       for(let i=0;i<STAGE_METER_BANDS.length;i++){
         const [lo,hi]=bandBinRanges[i];
         let sum=0,count=0;
@@ -1365,10 +1381,20 @@ function StageMeterModal({onClose}){
         const prev=levelsRef.current[i];
         const smoothed=prev+(weighted-prev)*0.35;
         levelsRef.current[i]=smoothed;
+        if(smoothed<frameMin)frameMin=smoothed;
+        if(smoothed>frameMax)frameMax=smoothed;
         if(smoothed>peaksRef.current[i])peaksRef.current[i]=smoothed;
         else peaksRef.current[i]-=0.12;
         energySum+=Math.pow(10,smoothed/10);
         if(smoothed>peakVal){peakVal=smoothed;peakIdx=i;}
+      }
+      // Expand the RTA's visible range instantly to include a new extreme
+      // (so a sudden loud hit is never clipped off-canvas) but contract it
+      // slowly (so the scale doesn't visibly jump around frame to frame).
+      if(rangeMin==null){rangeMin=frameMin;rangeMax=frameMax;}
+      else{
+        rangeMin=frameMin<rangeMin?frameMin:rangeMin+(frameMin-rangeMin)*0.01;
+        rangeMax=frameMax>rangeMax?frameMax:rangeMax+(frameMax-rangeMax)*0.01;
       }
       const overall=10*Math.log10(energySum);
       splRef.current+=(overall-splRef.current)*0.25;
@@ -1421,18 +1447,18 @@ function StageMeterModal({onClose}){
     }catch{}
   };
 
-  return e('div',{onClick:onClose,className:'overlay'},
+  return e('div',{onClick:onClose,className:'overlay',style:{padding:0}},
     e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',
-      style:{width:'100%',maxWidth:480,height:'min(88vh, 720px)',display:'flex',flexDirection:'column',
-        background:DARK_METER.bg,color:DARK_METER.text,padding:0,borderRadius:20,overflow:'hidden'}},
-      e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'14px 16px 0',flexShrink:0}},
-        e('div',{style:{fontSize:15,fontWeight:600}},'Stage Meter'),
-        e('div',{style:{display:'flex',alignItems:'center',gap:8}},
+      style:{width:'100%',height:'100%',maxWidth:'none',display:'flex',flexDirection:'column',
+        background:DARK_METER.bg,color:DARK_METER.text,padding:0,borderRadius:0,overflow:'hidden'}},
+      e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'16px 18px 0',flexShrink:0}},
+        e('div',{style:{fontSize:17,fontWeight:600}},'Stage Meter'),
+        e('div',{style:{display:'flex',alignItems:'center',gap:10}},
           e('span',{onClick:()=>setShowCalibrate(v=>!v),
-            style:{fontSize:9.5,fontFamily:'ui-monospace,monospace',letterSpacing:'.08em',padding:'3px 9px',borderRadius:99,cursor:'pointer',
+            style:{fontSize:10.5,fontFamily:'ui-monospace,monospace',letterSpacing:'.08em',padding:'4px 10px',borderRadius:99,cursor:'pointer',
               background:calibrated?'rgba(93,202,165,.14)':'rgba(224,169,59,.15)',color:calibrated?DARK_METER.green:DARK_METER.amber}},
             calibrated?'CALIBRATED':'UNCALIBRATED'),
-          e('button',{onClick:onClose,style:{border:'none',background:'none',color:'rgba(230,239,234,.6)',fontSize:22,cursor:'pointer',padding:'0 2px',lineHeight:1}},'×')
+          e('button',{onClick:onClose,style:{border:'none',background:'none',color:'rgba(230,239,234,.6)',fontSize:26,cursor:'pointer',padding:'0 2px',lineHeight:1}},'×')
         )
       ),
       showCalibrate&&e('div',{style:{margin:'10px 16px 0',padding:'10px 12px',borderRadius:10,background:DARK_METER.panel,border:'1px solid '+DARK_METER.panelBorder,flexShrink:0}},
@@ -1451,46 +1477,46 @@ function StageMeterModal({onClose}){
       !ready&&!micError&&e('div',{style:{flex:1,display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,color:DARK_METER.textMuted}},'Requesting microphone access…'),
       ready&&e('div',{style:{display:'flex',flexDirection:'column',flex:1,minHeight:0}},
         e('div',{style:{display:'flex',alignItems:'flex-end',justifyContent:'space-between',padding:'10px 16px 0',gap:10,flexShrink:0}},
-          e('div',{style:{display:'flex',alignItems:'baseline',gap:7}},
-            e('span',{ref:bigNumRef,style:{fontFamily:'Archivo,system-ui,sans-serif',fontWeight:700,fontSize:58,lineHeight:1,letterSpacing:'-.02em',fontVariantNumeric:'tabular-nums'}},'—'),
-            e('span',{style:{fontSize:12,letterSpacing:'.14em',color:DARK_METER.textMuted}},'dBA')
+          e('div',{style:{display:'flex',alignItems:'baseline',gap:9}},
+            e('span',{ref:bigNumRef,style:{fontFamily:'Archivo,system-ui,sans-serif',fontWeight:700,fontSize:'clamp(64px, 15vw, 110px)',lineHeight:1,letterSpacing:'-.02em',fontVariantNumeric:'tabular-nums'}},'—'),
+            e('span',{style:{fontSize:14,letterSpacing:'.14em',color:DARK_METER.textMuted}},'dBA')
           ),
           e('div',{style:{textAlign:'right'}},
-            e('div',{style:{fontSize:9,letterSpacing:'.08em',textTransform:'uppercase',color:DARK_METER.textFaint}},'Peak band'),
-            e('div',{ref:peakBandRef,style:{fontFamily:'Archivo,sans-serif',fontWeight:700,fontSize:16,color:DARK_METER.amber}},'—')
+            e('div',{style:{fontSize:10.5,letterSpacing:'.08em',textTransform:'uppercase',color:DARK_METER.textFaint}},'Peak band'),
+            e('div',{ref:peakBandRef,style:{fontFamily:'Archivo,sans-serif',fontWeight:700,fontSize:22,color:DARK_METER.amber}},'—')
           )
         ),
-        e('div',{style:{padding:'10px 16px 0',flexShrink:0}},
-          e('div',{style:{height:6,borderRadius:99,background:'rgba(255,255,255,.08)',overflow:'hidden'}},
+        e('div',{style:{padding:'14px 18px 0',flexShrink:0}},
+          e('div',{style:{height:8,borderRadius:99,background:'rgba(255,255,255,.08)',overflow:'hidden'}},
             e('div',{ref:levelBarRef,style:{height:'100%',width:'0%',borderRadius:99,background:`linear-gradient(90deg, ${DARK_METER.green}, ${DARK_METER.amber})`}})
           ),
-          e('div',{style:{display:'flex',justifyContent:'space-between',fontFamily:'ui-monospace,monospace',fontSize:8,color:DARK_METER.textFaint,paddingTop:4}},
+          e('div',{style:{display:'flex',justifyContent:'space-between',fontFamily:'ui-monospace,monospace',fontSize:9.5,color:DARK_METER.textFaint,paddingTop:5}},
             e('span',null,'60'),e('span',null,'85 OSHA'),e('span',null,'100'),e('span',null,'120')
           )
         ),
-        e('div',{style:{padding:'12px 10px 0',flex:1,display:'flex',flexDirection:'column',minHeight:0}},
-          e('div',{style:{display:'flex',justifyContent:'space-between',padding:'0 4px 5px',fontFamily:'ui-monospace,monospace',fontSize:8,letterSpacing:'.09em',textTransform:'uppercase',color:DARK_METER.textMuted,flexShrink:0}},
+        e('div',{style:{padding:'16px 12px 0',flex:1,display:'flex',flexDirection:'column',minHeight:0}},
+          e('div',{style:{display:'flex',justifyContent:'space-between',padding:'0 4px 6px',fontFamily:'ui-monospace,monospace',fontSize:9.5,letterSpacing:'.09em',textTransform:'uppercase',color:DARK_METER.textMuted,flexShrink:0}},
             e('span',null,'Third-octave RTA'),e('span',null,'32 bands · press & hold')
           ),
           e('canvas',{ref:canvasRef,style:{width:'100%',flex:1,minHeight:0,touchAction:'none',cursor:'crosshair',borderRadius:8,display:'block'}}),
-          e('div',{style:{display:'flex',padding:'4px 0 0',height:30,flexShrink:0}},
-            STAGE_METER_BANDS.map(f=>e('span',{key:f,style:{flex:1,fontFamily:'ui-monospace,monospace',fontSize:6.5,writingMode:'vertical-rl',textAlign:'right',letterSpacing:'.02em',display:'flex',justifyContent:'flex-end',
+          e('div',{style:{display:'flex',padding:'5px 0 0',height:38,flexShrink:0}},
+            STAGE_METER_BANDS.map(f=>e('span',{key:f,style:{flex:1,fontFamily:'ui-monospace,monospace',fontSize:8,writingMode:'vertical-rl',textAlign:'right',letterSpacing:'.02em',display:'flex',justifyContent:'flex-end',
               color:STAGE_METER_OCTAVES.has(f)?DARK_METER.green:DARK_METER.textFaint,fontWeight:STAGE_METER_OCTAVES.has(f)?600:400}},stageMeterBandLabel(f)))
           )
         ),
-        e('div',{style:{margin:'9px 10px 0',borderRadius:10,padding:'8px 11px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,minHeight:44,flexShrink:0,
+        e('div',{style:{margin:'11px 12px 0',borderRadius:10,padding:'10px 13px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,minHeight:54,flexShrink:0,
             background:DARK_METER.panel,border:'1px solid '+DARK_METER.panelBorder}},
-          e('div',{style:{display:'flex',flexDirection:'column',gap:1}},
-            e('div',{style:{fontFamily:'ui-monospace,monospace',fontSize:7,letterSpacing:'.1em',textTransform:'uppercase',opacity:.55}},'Band'),
-            e('div',{ref:inspFreqRef,style:{fontFamily:'Archivo,sans-serif',fontWeight:700,fontSize:16,fontVariantNumeric:'tabular-nums'}},'— Hz')
+          e('div',{style:{display:'flex',flexDirection:'column',gap:2}},
+            e('div',{style:{fontFamily:'ui-monospace,monospace',fontSize:8,letterSpacing:'.1em',textTransform:'uppercase',opacity:.55}},'Band'),
+            e('div',{ref:inspFreqRef,style:{fontFamily:'Archivo,sans-serif',fontWeight:700,fontSize:20,fontVariantNumeric:'tabular-nums'}},'— Hz')
           ),
           e('div',{style:{textAlign:'right'}},
-            e('div',{style:{fontFamily:'ui-monospace,monospace',fontSize:7,letterSpacing:'.1em',textTransform:'uppercase',opacity:.55}},'Level'),
-            e('div',{ref:inspLevelRef,style:{fontFamily:'Archivo,sans-serif',fontWeight:600,fontSize:14,fontVariantNumeric:'tabular-nums'}},'— dB')
+            e('div',{style:{fontFamily:'ui-monospace,monospace',fontSize:8,letterSpacing:'.1em',textTransform:'uppercase',opacity:.55}},'Level'),
+            e('div',{ref:inspLevelRef,style:{fontFamily:'Archivo,sans-serif',fontWeight:600,fontSize:17,fontVariantNumeric:'tabular-nums'}},'— dB')
           )
         ),
-        e('div',{style:{display:'flex',justifyContent:'center',padding:'10px 16px 14px',flexShrink:0,borderTop:'1px solid '+DARK_METER.panelBorder,marginTop:9}},
-          e('button',{onClick:resetPeaks,style:{fontSize:12.5,fontWeight:600,padding:'8px 18px',borderRadius:99,border:'1px solid rgba(255,255,255,.14)',background:'none',color:'rgba(230,239,234,.75)',cursor:'pointer'}},'↺ Reset peaks')
+        e('div',{style:{display:'flex',justifyContent:'center',padding:'12px 18px 18px',flexShrink:0,borderTop:'1px solid '+DARK_METER.panelBorder,marginTop:11}},
+          e('button',{onClick:resetPeaks,style:{fontSize:14,fontWeight:600,padding:'10px 22px',borderRadius:99,border:'1px solid rgba(255,255,255,.14)',background:'none',color:'rgba(230,239,234,.75)',cursor:'pointer'}},'↺ Reset peaks')
         )
       )
     )
