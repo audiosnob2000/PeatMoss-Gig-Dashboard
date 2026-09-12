@@ -2004,7 +2004,7 @@ async function trySharePhotoFile(src,name){
   }
 }
 
-function Modal({gig,prefillDate,onSave,onDelete,onClose}){
+function Modal({gig,prefillDate,onSave,onDelete,onClose,calendarLocked}){
   const blank={date:prefillDate||'',venue:'',location:'',type:'bar',status:'confirmed',time:'',selfPA:false,notes:''};
   const [form,setForm]=useState(gig||blank);
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
@@ -2022,6 +2022,12 @@ function Modal({gig,prefillDate,onSave,onDelete,onClose}){
       e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'1rem'}},
         e('span',{style:{fontSize:16,fontWeight:500}},isNew?'Add gig':'Edit gig'),
         e('button',{onClick:onClose,style:{border:'none',background:'none',fontSize:20,color:'#9ca3af',padding:'0 4px'}},'×')
+      ),
+      // Said up front rather than only on save — otherwise you retype a
+      // venue name, hit save, and find out afterwards that those fields
+      // were never yours to change from a signed-out device.
+      calendarLocked&&e('div',{style:{marginBottom:14,padding:'10px 12px',borderRadius:9,background:'#FDF0E3',border:'1px solid #F0D2A8',fontSize:11.5,lineHeight:1.45,color:'#8A4B0C'}},
+        'This gig comes from the band\'s shared Google Calendar. Date, venue, location and set time can only be changed with Google Calendar connected (Settings → Calendar). Notes, type, status and the PA switch save either way.'
       ),
       [['date','Date','date'],['venue','Venue name','text'],['location','Location','text']].map(([k,lbl,tp])=>
         e('div',{key:k},e('label',null,lbl),e('input',{type:tp,value:form[k]||'',onChange:ev=>set(k,ev.target.value)}))
@@ -3876,7 +3882,25 @@ function App(){
   const isGoogleTokenExpired=()=>googleTokenExpiresAt&&Date.now()>=googleTokenExpiresAt;
   const clearExpiredGoogleAuth=()=>{setGoogleAccessToken(null);setGoogleTokenExpiresAt(null);};
 
+  // A calendar-sourced gig re-reads venue/date/location/time from Google on
+  // every sync, and Firestore's copy of those four is deliberately ignored
+  // for it (see both merges). So editing one of them while signed out can
+  // never stick — it applies locally, looks saved, then quietly reverts on
+  // the next sync. Refuse it outright instead of pretending it saved.
+  const CALENDAR_OWNED_FIELDS=[['date','date'],['venue','venue name'],['location','location'],['time','set time']];
   const saveGig=async g=>{
+    const before=gigs.find(x=>x.id===g.id);
+    if(!googleAccessToken&&g.fromCalendar&&before){
+      const changed=CALENDAR_OWNED_FIELDS.filter(([f])=>String(before[f]??'')!==String(g[f]??''));
+      if(changed.length){
+        const names=changed.map(([,label])=>label);
+        const list=names.length>1?names.slice(0,-1).join(', ')+' and '+names[names.length-1]:names[0];
+        alert('This gig lives on the band\'s shared Google Calendar, so its '+list+' can only be changed there.\n\n'
+          +'Connect Google Calendar under Settings → Calendar, then make this change again — without it, the next sync would just put the old '+(names.length>1?'values':'value')+' back.\n\n'
+          +'Notes, gig type, status and the PA switch do save without connecting.');
+        return;
+      }
+    }
     if(googleAccessToken){
       if(isGoogleTokenExpired()){
         clearExpiredGoogleAuth();
@@ -5061,7 +5085,8 @@ function App(){
         )
       )
     ),
-    modal&&e(Modal,{gig:modal.mode==='edit'?modal.gig:null,prefillDate:modal.prefillDate,onSave:saveGig,onDelete:deleteGig,onClose:closeModal}),
+    modal&&e(Modal,{gig:modal.mode==='edit'?modal.gig:null,prefillDate:modal.prefillDate,onSave:saveGig,onDelete:deleteGig,onClose:closeModal,
+      calendarLocked:!googleAccessToken&&modal.mode==='edit'&&!!modal.gig?.fromCalendar}),
 
     dayPopup&&e('div',{onClick:()=>setDayPopup(null),className:'overlay'},
       e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:360}},
