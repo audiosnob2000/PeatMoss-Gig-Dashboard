@@ -2,8 +2,13 @@ const {onDocumentCreated} = require('firebase-functions/v2/firestore');
 const {onRequest} = require('firebase-functions/v2/https');
 const {onSchedule} = require('firebase-functions/v2/scheduler');
 const admin = require('firebase-admin');
+const WEEKLY_CHANGELOG = require('./changelog');
 
 admin.initializeApp();
+
+// Keep in sync with BAND_MESSAGE_CAP in index.html — same cap, same
+// oldest-goes-first overflow rule, just applied from the admin side.
+const BAND_MESSAGE_CAP = 2;
 
 const APP_URL = 'https://audiosnob2000.github.io/PeatMoss-Gig-Dashboard/';
 const ALLOWED_ORIGIN = 'https://audiosnob2000.github.io';
@@ -180,6 +185,34 @@ exports.notifyOnBandMessage = onDocumentCreated('bandMessages/{messageId}', asyn
     staleTokens.forEach(t => batch.delete(admin.firestore().collection('fcmTokens').doc(t)));
     await batch.commit();
   }
+});
+
+// Posts a small "what's new" band message once a week, sourced from
+// changelog.js, so the band hears about new features without anyone having
+// to remember to post it by hand. Only entries added since the last run
+// (tracked in meta/weeklyChangelog) go out, and a quiet week — no new
+// entries — sends nothing rather than repeating old news.
+exports.postWeeklyAppUpdate = onSchedule({schedule: 'every monday 09:00', timeZone: 'America/New_York'}, async () => {
+  const stateRef = admin.firestore().collection('meta').doc('weeklyChangelog');
+  const stateSnap = await stateRef.get();
+  const lastPostedId = stateSnap.exists ? stateSnap.data().lastPostedId : null;
+  const lastIndex = lastPostedId ? WEEKLY_CHANGELOG.findIndex(e => e.id === lastPostedId) : -1;
+  const pending = WEEKLY_CHANGELOG.slice(lastIndex + 1);
+  if (!pending.length) return;
+
+  const text = pending.length === 1
+    ? pending[0].text
+    : pending.map(e => `• ${e.text}`).join('\n');
+
+  const bandMessagesRef = admin.firestore().collection('bandMessages');
+  const existingSnap = await bandMessagesRef.orderBy('postedAt', 'desc').get();
+  const overflow = existingSnap.docs.slice(BAND_MESSAGE_CAP - 1);
+
+  const batch = admin.firestore().batch();
+  overflow.forEach(d => batch.delete(d.ref));
+  batch.set(bandMessagesRef.doc(), {text, postedAt: new Date().toISOString()});
+  batch.set(stateRef, {lastPostedId: pending[pending.length - 1].id, postedAt: new Date().toISOString()});
+  await batch.commit();
 });
 
 // --- Gig reminders ---
