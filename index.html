@@ -2184,7 +2184,7 @@ function ReminderTimeSelect({value,onChange}){
 // no way to tell that from the app being broken. Deliberately keyed to
 // permission-denied only: losing signal in a venue reports 'unavailable'
 // instead, and must keep working offline as it always has.
-function SignInGate({authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,theme}){
+function SignInGate({authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,onSendReset,theme}){
   const locked=e('div',{style:{fontSize:34,textAlign:'center',marginBottom:10}},'🔒');
   return e('div',{style:{maxWidth:420,margin:'0 auto',padding:'2.5rem 1.25rem'}},
     e('div',{style:{background:'#fff',border:'1px solid #e5e7eb',borderRadius:16,overflow:'hidden'}},
@@ -2202,23 +2202,130 @@ function SignInGate({authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,the
             e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:12,lineHeight:1.5}},
               'Ask whoever runs the band’s dashboard to add this email, or sign out and use the account you set up before.'),
             e('button',{onClick:onSignOut,style:{width:'100%',color:'#b91c1c',borderColor:'#fecaca'}},'Sign out'))
-        :e(AccountSection,{authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,theme,initialMode:'signup',hideBlurb:true})
+        :e(AccountSection,{authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,onSendReset,theme,initialMode:'signup',hideBlurb:true})
     ),
     !authUser&&e('div',{style:{fontSize:12,color:'#9ca3af',textAlign:'center',marginTop:14,lineHeight:1.5}},
       'Use the same email you gave the band. Nothing you’ve saved is gone — signing in brings it back.')
   );
 }
 
-function AccountSection({authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,theme,initialMode,hideBlurb}){
+// The "Change password" flow for someone already signed in. Firebase
+// requires a fresh credential before it will accept a password change, so
+// this always re-authenticates with the current password first — a stale
+// sign-in from days ago can't be used to silently change it, and a wrong
+// current password fails the way "wrong password" should, not "server
+// error". Separate busy/error/done state from the sign-in form: this can be
+// open at the same time nothing else on the page is loading.
+function ChangePasswordForm({authUser,theme,onChangePassword,onCancel}){
+  const [current,setCurrent]=useState('');
+  const [next,setNext]=useState('');
+  const [confirm,setConfirm]=useState('');
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState('');
+  const [done,setDone]=useState(false);
+  const submit=()=>{
+    if(busy||!current||!next)return;
+    if(next.length<6){setError('New password needs to be at least 6 characters.');return;}
+    if(next!==confirm){setError('Those two new passwords don’t match.');return;}
+    setBusy(true);setError('');
+    onChangePassword(current,next)
+      .then(()=>setDone(true))
+      .catch(err=>setError(friendlyAuthError(err)))
+      .finally(()=>setBusy(false));
+  };
+  if(done){
+    return e('div',null,
+      e('div',{style:{background:'#E1F5EE',color:theme.primary,fontSize:12,borderRadius:8,padding:'8px 10px',marginBottom:12}},
+        'Password updated.'),
+      e('button',{onClick:onCancel,style:{width:'100%'}},'Done')
+    );
+  }
+  return e('div',null,
+    e('div',{style:{marginBottom:10}},
+      e('a',{href:'#',onClick:ev=>{ev.preventDefault();onCancel();},style:{fontSize:12,color:'#6b7280'}},'‹ Cancel')),
+    e('label',null,'Current password'),
+    e('input',{type:'password',value:current,autoComplete:'current-password',
+      onChange:ev=>setCurrent(ev.target.value)}),
+    e('label',null,'New password'),
+    e('input',{type:'password',value:next,autoComplete:'new-password',
+      onChange:ev=>setNext(ev.target.value)}),
+    e('label',null,'Confirm new password'),
+    e('input',{type:'password',value:confirm,autoComplete:'new-password',
+      onChange:ev=>setConfirm(ev.target.value),onKeyDown:ev=>{if(ev.key==='Enter')submit();}}),
+    error&&e('div',{style:{color:'#b91c1c',fontSize:12,marginTop:8}},error),
+    e('button',{onClick:submit,disabled:busy,style:{background:theme.primary,color:'#fff',borderColor:theme.primary,width:'100%',marginTop:12}},
+      busy?'Please wait…':'Update password')
+  );
+}
+
+// The signed-out "Forgot password?" flow — a Firebase reset-email link.
+// Deliberately doesn't reveal whether the email has an account: Firebase's
+// own error for "no such user" would do that, so it's folded into the same
+// generic confirmation as a real send. That's a private detail worth
+// keeping private, not a bug.
+function ResetPasswordForm({theme,initialEmail,onSendReset,onCancel}){
+  const [email,setEmail]=useState(initialEmail||'');
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState('');
+  const [sent,setSent]=useState(false);
+  const submit=()=>{
+    if(busy||!email.trim())return;
+    setBusy(true);setError('');
+    onSendReset(email.trim())
+      .then(()=>setSent(true))
+      .catch(err=>{
+        // The one exception to "don't reveal whether the account exists":
+        // a malformed email isn't a privacy question, it's a typo, and the
+        // person needs to know before they sit around waiting on an email
+        // that was never going anywhere.
+        if(err&&err.code==='auth/invalid-email')setError(friendlyAuthError(err));
+        else setSent(true);
+      })
+      .finally(()=>setBusy(false));
+  };
+  if(sent){
+    return e('div',{style:{textAlign:'center',padding:'8px 4px 4px'}},
+      e('div',{style:{fontSize:13,fontWeight:600,marginBottom:8}},'Check your email'),
+      e('div',{style:{fontSize:13,color:'#6b7280',lineHeight:1.5}},
+        'If an account uses ',e('strong',{style:{color:'#1a1f1d'}},email),', a link to reset the password is on its way.'),
+      e('button',{onClick:onCancel,style:{width:'100%',marginTop:16}},'Back to sign in')
+    );
+  }
+  return e('div',null,
+    e('div',{style:{marginBottom:10}},
+      e('a',{href:'#',onClick:ev=>{ev.preventDefault();onCancel();},style:{fontSize:12,color:'#6b7280'}},'‹ Back to sign in')),
+    e('div',{style:{fontSize:15,fontWeight:600,marginBottom:4}},'Reset your password'),
+    e('div',{style:{fontSize:12,color:'#6b7280',marginBottom:12}},'We’ll email you a link to set a new one.'),
+    e('label',null,'Email'),
+    e('input',{type:'email',value:email,autoComplete:'email',
+      onChange:ev=>setEmail(ev.target.value),onKeyDown:ev=>{if(ev.key==='Enter')submit();}}),
+    error&&e('div',{style:{color:'#b91c1c',fontSize:12,marginTop:8}},error),
+    e('button',{onClick:submit,disabled:busy,style:{background:theme.primary,color:'#fff',borderColor:theme.primary,width:'100%',marginTop:12}},
+      busy?'Please wait…':'Send reset link')
+  );
+}
+
+function AccountSection({authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,onSendReset,onChangePassword,theme,initialMode,hideBlurb}){
   const [mode,setMode]=useState(initialMode||'signin');
   const [email,setEmail]=useState('');
   const [password,setPassword]=useState('');
+  const [changingPw,setChangingPw]=useState(false);
   if(authUser){
+    if(changingPw){
+      return e('div',{style:{padding:'12px 14px'}},
+        e(ChangePasswordForm,{authUser,theme,onChangePassword,onCancel:()=>setChangingPw(false)}));
+    }
     return e('div',{style:{padding:'12px 14px'}},
       e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:10}},
         `Signed in as ${authUser.email}. Your mileage log, checklist, private songs, and unpaid marks now follow this account instead of just this phone.`),
-      e('button',{onClick:onSignOut,style:{color:'#b91c1c',borderColor:'#fecaca'}},'Sign out')
+      e('div',{style:{display:'flex',gap:8}},
+        e('button',{onClick:()=>setChangingPw(true),style:{flex:1}},'Change password'),
+        e('button',{onClick:onSignOut,style:{flex:1,color:'#b91c1c',borderColor:'#fecaca'}},'Sign out'))
     );
+  }
+  if(mode==='reset'){
+    return e('div',{style:{padding:'12px 14px'}},
+      e(ResetPasswordForm,{theme,initialEmail:email,onSendReset,onCancel:()=>setMode('signin')}));
   }
   const submit=()=>{
     if(authBusy||!email.trim()||!password)return;
@@ -2232,6 +2339,8 @@ function AccountSection({authUser,authBusy,authError,onSignUp,onSignIn,onSignOut
     e('label',null,'Password'),
     e('input',{type:'password',value:password,autoComplete:mode==='signup'?'new-password':'current-password',
       onChange:ev=>setPassword(ev.target.value),onKeyDown:ev=>{if(ev.key==='Enter')submit();}}),
+    mode==='signin'&&e('div',{style:{textAlign:'right',marginTop:6}},
+      e('a',{href:'#',onClick:ev=>{ev.preventDefault();setMode('reset');},style:{fontSize:12,color:theme.primary}},'Forgot password?')),
     authError&&e('div',{style:{color:'#b91c1c',fontSize:12,marginTop:8}},authError),
     e('button',{onClick:submit,disabled:authBusy,style:{background:theme.primary,color:'#fff',borderColor:theme.primary,width:'100%',marginTop:12}},
       authBusy?'Please wait…':(mode==='signup'?'Create account':'Sign in')),
@@ -2460,7 +2569,7 @@ function CustomColorSwatch({selected,customColor,onPick}){
   );
 }
 
-function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar,onAutoScrolled,syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,bandMessages,onNewBandMessage,onEditBandMessage,onDeleteBandMessage,bandMessageModal,bandMessageModalTarget,onCloseBandMessageModal,saveBandMessageModal,deleteBandMessageModal,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,authUser,authBusy,authError,onSignUp,onSignIn,onSignOut}){
+function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar,onAutoScrolled,syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,bandMessages,onNewBandMessage,onEditBandMessage,onDeleteBandMessage,bandMessageModal,bandMessageModalTarget,onCloseBandMessageModal,saveBandMessageModal,deleteBandMessageModal,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,onSendReset,onChangePassword}){
   const googleCalendarRowRef=useRef(null);
   const [confirmDeleteMsgId,setConfirmDeleteMsgId]=useState(null);
   const [showBandStatsModal,setShowBandStatsModal]=useState(false);
@@ -2705,7 +2814,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         })
       ),
       e(Section,{icon:'🔐',iconBg:'#EEF2FF',title:'Account',summary:authUser?authUser.email:'Not signed in',isOpen:openSections.has('account'),onToggle:()=>toggleSection('account')},
-        e(AccountSection,{authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,theme})
+        e(AccountSection,{authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,onSendReset,onChangePassword,theme})
       ),
       e(Section,{icon:'🏠',iconBg:'#E0EFFE',title:'Home',summary:homeSummary,isOpen:openSections.has('home'),onToggle:()=>toggleSection('home')},
         e(HomeAddressInput,{settings,setSettings,theme})
@@ -3389,6 +3498,20 @@ function App(){
       .finally(()=>setAuthBusy(false));
   };
   const signOutOfAccount=()=>{auth.signOut().catch(()=>{});};
+  // Firebase's own reset flow — an email with a link, no server code of
+  // ours involved. Returns the raw promise so the form can show its own
+  // "check your email" state without going through authBusy/authError,
+  // which belong to the sign-in form and shouldn't flicker while this runs.
+  const sendPasswordReset=email=>auth.sendPasswordResetEmail(email);
+  // Firebase refuses to change a password on a stale sign-in, so this
+  // re-proves identity with the current password first — the same
+  // "wrong password" a failed sign-in would give, not a vague failure.
+  const changePassword=(currentPassword,newPassword)=>{
+    const authedUser=auth.currentUser;
+    if(!authedUser||!authedUser.email)return Promise.reject({code:'auth/no-current-user'});
+    const credential=firebase.auth.EmailAuthProvider.credential(authedUser.email,currentPassword);
+    return authedUser.reauthenticateWithCredential(credential).then(()=>authedUser.updatePassword(newPassword));
+  };
   // One-time, per sign-in: hand this device's existing personal data over to
   // the account that just signed in, so a first login doesn't strand
   // whatever was already here. Safe to re-run (idempotent) and never
@@ -4610,9 +4733,9 @@ function App(){
 
   // Takes precedence over every other screen, Settings included: if the data
   // isn't coming, there is nothing useful behind this.
-  if(accessDenied)return e(SignInGate,{authUser,authBusy,authError,onSignUp:signUpWithEmail,onSignIn:signInWithEmail,onSignOut:signOutOfAccount,theme});
+  if(accessDenied)return e(SignInGate,{authUser,authBusy,authError,onSignUp:signUpWithEmail,onSignIn:signInWithEmail,onSignOut:signOutOfAccount,onSendReset:sendPasswordReset,theme});
 
-  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,bandMessages,onNewBandMessage:()=>setBandMessageModal('new'),onEditBandMessage:msg=>setBandMessageModal(msg),onDeleteBandMessage:deleteBandMessageById,bandMessageModal,bandMessageModalTarget,onCloseBandMessageModal:()=>setBandMessageModal(null),saveBandMessageModal,deleteBandMessageModal,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,authUser,authBusy,authError,onSignUp:signUpWithEmail,onSignIn:signInWithEmail,onSignOut:signOutOfAccount});
+  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,bandMessages,onNewBandMessage:()=>setBandMessageModal('new'),onEditBandMessage:msg=>setBandMessageModal(msg),onDeleteBandMessage:deleteBandMessageById,bandMessageModal,bandMessageModalTarget,onCloseBandMessageModal:()=>setBandMessageModal(null),saveBandMessageModal,deleteBandMessageModal,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,authUser,authBusy,authError,onSignUp:signUpWithEmail,onSignIn:signInWithEmail,onSignOut:signOutOfAccount,onSendReset:sendPasswordReset,onChangePassword:changePassword});
 
   return e('div',{style:{maxWidth:720,margin:'0 auto',paddingBottom:'2rem'}},
     e('div',{style:{background:theme.primary,borderRadius:'0 0 20px 20px',padding:'1.25rem 1.25rem 1.5rem',marginBottom:'1.25rem'}},
