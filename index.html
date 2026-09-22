@@ -2178,8 +2178,39 @@ function ReminderTimeSelect({value,onChange}){
 // email+password, not a magic link — a link opened from Mail hands off to
 // Safari instead of reopening the standalone home-screen app, the same class
 // of bug already hit for Google Calendar and mileage tracking.
-function AccountSection({authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,theme}){
-  const [mode,setMode]=useState('signin');
+// Shown when Firestore refuses to hand over the band's data because this
+// person has no account. Without it the app would just sit there showing
+// whatever was last cached, silently never updating again — the reader has
+// no way to tell that from the app being broken. Deliberately keyed to
+// permission-denied only: losing signal in a venue reports 'unavailable'
+// instead, and must keep working offline as it always has.
+function SignInGate({authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,theme}){
+  const locked=e('div',{style:{fontSize:34,textAlign:'center',marginBottom:10}},'🔒');
+  return e('div',{style:{maxWidth:420,margin:'0 auto',padding:'2.5rem 1.25rem'}},
+    e('div',{style:{background:'#fff',border:'1px solid #e5e7eb',borderRadius:16,overflow:'hidden'}},
+      e('div',{style:{background:theme.primary,padding:'1.25rem 1.25rem 1.5rem'}},
+        locked,
+        e('div',{style:{color:'#fff',fontSize:19,fontWeight:600,textAlign:'center'}},
+          authUser?'This account can’t see the band’s shows':'Sign in to keep using the Gig Dashboard'),
+        e('div',{style:{color:theme.headerSoft||theme.accent,fontSize:13,textAlign:'center',marginTop:8,lineHeight:1.5}},
+          authUser
+            ?`You’re signed in as ${authUser.email}, but this account hasn’t been given access to the band’s shows, setlists and charts yet.`
+            :'The band’s shows, setlists and charts now need an account. It takes a minute, and everything comes straight back.')
+      ),
+      authUser
+        ?e('div',{style:{padding:'14px'}},
+            e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:12,lineHeight:1.5}},
+              'Ask whoever runs the band’s dashboard to add this email, or sign out and use the account you set up before.'),
+            e('button',{onClick:onSignOut,style:{width:'100%',color:'#b91c1c',borderColor:'#fecaca'}},'Sign out'))
+        :e(AccountSection,{authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,theme,initialMode:'signup',hideBlurb:true})
+    ),
+    !authUser&&e('div',{style:{fontSize:12,color:'#9ca3af',textAlign:'center',marginTop:14,lineHeight:1.5}},
+      'Use the same email you gave the band. Nothing you’ve saved is gone — signing in brings it back.')
+  );
+}
+
+function AccountSection({authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,theme,initialMode,hideBlurb}){
+  const [mode,setMode]=useState(initialMode||'signin');
   const [email,setEmail]=useState('');
   const [password,setPassword]=useState('');
   if(authUser){
@@ -2194,7 +2225,7 @@ function AccountSection({authUser,authBusy,authError,onSignUp,onSignIn,onSignOut
     if(mode==='signup')onSignUp(email.trim(),password);else onSignIn(email.trim(),password);
   };
   return e('div',{style:{padding:'12px 14px'}},
-    e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:10}},
+    !hideBlurb&&e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:10}},
       'Sign in so your mileage log, checklist, private songs, and unpaid marks survive a new phone or cleared storage — right now they only live on this device.'),
     e('label',null,'Email'),
     e('input',{type:'email',value:email,autoComplete:'email',onChange:ev=>setEmail(ev.target.value)}),
@@ -3320,6 +3351,31 @@ function App(){
   const [authBusy,setAuthBusy]=useState(false);
   const [authError,setAuthError]=useState('');
   useEffect(()=>auth.onAuthStateChanged(u=>setAuthUser(u)),[]);
+  // Firestore rejected a read outright. That only happens when the security
+  // rules say this person isn't allowed the data — not when the phone is
+  // offline, which reports 'unavailable' and still serves the local cache.
+  // So this is the one error worth stopping the whole app for: every live
+  // listener has quietly died and nothing will ever update again.
+  const [accessDenied,setAccessDenied]=useState(false);
+  // Only a signed-out refusal is worth reloading on later: if someone was
+  // already signed in when the refusal came, signing in is not the fix and
+  // reloading would just hit the same wall forever.
+  const deniedWhileSignedOutRef=useRef(false);
+  const onDbError=err=>{
+    if(!err||err.code!=='permission-denied')return;
+    if(!auth.currentUser) deniedWhileSignedOutRef.current=true;
+    setAccessDenied(true);
+  };
+  // Signing in re-subscribes only the listeners that depend on authUser;
+  // the rest were attached once with no dependencies and stay dead. Rather
+  // than thread a re-subscribe through eight effects for a path taken once
+  // in a member's life, reload and let everything attach fresh.
+  useEffect(()=>{
+    if(accessDenied&&authUser&&deniedWhileSignedOutRef.current){
+      deniedWhileSignedOutRef.current=false;
+      window.location.reload();
+    }
+  },[accessDenied,authUser]);
   const signUpWithEmail=(email,password)=>{
     setAuthBusy(true);setAuthError('');
     auth.createUserWithEmailAndPassword(email,password)
@@ -3387,7 +3443,7 @@ function App(){
       const msgs=snap.docs.map(d=>({id:d.id,...d.data()}));
       msgs.sort((a,b)=>(b.postedAt||'').localeCompare(a.postedAt||''));
       setBandMessages(msgs);
-    });
+    },onDbError);
     return unsub;
   },[]);
   // Returns the write promise (rather than firing-and-forgetting) so the
@@ -3528,7 +3584,7 @@ function App(){
         setSettings(s=>({...s,stagePlotUrl:d.stagePlotUrl||'',stagePlotFile:d.stagePlotFile||null}));
       }
       stagePlotHydratedRef.current=true;
-    },()=>{stagePlotHydratedRef.current=true;});
+    },err=>{stagePlotHydratedRef.current=true;onDbError(err);});
     return unsub;
   },[]);
   useEffect(()=>{
@@ -3551,7 +3607,7 @@ function App(){
         return;
       }
       setSetlists(snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>a.id<b.id?-1:1));
-    },()=>{});
+    },onDbError);
     return unsub;
   },[]);
   // Live-sync songs (chord charts) from Firestore — a fresh feature, no
@@ -3565,7 +3621,7 @@ function App(){
       setSongs(snap.docs.map(d=>({id:d.id,...d.data()}))
         .filter(s=>s.shared||s.deviceId===myId)
         .sort((a,b)=>a.name.localeCompare(b.name)));
-    },()=>{});
+    },onDbError);
     return unsub;
   },[authUser]);
   // Live-sync gigs from Firestore so every device sees gigs added on any
@@ -3606,7 +3662,7 @@ function App(){
         });
         return Array.from(byId.values());
       });
-    },()=>{});
+    },onDbError);
     return unsub;
   },[]);
   useEffect(()=>{
@@ -3638,7 +3694,7 @@ function App(){
         return;
       }
       setMileageLog(mine.map(d=>{const{deviceId,...rest}=d.data();return{id:d.id,...rest};}));
-    },()=>{});
+    },onDbError);
     return unsub;
   },[authUser]);
 
@@ -3660,7 +3716,7 @@ function App(){
       }
       if(doc.exists) setMembers(doc.data().members||[]);
       checklistHydratedRef.current=true;
-    },()=>{checklistHydratedRef.current=true;});
+    },err=>{checklistHydratedRef.current=true;onDbError(err);});
     return unsub;
   },[authUser]);
 
@@ -3681,7 +3737,7 @@ function App(){
       }
       if(doc.exists) setUnpaidGigIds(doc.data().gigIds||[]);
       unpaidHydratedRef.current=true;
-    },()=>{unpaidHydratedRef.current=true;});
+    },err=>{unpaidHydratedRef.current=true;onDbError(err);});
     return unsub;
   },[authUser]);
 
@@ -4551,6 +4607,10 @@ function App(){
   // doesn't pick up later Firestore updates (like a rotate) on its own —
   // re-resolve it against the live synced list every render instead.
   const liveViewingSong=viewingSong&&(songs.find(s=>s.id===viewingSong.id)||viewingSong);
+
+  // Takes precedence over every other screen, Settings included: if the data
+  // isn't coming, there is nothing useful behind this.
+  if(accessDenied)return e(SignInGate,{authUser,authBusy,authError,onSignUp:signUpWithEmail,onSignIn:signInWithEmail,onSignOut:signOutOfAccount,theme});
 
   if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,bandMessages,onNewBandMessage:()=>setBandMessageModal('new'),onEditBandMessage:msg=>setBandMessageModal(msg),onDeleteBandMessage:deleteBandMessageById,bandMessageModal,bandMessageModalTarget,onCloseBandMessageModal:()=>setBandMessageModal(null),saveBandMessageModal,deleteBandMessageModal,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,authUser,authBusy,authError,onSignUp:signUpWithEmail,onSignIn:signInWithEmail,onSignOut:signOutOfAccount});
 
