@@ -268,23 +268,65 @@ const SAMPLE=[
   {id:1,date:`${yr}-${sampleMonth}-15`,venue:"Example Gig",location:"Tap to see how a gig looks — then add your own",type:"bar",status:"confirmed",time:"7:00–10:00 PM"},
 ].map(g=>({...g,fromCalendar:true}));
 
-// Tries a native app deep link, only falling back to the web URL if the tab
-// never got backgrounded (i.e. the app link didn't actually open anything).
-function openWithFallback(appUrl,webUrl){
-  let didHide=false;
-  const onHide=()=>{ if(document.hidden) didHide=true; };
-  document.addEventListener('visibilitychange',onHide);
-  window.location=appUrl;
-  setTimeout(()=>{
-    document.removeEventListener('visibilitychange',onHide);
-    if(!didHide) window.open(webUrl,'_blank');
-  },1000);
+// A small "which maps app" sheet — two real <a href> links, Apple Maps and
+// Google Maps, each carrying the destination right in its own URL. This
+// replaces the old approach of having the code itself try to redirect to
+// Maps (window.location to a comgooglemaps:// scheme, then window.open() as
+// a fallback), which iOS's installed-home-screen-app browser shell doesn't
+// reliably honor — it only trusts navigation that comes from an actual tap
+// on an actual link, which is exactly what these are. Both URLs are plain
+// https: Apple Maps resolves maps.apple.com as a first-party universal
+// link; Google Maps' own https link opens its app if installed, the mobile
+// site otherwise — neither depends on a custom URL scheme.
+function MapsChooserSheet({label,dest,onClose}){
+  const q=encodeURIComponent(dest);
+  const appleUrl='https://maps.apple.com/?daddr='+q+'&dirflg=d';
+  const googleUrl='https://www.google.com/maps/dir/?api=1&destination='+q;
+  const rowStyle={display:'flex',alignItems:'center',gap:10,padding:'11px 12px',borderRadius:10,
+    border:'1px solid #e5e7eb',textDecoration:'none',color:'inherit'};
+  return e('div',{className:'overlay',onClick:onClose},
+    e('div',{className:'modal',onClick:ev=>ev.stopPropagation(),style:{maxWidth:340}},
+      e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:2}},
+        e('div',{style:{fontSize:16,fontWeight:500}},'Get directions'),
+        e('button',{onClick:onClose,style:{border:'none',background:'none',fontSize:20,color:'#9ca3af',cursor:'pointer',padding:'0 4px'}},'×')
+      ),
+      e('div',{style:{fontSize:12.5,color:'#6b7280',marginBottom:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},label),
+      e('div',{style:{display:'flex',flexDirection:'column',gap:8}},
+        e('a',{href:appleUrl,target:'_blank',rel:'noopener',onClick:onClose,style:rowStyle},
+          e('span',{style:{width:30,height:30,borderRadius:8,background:'#F1F1F1',display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}},'🍎'),
+          e('div',{style:{flex:1,minWidth:0}},
+            e('div',{style:{fontSize:13.5,fontWeight:600}},'Apple Maps'),
+            e('div',{style:{fontSize:11,color:'#9ca3af',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},dest)
+          ),
+          e('span',{style:{color:'#9ca3af',fontSize:15}},'›')
+        ),
+        e('a',{href:googleUrl,target:'_blank',rel:'noopener',onClick:onClose,style:rowStyle},
+          e('span',{style:{width:30,height:30,borderRadius:8,background:'#E8F0FE',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:700,color:'#4285F4',flexShrink:0}},'G'),
+          e('div',{style:{flex:1,minWidth:0}},
+            e('div',{style:{fontSize:13.5,fontWeight:600}},'Google Maps'),
+            e('div',{style:{fontSize:11,color:'#9ca3af',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},dest)
+          ),
+          e('span',{style:{color:'#9ca3af',fontSize:15}},'›')
+        )
+      )
+    )
+  );
 }
 
-// Opens Google Maps app on iOS directly
-function openMaps(venue,location){
-  const dest=encodeURIComponent((venue||'')+(location?' '+location:''));
-  openWithFallback('comgooglemaps://?daddr='+dest+'&directionsmode=driving','https://www.google.com/maps/dir/?api=1&destination='+dest);
+// A small inline Google Calendar mark — white body, blue header strip with
+// two binder tabs, a couple of the colored grid squares — used wherever the
+// app needs to say "this is specifically Google Calendar," not a generic
+// calendar. Simplified for legibility at icon size, not a pixel trace of
+// Google's actual asset.
+function GoogleCalendarIcon({size=13}){
+  return e('svg',{width:size,height:size,viewBox:'0 0 24 24',style:{flexShrink:0,display:'block'}},
+    e('rect',{x:6,y:1,width:2.4,height:5,rx:1.1,fill:'#5F6368'}),
+    e('rect',{x:15.6,y:1,width:2.4,height:5,rx:1.1,fill:'#5F6368'}),
+    e('rect',{x:3,y:3.5,width:18,height:18,rx:2.5,fill:'#fff',stroke:'#DADCE0',strokeWidth:1}),
+    e('path',{d:'M3 6a2.5 2.5 0 0 1 2.5-2.5h13A2.5 2.5 0 0 1 21 6v3.5H3z',fill:'#4285F4'}),
+    e('rect',{x:6,y:13,width:5,height:5,fill:'#34A853'}),
+    e('rect',{x:13,y:13,width:5,height:5,fill:'#FBBC04'})
+  );
 }
 
 function typeStyle(t){
@@ -2004,7 +2046,7 @@ async function trySharePhotoFile(src,name){
   }
 }
 
-function Modal({gig,prefillDate,onSave,onDelete,onClose}){
+function Modal({gig,prefillDate,onSave,onDelete,onClose,calendarLocked}){
   const blank={date:prefillDate||'',venue:'',location:'',type:'bar',status:'confirmed',time:'',selfPA:false,notes:''};
   const [form,setForm]=useState(gig||blank);
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
@@ -2022,6 +2064,12 @@ function Modal({gig,prefillDate,onSave,onDelete,onClose}){
       e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'1rem'}},
         e('span',{style:{fontSize:16,fontWeight:500}},isNew?'Add gig':'Edit gig'),
         e('button',{onClick:onClose,style:{border:'none',background:'none',fontSize:20,color:'#9ca3af',padding:'0 4px'}},'×')
+      ),
+      // Said up front rather than only on save — otherwise you retype a
+      // venue name, hit save, and find out afterwards that those fields
+      // were never yours to change from a signed-out device.
+      calendarLocked&&e('div',{style:{marginBottom:14,padding:'10px 12px',borderRadius:9,background:'#FDF0E3',border:'1px solid #F0D2A8',fontSize:11.5,lineHeight:1.45,color:'#8A4B0C'}},
+        'This gig comes from the band\'s shared Google Calendar. Date, venue, location and set time can only be changed with Google Calendar connected (Settings → Calendar). Notes, type, status and the PA switch save either way.'
       ),
       [['date','Date','date'],['venue','Venue name','text'],['location','Location','text']].map(([k,lbl,tp])=>
         e('div',{key:k},e('label',null,lbl),e('input',{type:tp,value:form[k]||'',onChange:ev=>set(k,ev.target.value)}))
@@ -3230,6 +3278,16 @@ function App(){
   const [pushError,setPushError]=useState('');
   const [trackingMiles,setTrackingMiles]=useState(()=>{try{const s=localStorage.getItem('pmtf_tracking');return s?JSON.parse(s):null;}catch{return null;}});
   const [askTrack,setAskTrack]=useState(null);
+  // {label, dest} for the "which maps app" sheet — set instead of scripting
+  // a redirect straight to Maps, since a scripted redirect is exactly what
+  // was silently failing in the installed iOS app. This is just React
+  // state; the actual navigation happens when the user taps one of the
+  // sheet's own <a href> links, which iOS always honors.
+  const [mapsChoice,setMapsChoice]=useState(null);
+  const openMapsChooser=(venue,location)=>setMapsChoice({
+    label:venue+(location?' · '+location:''),
+    dest:(venue||'')+(location?' '+location:'')
+  });
   const [askHomeAddress,setAskHomeAddress]=useState(null);
   const [homeAddressDraft,setHomeAddressDraft]=useState('');
   const [gpsStandaloneHelp,setGpsStandaloneHelp]=useState(false);
@@ -3737,13 +3795,13 @@ function App(){
     const address=addressOverride||settings.homeAddress;
     if(!address) return;
     setGigPopup(null);
-    const dest=encodeURIComponent(address);
     // startTracking fires the location-permission request synchronously
-    // (required for iOS standalone apps — see its own comment), then opens
-    // Maps only once that request has actually been answered, so the app
-    // isn't backgrounding itself out from under the OS permission prompt.
+    // (required for iOS standalone apps — see its own comment), then shows
+    // the maps chooser only once that request has actually been answered,
+    // so the app isn't backgrounding itself out from under the OS
+    // permission prompt.
     startTracking({...gig,venue:gig.venue+' to Home'},()=>{
-      openWithFallback('comgooglemaps://?daddr='+dest+'&directionsmode=driving','https://www.google.com/maps/dir/?api=1&destination='+dest);
+      setMapsChoice({label:'Home · '+address,dest:address});
     });
   };
   const saveHomeAddressAndGo=()=>{
@@ -3876,7 +3934,25 @@ function App(){
   const isGoogleTokenExpired=()=>googleTokenExpiresAt&&Date.now()>=googleTokenExpiresAt;
   const clearExpiredGoogleAuth=()=>{setGoogleAccessToken(null);setGoogleTokenExpiresAt(null);};
 
+  // A calendar-sourced gig re-reads venue/date/location/time from Google on
+  // every sync, and Firestore's copy of those four is deliberately ignored
+  // for it (see both merges). So editing one of them while signed out can
+  // never stick — it applies locally, looks saved, then quietly reverts on
+  // the next sync. Refuse it outright instead of pretending it saved.
+  const CALENDAR_OWNED_FIELDS=[['date','date'],['venue','venue name'],['location','location'],['time','set time']];
   const saveGig=async g=>{
+    const before=gigs.find(x=>x.id===g.id);
+    if(!googleAccessToken&&g.fromCalendar&&before){
+      const changed=CALENDAR_OWNED_FIELDS.filter(([f])=>String(before[f]??'')!==String(g[f]??''));
+      if(changed.length){
+        const names=changed.map(([,label])=>label);
+        const list=names.length>1?names.slice(0,-1).join(', ')+' and '+names[names.length-1]:names[0];
+        alert('This gig lives on the band\'s shared Google Calendar, so its '+list+' can only be changed there.\n\n'
+          +'Connect Google Calendar under Settings → Calendar, then make this change again — without it, the next sync would just put the old '+(names.length>1?'values':'value')+' back.\n\n'
+          +'Notes, gig type, status and the PA switch do save without connecting.');
+        return;
+      }
+    }
     if(googleAccessToken){
       if(isGoogleTokenExpired()){
         clearExpiredGoogleAuth();
@@ -4493,7 +4569,8 @@ function App(){
           },
             e('span',{style:{width:6,height:6,borderRadius:'50%',flexShrink:0,
               background:googleAccessToken?'#4ADE80':`rgba(${theme.headerBase},0.4)`}}),
-            googleAccessToken?'📅 Synced':'📅 Not linked'
+            e(GoogleCalendarIcon,{size:12}),
+            googleAccessToken?'Synced':'Not linked'
           ),
           e('button',{onClick:()=>setShowSettings(true),style:{background:'none',border:'none',cursor:'pointer',fontSize:18,opacity:0.6,padding:0}},'⚙️'),
           e('button',{onClick:openAdd,style:{background:theme.mid,color:theme.midText,border:`1px solid ${theme.light}`,borderRadius:10,padding:'7px 14px',cursor:'pointer',fontWeight:500,fontSize:13,whiteSpace:'nowrap'}},'+ Add gig')
@@ -4606,7 +4683,7 @@ function App(){
               border:idx<filteredUpcoming.length-1?'1px solid #e5e7eb':'none',
               onOpen:()=>openGigPopup(g),
               onDelete:deleteGig,
-              onMap:()=>openMaps(g.venue,g.location),
+              onMap:()=>openMapsChooser(g.venue,g.location),
               pastUnpaid:g.date<todayStr&&unpaidGigIds.includes(g.id)
             });
           })
@@ -5061,7 +5138,8 @@ function App(){
         )
       )
     ),
-    modal&&e(Modal,{gig:modal.mode==='edit'?modal.gig:null,prefillDate:modal.prefillDate,onSave:saveGig,onDelete:deleteGig,onClose:closeModal}),
+    modal&&e(Modal,{gig:modal.mode==='edit'?modal.gig:null,prefillDate:modal.prefillDate,onSave:saveGig,onDelete:deleteGig,onClose:closeModal,
+      calendarLocked:!googleAccessToken&&modal.mode==='edit'&&!!modal.gig?.fromCalendar}),
 
     dayPopup&&e('div',{onClick:()=>setDayPopup(null),className:'overlay'},
       e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:360}},
@@ -5171,21 +5249,22 @@ function App(){
           "We'll use GPS to track your mileage. A banner will appear so you can stop tracking when you arrive."
         ),
         e('div',{style:{display:'flex',gap:8}},
-          // Skip: just open Maps, no tracking
+          // Skip: just show the maps chooser, no tracking
           e('button',{
             onClick:()=>{
-              openMaps(askTrack.venue,askTrack.location);
+              openMapsChooser(askTrack.venue,askTrack.location);
               setAskTrack(null);
             },
             style:{flex:1,padding:'9px 0',borderRadius:10,border:'1px solid #d1d5db',cursor:'pointer',fontSize:14}
           },'Skip'),
           // Track: request location FIRST (must be synchronous with the tap
-          // on iOS standalone), then open Maps once that's been answered.
+          // on iOS standalone), then show the maps chooser once that's
+          // been answered.
           e('button',{
             onClick:()=>{
               const gig=askTrack;
               setAskTrack(null);             // close modal
-              startTracking(gig,()=>openMaps(gig.venue,gig.location));
+              startTracking(gig,()=>openMapsChooser(gig.venue,gig.location));
             },
             style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:14}
           },'Yes, track')
@@ -5214,6 +5293,9 @@ function App(){
         )
       )
     ),
+
+    // ── "Which maps app?" sheet ─────────────────────────────────────────────
+    mapsChoice&&e(MapsChooserSheet,{label:mapsChoice.label,dest:mapsChoice.dest,onClose:()=>setMapsChoice(null)}),
 
     // ── Persistent tracking banner ─────────────────────────────────────────
     trackingMiles&&e('div',{style:{
