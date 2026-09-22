@@ -3431,6 +3431,15 @@ function App(){
   const [askHomeAddress,setAskHomeAddress]=useState(null);
   const [homeAddressDraft,setHomeAddressDraft]=useState('');
   const [gpsStandaloneHelp,setGpsStandaloneHelp]=useState(false);
+  // Fires whichever GPS request was waiting on this banner (Open in Safari
+  // or Dismiss both count as "answered" — either way the attempt is over
+  // and it's fine to move on to offering directions).
+  const dismissGpsStandaloneHelp=()=>{
+    setGpsStandaloneHelp(false);
+    const settle=pendingTrackSettleRef.current;
+    pendingTrackSettleRef.current=null;
+    if(settle) settle();
+  };
   const [setlistPrintStandaloneHelp,setSetlistPrintStandaloneHelp]=useState(false);
   const [calSyncing,setCalSyncing]=useState(false);
   const [lastSynced,setLastSynced]=useState(null);
@@ -3438,6 +3447,9 @@ function App(){
   // Use a ref so watchPosition callback always sees current tracking state
   const trackingRef=useRef(null);
   const watchIdRef=useRef(null);
+  // Holds the caller's onSettled while the gpsStandaloneHelp banner is
+  // waiting on a tap — see startTracking's error handler for why.
+  const pendingTrackSettleRef=useRef(null);
   const setlistFileInputRef=useRef(null);
   const replaceSetlistFileInputRef=useRef(null);
   const songFileInputRef=useRef(null);
@@ -4356,17 +4368,27 @@ function App(){
       err=>{
         console.warn('Initial GPS fix failed:',err);
         const isIOSStandalone=window.navigator.standalone===true;
+        setTrackingMiles(null);
+        trackingRef.current=null;
+        if(err.code===1&&isIOSStandalone){
+          // The gpsStandaloneHelp banner below has the one thing that
+          // actually helps here — a real, working "Open in Safari" link —
+          // so don't also stack a blocking alert() in front of it, and
+          // don't settle() (which opens the maps chooser) until the person
+          // has actually seen and acted on it. Settling immediately used to
+          // bury this banner under the maps chooser the instant it
+          // rendered, so tapping through the alert looked like the app
+          // ignored its own "use Safari instead" advice.
+          pendingTrackSettleRef.current=settle;
+          setGpsStandaloneHelp(true);
+          return;
+        }
         const TRACKING_GPS_ERRORS={
-          1:isIOSStandalone
-            ?'Location doesn\'t work reliably in the installed app on iPhone — that\'s an Apple limitation, not a setting you can fix. Use the "Open in Safari" link to track mileage there instead.'
-            :'Location access is turned off for this app. Enable it in your device or browser settings, then try again.',
+          1:'Location access is turned off for this app. Enable it in your device or browser settings, then try again.',
           2:'Couldn\'t pin down your location right now. Try again outdoors or somewhere with a clearer signal.',
           3:'Location took too long to respond. Try again.'
         };
         alert(TRACKING_GPS_ERRORS[err.code]||'GPS could not get your location. Try again.');
-        if(err.code===1&&isIOSStandalone) setGpsStandaloneHelp(true);
-        setTrackingMiles(null);
-        trackingRef.current=null;
         settle();
       },
       {enableHighAccuracy:true,timeout:15000,maximumAge:0}
@@ -5522,10 +5544,10 @@ function App(){
         'Mileage tracking needs location access, which doesn\'t work reliably in the installed app on iPhone — an Apple limitation. Open this page in Safari to track mileage there instead.'
       ),
       e('div',{style:{display:'flex',gap:8}},
-        e('a',{href:'x-safari-'+withDeviceIdParam(window.location.href),target:'_blank',rel:'noopener',onClick:()=>setGpsStandaloneHelp(false),
+        e('a',{href:'x-safari-'+withDeviceIdParam(window.location.href),target:'_blank',rel:'noopener',onClick:dismissGpsStandaloneHelp,
           style:{flex:1,textAlign:'center',padding:'8px 0',borderRadius:8,background:theme.mid,color:'#fff',fontWeight:600,fontSize:13,textDecoration:'none'}},
           '↗ Open in Safari'),
-        e('button',{onClick:()=>setGpsStandaloneHelp(false),
+        e('button',{onClick:dismissGpsStandaloneHelp,
           style:{padding:'8px 14px',borderRadius:8,border:'0.5px solid #d1d5db',background:'#fff',color:'#374151',cursor:'pointer',fontSize:13,fontWeight:500}},
           'Dismiss')
       )
