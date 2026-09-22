@@ -1,0 +1,53 @@
+rules_version = '2';
+
+// Access rules for the Gig Dashboard's Firestore data.
+//
+// These replace rules that granted public read AND public write on every
+// collection below — anyone who viewed the page source got the project id,
+// and with it could read or delete the band's entire history without an
+// account. The change here is simply that you have to be signed in.
+//
+// Deliberately NOT per-member yet. Signing in for the first time re-keys a
+// person's mileage, checklist and unpaid marks from a device id to an
+// account id, and that migration has to read documents keyed to the old
+// device id. Locking each document to its owner before everyone has
+// migrated would strand that data. Per-member and per-band scoping arrive
+// with the multi-band work.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+
+    // Shared band data.
+    match /gigs/{doc}          { allow read, write: if signedIn(); }
+    match /songs/{doc}         { allow read, write: if signedIn(); }
+    match /setlists/{doc}      { allow read, write: if signedIn(); }
+    match /bandMessages/{doc}  { allow read, write: if signedIn(); }
+    match /bandSettings/{doc}  { allow read, write: if signedIn(); }
+
+    // Personal bookkeeping. See the note above on why these are not yet
+    // restricted to the account that owns them.
+    match /mileageTrips/{doc}  { allow read, write: if signedIn(); }
+    match /checklists/{uid}    { allow read, write: if signedIn(); }
+    match /unpaidGigs/{uid}    { allow read, write: if signedIn(); }
+
+    // Push registration. A device registers its own token; only the Cloud
+    // Functions read them back, and the Admin SDK bypasses these rules.
+    match /fcmTokens/{token} {
+      allow read: if false;
+      allow write: if signedIn();
+    }
+
+    // A Google refresh token is a long-lived, high-value credential. No
+    // client ever touches these — only the Cloud Functions, via Admin SDK.
+    match /googleAuthTokens/{deviceId} { allow read, write: if false; }
+
+    // Written by the reminder scheduler alone, to avoid sending twice.
+    match /sentReminders/{key}         { allow read, write: if false; }
+
+    // Anything not named above fails closed, so a collection added later
+    // without a rule is private by default rather than public by accident.
+    match /{document=**} { allow read, write: if false; }
+  }
+}
