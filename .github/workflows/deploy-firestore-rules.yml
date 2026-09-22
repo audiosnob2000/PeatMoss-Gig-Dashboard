@@ -1,0 +1,31 @@
+name: Deploy Firestore Rules
+
+# Kept separate from the functions deploy on purpose. Rules are the access
+# control for every piece of the band's data, they deploy in seconds, and a
+# broken functions build must never be the reason a rules fix can't ship.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'firestore.rules'
+      - 'firebase.json'
+      - '.github/workflows/deploy-firestore-rules.yml'
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Write service account key
+        run: echo "$FIREBASE_SERVICE_ACCOUNT" > /tmp/gcp-key.json
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      - name: Deploy Firestore rules
+        run: npx firebase-tools deploy --only firestore:rules --non-interactive
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcp-key.json
