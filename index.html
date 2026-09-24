@@ -1203,6 +1203,23 @@ function stageMeterBandLabel(f){
 function stageMeterBandLabelFull(f){
   return f>=1000?(f/1000)+' kHz':f+' Hz';
 }
+// Note Reader (placement A: a note name joins the two readouts that
+// already exist, nothing new takes up space). Converts a frequency to the
+// nearest note name + octave via the standard MIDI mapping (A4 = 440 Hz =
+// MIDI 69); this rounds to the nearest semitone, no cents precision — this
+// is a band-center reading (each STAGE_METER_BAND is already ~4 semitones
+// wide), not a tuner-grade measurement, so implying more precision than
+// that would be misleading rather than just imprecise.
+const STAGE_METER_NOTE_NAMES=['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'];
+function stageMeterHzToNote(hz){
+  const midi=Math.round(12*Math.log2(hz/440)+69);
+  const name=STAGE_METER_NOTE_NAMES[((midi%12)+12)%12];
+  const octave=Math.floor(midi/12)-1;
+  return name+octave;
+}
+function stageMeterBandLabelWithNote(f){
+  return stageMeterBandLabelFull(f)+' · '+stageMeterHzToNote(f);
+}
 // Standard A-weighting curve (IEC 61672), normalized so 1 kHz = 0 dB —
 // this is what makes a reading correspond to how loud something actually
 // sounds to human ears, rather than just a raw energy number.
@@ -1414,7 +1431,7 @@ function StageMeterModal({onClose}){
       return Math.max(0,Math.min(STAGE_METER_BANDS.length-1,i));
     }
     function updateInspectDOM(i){
-      if(inspFreqRef.current)inspFreqRef.current.textContent=stageMeterBandLabelFull(STAGE_METER_BANDS[i]);
+      if(inspFreqRef.current)inspFreqRef.current.textContent=stageMeterBandLabelWithNote(STAGE_METER_BANDS[i]);
       if(inspLevelRef.current)inspLevelRef.current.textContent=levelsRef.current[i].toFixed(1)+' dB';
     }
     const onPointerDown=ev=>{
@@ -1549,7 +1566,7 @@ function StageMeterModal({onClose}){
       splRef.current+=(overall-splRef.current)*0.25;
 
       if(bigNumRef.current)bigNumRef.current.textContent=splRef.current.toFixed(1);
-      if(peakBandRef.current)peakBandRef.current.textContent=stageMeterBandLabelFull(STAGE_METER_BANDS[peakIdx]);
+      if(peakBandRef.current)peakBandRef.current.textContent=stageMeterBandLabelWithNote(STAGE_METER_BANDS[peakIdx]);
       if(levelBarRef.current){
         const pct=Math.max(0,Math.min(100,((splRef.current-55)/(120-55))*100));
         levelBarRef.current.style.width=pct+'%';
