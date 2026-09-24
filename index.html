@@ -313,6 +313,211 @@ function MapsChooserSheet({label,dest,onClose}){
   );
 }
 
+// Same match used to filter the Songs tab's own search, pulled out standalone
+// so the chart-set builder (a separate modal, no access to that component's
+// search state) can filter against an arbitrary query string.
+function songMatchesQuery(sg,q){
+  const query=(q||'').trim().toLowerCase();
+  if(!query)return true;
+  return sg.name.toLowerCase().includes(query)||(sg.key||'').toLowerCase().includes(query)||(sg.tag||'').toLowerCase().includes(query);
+}
+
+// The one-line summary for a charts-built setlist's row in the Setlists
+// list — "3 sets · 30 songs · built from your charts" or "One list · 14
+// songs · built from your charts", matching every other type's row exactly.
+function chartsSetlistSummary(sl){
+  const sets=sl.sets||[];
+  const total=sets.reduce((n,s)=>n+(s.songs?s.songs.length:0),0);
+  const structureLabel=sl.structure==='flat'?'One list':`${sets.length} set${sets.length===1?'':'s'}`;
+  return `${structureLabel} · ${total} song${total===1?'':'s'} · built from your charts`;
+}
+
+// Build (or edit) a setlist by picking straight from the Songs library
+// instead of retyping a list by hand — either one continuous show or
+// however many named sets a gig needs, each with its own press-and-hold
+// drag order. Mirrors the mock-up the user reviewed and approved
+// (https://claude.ai/artifact/QkJLLtnYorMfaspLux8zy6) call for call.
+//
+// `initial` is {mode:'new'|'edit', id?, name, structure, sets} — sets is
+// always an array of {songs:[id,...]}, even in 'flat' mode (just one entry,
+// tabs hidden) so the rest of this component never has to special-case the
+// two structures beyond "show the tabs or don't."
+function ChartSetBuilderModal({songs,initial,theme,onSave,onClose}){
+  const [name,setName]=useState(initial.name||'');
+  const [sets,setSets]=useState(()=>(initial.sets&&initial.sets.length?initial.sets:[{songs:[]}]).map(s=>({songs:[...s.songs]})));
+  const [activeTab,setActiveTab]=useState(0);
+  const [search,setSearch]=useState('');
+  const orderListRef=useRef(null);
+  const structure=initial.structure||'sets';
+
+  const pickedIds=new Set(sets.flatMap(s=>s.songs));
+  const isPicked=id=>pickedIds.has(id);
+  const togglePick=id=>{
+    setSets(prev=>{
+      const next=prev.map(s=>({songs:[...s.songs]}));
+      if(isPicked(id)) next.forEach(s=>{s.songs=s.songs.filter(x=>x!==id);});
+      else { if(!next[activeTab]) next[activeTab]={songs:[]}; next[activeTab].songs.push(id); }
+      return next;
+    });
+  };
+  const removeFromActive=id=>{
+    setSets(prev=>{
+      const next=prev.map(s=>({songs:[...s.songs]}));
+      next[activeTab].songs=next[activeTab].songs.filter(x=>x!==id);
+      return next;
+    });
+  };
+  const moveToSet=(id,targetIdx)=>{
+    setSets(prev=>{
+      const next=prev.map(s=>({songs:[...s.songs]}));
+      next.forEach(s=>{s.songs=s.songs.filter(x=>x!==id);});
+      next[targetIdx].songs.push(id);
+      return next;
+    });
+  };
+  const addSet=()=>{
+    setSets(prev=>[...prev,{songs:[]}]);
+    setActiveTab(sets.length);
+  };
+
+  // Press-and-hold (350ms) on the grip, then drag to reorder within the
+  // active set — a quick tap or a scroll must never start a drag by
+  // accident, only a genuine hold does. Reorders the DOM directly while
+  // dragging (the same approach proven in the approved mock-up) and only
+  // touches React state once, on release, so a mid-drag re-render can
+  // never fight the manual DOM move.
+  const onGripDown=(ev0,songId)=>{
+    ev0.preventDefault();
+    const startX=ev0.clientX,startY=ev0.clientY;
+    const row=ev0.currentTarget.closest('[data-ordrow]');
+    const list=orderListRef.current;
+    let dragging=false;
+    const holdTimer=setTimeout(()=>{
+      dragging=true;
+      row.classList.add('dragrow-active');
+      row.style.boxShadow='0 6px 18px rgba(0,0,0,.16)';
+      row.style.background='#F3FAF7';
+      try{row.setPointerCapture(ev0.pointerId);}catch{}
+    },350);
+    const onMove=ev=>{
+      if(!dragging){
+        if(Math.abs(ev.clientY-startY)>8||Math.abs(ev.clientX-startX)>8) clearTimeout(holdTimer);
+        return;
+      }
+      const rows=[...list.querySelectorAll('[data-ordrow]')];
+      const overRow=rows.find(r=>{
+        if(r===row) return false;
+        const rect=r.getBoundingClientRect();
+        return ev.clientY>=rect.top&&ev.clientY<=rect.bottom;
+      });
+      if(overRow){
+        const overRect=overRow.getBoundingClientRect();
+        const before=ev.clientY<overRect.top+overRect.height/2;
+        list.insertBefore(row,before?overRow:overRow.nextSibling);
+      }
+    };
+    const onUp=()=>{
+      clearTimeout(holdTimer);
+      document.removeEventListener('pointermove',onMove);
+      document.removeEventListener('pointerup',onUp);
+      if(!dragging) return;
+      row.classList.remove('dragrow-active');
+      row.style.boxShadow='';
+      row.style.background='';
+      const newOrder=[...list.querySelectorAll('[data-ordrow]')].map(r=>r.dataset.ordrow);
+      setSets(prev=>{
+        const next=prev.map(s=>({songs:[...s.songs]}));
+        next[activeTab].songs=newOrder;
+        return next;
+      });
+    };
+    document.addEventListener('pointermove',onMove);
+    document.addEventListener('pointerup',onUp);
+  };
+
+  const activeSongs=sets[activeTab]?sets[activeTab].songs:[];
+  const totalPicked=pickedIds.size;
+  const doSave=()=>{
+    const cleaned=sets.map(s=>({songs:s.songs.filter(id=>songs.some(sg=>sg.id===id))})).filter(s=>s.songs.length>0);
+    if(cleaned.length===0){alert('Nothing to save — those charts were removed from your library while this was open.');return;}
+    onSave(name,cleaned);
+  };
+
+  return e('div',{className:'overlay',onClick:onClose},
+    e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:440,maxHeight:'90vh',overflowY:'auto',padding:0}},
+      e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'14px 18px',borderBottom:'1px solid #e5e7eb'}},
+        e('div',{style:{fontSize:16,fontWeight:600}},initial.mode==='edit'?'Edit set':'Build your set'),
+        e('button',{onClick:onClose,style:{border:'none',background:'none',fontSize:20,color:'#9ca3af',cursor:'pointer',padding:'0 4px'}},'×')
+      ),
+      e('div',{style:{padding:'14px 18px'}},
+        e('label',{style:{fontSize:12,color:'#6b7280',display:'block',marginBottom:4}},'Name'),
+        e('input',{value:name,onChange:ev=>setName(ev.target.value),placeholder:"e.g. Sat 11/14 — The Rusty Anchor",
+          style:{width:'100%',padding:'9px 11px',border:'1px solid #d1d5db',borderRadius:9,fontSize:14,marginBottom:14,outline:'none'}}),
+
+        e('input',{value:search,onChange:ev=>setSearch(ev.target.value),placeholder:'🔍 Search title, key, or vibe…',
+          style:{width:'100%',padding:'9px 12px',border:'1px solid #d1d5db',borderRadius:10,fontSize:14,marginBottom:10,outline:'none'}}),
+        e('div',{style:{borderRadius:12,border:'1px solid #e5e7eb',overflow:'hidden',maxHeight:220,overflowY:'auto',marginBottom:14}},
+          songs.length===0&&e('div',{style:{padding:'1.5rem',textAlign:'center',color:'#6b7280',fontSize:13}},'No song charts yet — add some under the Songs tab first'),
+          songs.filter(sg=>songMatchesQuery(sg,search)).map((sg,idx,arr)=>{
+            const picked=isPicked(sg.id);
+            return e('div',{key:sg.id,style:{padding:'9px 12px',borderBottom:idx<arr.length-1?'1px solid #e5e7eb':'none',display:'flex',alignItems:'center',gap:10}},
+              e('div',{style:{width:30,height:30,borderRadius:8,background:theme.pale,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}},'🎼'),
+              e('div',{style:{flex:1,minWidth:0}},
+                e('div',{style:{fontSize:13.5,fontWeight:500,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},sg.name),
+                e('div',{style:{fontSize:11,color:'#9ca3af'}},sg.key&&e('span',{style:{color:theme.primary,fontWeight:600}},sg.key+' · '),[sg.tempo?sg.tempo+' bpm':null,sg.tag].filter(Boolean).join(' · '))
+              ),
+              e('button',{onClick:()=>togglePick(sg.id),
+                style:{flexShrink:0,borderRadius:99,fontSize:11,fontWeight:700,padding:'5px 11px',cursor:'pointer',
+                  border:'1.5px solid '+theme.mid,background:picked?theme.mid:'transparent',color:picked?'#fff':theme.mid}},
+                picked?'✓ Added':'+ Add')
+            );
+          })
+        ),
+
+        structure==='sets'&&e('div',{style:{display:'flex',gap:6,marginBottom:12,overflowX:'auto'}},
+          sets.map((s,i)=>e('div',{key:i,onClick:()=>setActiveTab(i),
+              style:{flexShrink:0,padding:'7px 13px',borderRadius:99,fontSize:12.5,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap',
+                border:i===activeTab?'1px solid '+theme.mid:'1px solid #e5e7eb',
+                background:i===activeTab?theme.pale:'#fff',color:i===activeTab?theme.primary:'#6b7280'}},
+              `Set ${i+1} · ${s.songs.length}`)),
+          e('div',{onClick:addSet,style:{flexShrink:0,padding:'7px 13px',borderRadius:99,fontSize:12.5,fontWeight:600,cursor:'pointer',color:theme.mid,border:'1px dashed '+theme.mid,whiteSpace:'nowrap'}},'+ New set')
+        ),
+        e('div',{ref:orderListRef,style:{borderRadius:12,border:'1px solid #e5e7eb',overflow:'hidden'}},
+          activeSongs.length===0&&e('div',{style:{padding:'1.5rem',textAlign:'center',color:'#9ca3af',fontSize:12}},'Nothing here yet — tap + Add on a chart above'),
+          activeSongs.map((id,pos)=>{
+            const sg=songs.find(s=>s.id===id);
+            if(!sg) return null; // picked, then deleted from the library since — drops out of view; cleaned up for real on Save
+            return e('div',{key:id,'data-ordrow':id,style:{padding:'8px 10px',borderBottom:pos<activeSongs.length-1?'1px solid #e5e7eb':'none',display:'flex',alignItems:'center',gap:8,background:'#fff',touchAction:'none'}},
+              e('span',{style:{width:16,textAlign:'center',fontSize:11,color:'#9ca3af',flexShrink:0}},pos+1),
+              e('div',{onPointerDown:ev=>onGripDown(ev,id),style:{flexShrink:0,width:22,height:28,display:'flex',alignItems:'center',justifyContent:'center',cursor:'grab',touchAction:'none'}},
+                e('svg',{width:12,height:18,viewBox:'0 0 12 18',style:{pointerEvents:'none'}},
+                  e('g',{fill:'#9ca3af'},[[3,3],[9,3],[3,9],[9,9],[3,15],[9,15]].map(([cx,cy])=>e('circle',{key:cx+'-'+cy,cx,cy,r:1.6})))
+                )
+              ),
+              e('div',{style:{flex:1,minWidth:0}},
+                e('div',{style:{fontSize:13,fontWeight:500,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},sg.name),
+                sg.key&&e('div',{style:{fontSize:10.5,color:'#9ca3af'}},e('span',{style:{color:theme.primary,fontWeight:600}},sg.key),sg.tempo?' · '+sg.tempo+' bpm':'')
+              ),
+              structure==='sets'&&sets.length>1&&e('select',{value:activeTab,onChange:ev=>moveToSet(id,+ev.target.value),
+                style:{flexShrink:0,width:'auto',padding:'3px 6px',fontSize:10.5,borderRadius:6,border:'1px solid #e5e7eb',color:'#6b7280'}},
+                sets.map((s,i)=>e('option',{key:i,value:i},'Set '+(i+1)))
+              ),
+              e('button',{onClick:()=>removeFromActive(id),style:{border:'none',background:'none',color:'#d1d5db',fontSize:16,cursor:'pointer',padding:'0 2px',flexShrink:0}},'×')
+            );
+          })
+        ),
+        e('div',{style:{fontSize:11,color:'#9ca3af',textAlign:'right',marginTop:8}},
+          structure==='sets'?`${sets.filter(s=>s.songs.length>0).length} set(s) · ${totalPicked} song(s) total`:`${totalPicked} song(s) · one list, no breaks`
+        ),
+        e('button',{onClick:doSave,disabled:totalPicked===0,
+            style:{width:'100%',padding:'11px 0',borderRadius:10,border:'none',fontWeight:600,fontSize:14,marginTop:14,
+              background:totalPicked===0?'#9ca3af':theme.mid,color:'#fff',cursor:totalPicked===0?'not-allowed':'pointer'}},
+          'Save set'+(structure==='sets'&&sets.filter(s=>s.songs.length>0).length>1?'s':''))
+      )
+    )
+  );
+}
+
 // A small inline Google Calendar mark — white body, blue header strip with
 // two binder tabs, a couple of the colored grid squares — used wherever the
 // app needs to say "this is specifically Google Calendar," not a generic
@@ -3327,6 +3532,18 @@ function App(){
   const [newSetlistContentType,setNewSetlistContentType]=useState('');
   const [newSetlistContent,setNewSetlistContent]=useState('');
   const [newSetlistFileName,setNewSetlistFileName]=useState('');
+  // The "Build from your charts" setlist type — picking real chart entries
+  // into one continuous show or several named sets, instead of retyping a
+  // list. chartSetStructure is the choice made in the add-setlist form
+  // itself, before the builder even opens (mirrors the approved mock-up).
+  // chartBuilder is null when closed; otherwise {mode:'new'|'edit', id?,
+  // name, structure, sets}, handed straight to ChartSetBuilderModal.
+  const [chartSetStructure,setChartSetStructure]=useState('sets');
+  const [chartBuilder,setChartBuilder]=useState(null);
+  const [viewingChartSetlist,setViewingChartSetlist]=useState(null);
+  const [chartSetlistTab,setChartSetlistTab]=useState(0);
+  const [songSelectMode,setSongSelectMode]=useState(false);
+  const [songSelectedIds,setSongSelectedIds]=useState([]);
   const [newSetlistProcessing,setNewSetlistProcessing]=useState(false);
   const [viewingSetlist,setViewingSetlist]=useState(null);
   const [editingSetlistId,setEditingSetlistId]=useState(null);
@@ -4645,7 +4862,22 @@ function App(){
   };
   const deleteSetlist=id=>{
     db.collection('setlists').doc(id).delete().catch(()=>alert('Could not delete — check your connection and try again.'));
-    setViewingSetlist(null);setEditingSetlistId(null);setReplacingSetlistId(null);
+    setViewingSetlist(null);setEditingSetlistId(null);setReplacingSetlistId(null);setViewingChartSetlist(null);
+  };
+  const openChartBuilderForEdit=sl=>{
+    setEditingSetlistId(null);setAddingSetlist(false);
+    setChartBuilder({mode:'edit',id:sl.id,name:sl.name,structure:sl.structure,sets:sl.sets});
+  };
+  const saveChartsSetlist=(name,cleanedSets)=>{
+    const isEdit=chartBuilder&&chartBuilder.mode==='edit';
+    const now=new Date();
+    const finalName=(name||'').trim()||`${MONTHS[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
+    const id=isEdit?chartBuilder.id:'sl'+Date.now();
+    const structureToSave=isEdit?chartBuilder.structure:chartSetStructure;
+    db.collection('setlists').doc(id).set({name:finalName,type:'charts',structure:structureToSave,sets:cleanedSets,updatedAt:todayStr},{merge:true})
+      .catch(()=>alert('Could not save — check your connection and try again.'));
+    setChartBuilder(null);
+    resetSetlistForm();
   };
   const handleSongFileUpload=file=>{
     setNewSongFileName(file.name);
@@ -4772,6 +5004,7 @@ function App(){
   // doesn't pick up later Firestore updates (like a rotate) on its own —
   // re-resolve it against the live synced list every render instead.
   const liveViewingSong=viewingSong&&(songs.find(s=>s.id===viewingSong.id)||viewingSong);
+  const liveViewingChartSetlist=viewingChartSetlist&&(setlists.find(s=>s.id===viewingChartSetlist.id)||viewingChartSetlist);
 
   // Takes precedence over every other screen, Settings included: if the data
   // isn't coming, there is nothing useful behind this.
@@ -4918,6 +5151,17 @@ function App(){
       tab==='songs'&&e('div',null,
         e('input',{ref:replaceSongFileInputRef,type:'file',accept:'image/*,.html,.htm,text/html,.pdf,.txt',style:{display:'none'},
           onChange:ev=>{const f=ev.target.files&&ev.target.files[0];if(f)handleReplaceSongFile(f);ev.target.value='';}}),
+        // Select mode is the entry point into building a set straight from
+        // this list — the one new button, once, at the top. Nothing about
+        // an individual row gains a new control; Edit and × stay exactly
+        // where they've always been.
+        songs.length>0&&e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}},
+          e('span',{style:{fontSize:11,color:'#9ca3af',fontWeight:600,textTransform:'uppercase',letterSpacing:'.03em'}},songs.length+' songs'),
+          e('button',{onClick:()=>{setSongSelectMode(v=>!v);setSongSelectedIds([]);},
+            style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer',
+              background:songSelectMode?'#111827':'#fff',color:songSelectMode?'#fff':'#111827'}},
+            songSelectMode?'Cancel':'Select')
+        ),
         e('input',{value:songSearch,onChange:ev=>setSongSearch(ev.target.value),placeholder:'🔍 Search title, key, or vibe…',
           style:{width:'100%',padding:'9px 12px',border:'1px solid #d1d5db',borderRadius:10,fontSize:14,marginBottom:14,fontFamily:'inherit',outline:'none'}}),
         e('div',{style:{borderRadius:12,border:'1px solid #e5e7eb',overflow:'hidden',marginBottom:14}},
@@ -4966,21 +5210,35 @@ function App(){
                 )
               );
             }
-            return e('div',{key:sg.id,style:{padding:'10px 14px',borderBottom:border,display:'flex',alignItems:'center',gap:10}},
-              e('div',{style:{width:30,height:30,borderRadius:8,background:theme.pale,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}},icon),
-              e('div',{onClick:()=>setViewingSong(sg),style:{flex:1,minWidth:0,cursor:'pointer'}},
+            const selected=songSelectedIds.includes(sg.id);
+            return e('div',{key:sg.id,
+                onClick:songSelectMode?()=>setSongSelectedIds(ids=>ids.includes(sg.id)?ids.filter(x=>x!==sg.id):[...ids,sg.id]):undefined,
+                style:{padding:'10px 14px',borderBottom:border,display:'flex',alignItems:'center',gap:10,cursor:songSelectMode?'pointer':'default'}},
+              songSelectMode
+                ?e('div',{style:{width:30,height:30,borderRadius:8,flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,color:'#fff',
+                    border:'1.5px solid '+(selected?theme.mid:'#d1d5db'),background:selected?theme.mid:'#fff'}},selected?'✓':'')
+                :e('div',{style:{width:30,height:30,borderRadius:8,background:theme.pale,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}},icon),
+              e('div',{onClick:songSelectMode?undefined:()=>setViewingSong(sg),style:{flex:1,minWidth:0,cursor:songSelectMode?'default':'pointer'}},
                 e('div',{style:{fontSize:13.5,fontWeight:500,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},sg.name),
                 e('div',{style:{fontSize:11,color:'#9ca3af'}},
                   sg.key&&e('span',{style:{color:theme.primary,fontWeight:600}},sg.key+' · '),
                   [sg.tempo?sg.tempo+' bpm':null,sg.tag,({image:'Photo',html:'HTML file',link:'Link',file:'File',text:'Text'}[sg.type]||'Text'),'updated '+formatSetlistDate(sg.updatedAt),sg.shared===false?'🔒 Private':null].filter(Boolean).join(' · ')
                 )
               ),
-              e('button',{onClick:()=>startEditSong(sg),style:{fontSize:12,padding:'5px 12px',flexShrink:0}},'Edit'),
-              e('button',{onClick:()=>{if(window.confirm('Remove "'+sg.name+'"?'))deleteSong(sg.id);},style:{border:'none',background:'none',color:'#d1d5db',fontSize:16,cursor:'pointer',padding:'0 4px',flexShrink:0}},'×')
+              !songSelectMode&&e('button',{onClick:()=>startEditSong(sg),style:{fontSize:12,padding:'5px 12px',flexShrink:0}},'Edit'),
+              !songSelectMode&&e('button',{onClick:()=>{if(window.confirm('Remove "'+sg.name+'"?'))deleteSong(sg.id);},style:{border:'none',background:'none',color:'#d1d5db',fontSize:16,cursor:'pointer',padding:'0 4px',flexShrink:0}},'×')
             );
           })
         ),
-        !addingSong&&e('button',{onClick:()=>{setEditingSongId(null);setAddingSong(true);},style:{width:'100%',padding:'9px 0',borderRadius:10,border:'none',background:theme.mid,color:'#fff',fontWeight:500,cursor:'pointer',fontSize:14}},'+ Add song'),
+        songSelectMode&&songSelectedIds.length>0&&e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',border:'1px solid #e5e7eb',borderRadius:10,marginBottom:14,background:'#fff'}},
+          e('span',{style:{fontSize:12.5,color:'#6b7280'}},e('b',{style:{color:'#111827'}},songSelectedIds.length),' selected'),
+          e('button',{onClick:()=>{
+              setChartBuilder({mode:'new',name:'',structure:'sets',sets:[{songs:[...songSelectedIds]}]});
+              setSongSelectMode(false);setSongSelectedIds([]);
+            },style:{fontSize:12.5,padding:'7px 12px',borderRadius:9,border:'none',background:theme.mid,color:'#fff',fontWeight:600,cursor:'pointer'}},
+            'Add to Set →')
+        ),
+        !addingSong&&!songSelectMode&&e('button',{onClick:()=>{setEditingSongId(null);setAddingSong(true);},style:{width:'100%',padding:'9px 0',borderRadius:10,border:'none',background:theme.mid,color:'#fff',fontWeight:500,cursor:'pointer',fontSize:14}},'+ Add song'),
         addingSong&&e('div',{style:{background:'#fff',border:'1px solid #e5e7eb',borderRadius:12,padding:14}},
           e('label',null,'Song name'),
           e('input',{autoFocus:true,value:newSongName,onChange:ev=>setNewSongName(ev.target.value),placeholder:'e.g. Mustang Sally'}),
@@ -5075,8 +5333,19 @@ function App(){
           e('div',{style:{borderRadius:12,border:'1px solid #e5e7eb',overflow:'hidden',marginBottom:14}},
             setlists.length===0&&e('div',{style:{padding:'2rem',textAlign:'center',color:'#6b7280',fontSize:13}},'No setlists yet — add one below'),
             setlists.map((sl,idx)=>{
-              const icon=sl.type==='image'?'🎼':sl.type==='html'?'🌐':sl.type==='link'?'🔗':sl.type==='file'?'📎':'🎵';
+              const icon=sl.type==='charts'?'🎼':sl.type==='image'?'🎼':sl.type==='html'?'🌐':sl.type==='link'?'🔗':sl.type==='file'?'📎':'🎵';
               const border=idx<setlists.length-1?'1px solid #e5e7eb':'none';
+              if(sl.type==='charts'){
+                return e('div',{key:sl.id,style:{padding:'10px 14px',borderBottom:border,display:'flex',alignItems:'center',gap:10}},
+                  e('div',{style:{width:30,height:30,borderRadius:8,background:theme.pale,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}},icon),
+                  e('div',{onClick:()=>{setViewingChartSetlist(sl);setChartSetlistTab(0);},style:{flex:1,minWidth:0,cursor:'pointer'}},
+                    e('div',{style:{fontSize:13.5,fontWeight:500,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},sl.name),
+                    e('div',{style:{fontSize:11,color:'#9ca3af'}},chartsSetlistSummary(sl))
+                  ),
+                  e('button',{onClick:()=>openChartBuilderForEdit(sl),style:{fontSize:12,padding:'5px 12px',flexShrink:0}},'Edit'),
+                  e('button',{onClick:()=>{if(window.confirm('Remove "'+sl.name+'"?'))deleteSetlist(sl.id);},style:{border:'none',background:'none',color:'#d1d5db',fontSize:16,cursor:'pointer',padding:'0 4px',flexShrink:0}},'×')
+                );
+              }
               if(editingSetlistId===sl.id){
                 const canReplace=sl.type==='image'||sl.type==='file'||sl.type==='html';
                 return e('div',{key:sl.id,style:{padding:'10px 14px',borderBottom:border}},
@@ -5126,9 +5395,30 @@ function App(){
             e('input',{autoFocus:true,value:newSetlistName,onChange:ev=>setNewSetlistName(ev.target.value),placeholder:"e.g. Summer 2026 — Full Set (optional — today's date if left blank)"}),
             e('label',null,'Add from'),
             e('select',{value:newSetlistMode,onChange:ev=>{setNewSetlistMode(ev.target.value);setNewSetlistContentType('');setNewSetlistContent('');setNewSetlistFileName('');}},
+              e('option',{value:'charts'},'🎼 Build from your charts'),
               e('option',{value:'upload'},'Upload (photo or file)'),
               e('option',{value:'link'},'Link (Google Drive, website, etc.)'),
               e('option',{value:'manual'},'Type it in manually')
+            ),
+            newSetlistMode==='charts'&&e('div',null,
+              e('label',null,'Structure'),
+              e('div',{style:{display:'flex',gap:8,marginBottom:4}},
+                [['flat','📋','One list','The whole show, in order. No breaks.'],
+                 ['sets','🎬','Split into sets','Set 1, Set 2, Set 3 — each with its own order.']
+                ].map(([val,ico,ttl,dsc])=>{
+                  const sel=chartSetStructure===val;
+                  return e('div',{key:val,onClick:()=>setChartSetStructure(val),
+                      style:{flex:1,border:'1.5px solid '+(sel?theme.mid:'#e5e7eb'),borderRadius:12,padding:12,cursor:'pointer',
+                        background:sel?theme.pale:'#fff'}},
+                    e('div',{style:{fontSize:17,marginBottom:4}},ico),
+                    e('div',{style:{fontSize:12.5,fontWeight:700,marginBottom:2,color:'#111827'}},ttl),
+                    e('div',{style:{fontSize:10.5,color:'#6b7280',lineHeight:1.4}},dsc)
+                  );
+                })
+              ),
+              e('button',{onClick:()=>setChartBuilder({mode:'new',name:newSetlistName,structure:chartSetStructure,sets:[]}),
+                  style:{width:'100%',padding:'11px 0',borderRadius:10,border:'none',background:theme.mid,color:'#fff',fontWeight:600,fontSize:14,marginTop:10,cursor:'pointer'}},
+                'Browse your charts →')
             ),
             newSetlistMode==='upload'&&e('div',null,
               e('label',null,'Photo or file'),
@@ -5153,11 +5443,14 @@ function App(){
               e('textarea',{rows:6,value:newSetlistContent,onChange:ev=>setNewSetlistContent(ev.target.value),placeholder:'1. Song one\n2. Song two\n3. ...',
                 style:{fontFamily:'inherit',fontSize:14,padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,width:'100%',outline:'none',background:'#fff',resize:'none'}})
             ),
-            e('div',{style:{display:'flex',gap:8,justifyContent:'flex-end',marginTop:14}},
+            newSetlistMode!=='charts'&&e('div',{style:{display:'flex',gap:8,justifyContent:'flex-end',marginTop:14}},
               e('button',{onClick:resetSetlistForm},'Cancel'),
               e('button',{onClick:addSetlist,disabled:newSetlistProcessing,
                 style:{background:newSetlistProcessing?'#9ca3af':theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:newSetlistProcessing?'not-allowed':'pointer'}},
                 newSetlistProcessing?'Processing…':'Add setlist')
+            ),
+            newSetlistMode==='charts'&&e('div',{style:{textAlign:'center',marginTop:10}},
+              e('button',{onClick:resetSetlistForm,style:{fontSize:12,padding:'6px 14px'}},'Cancel')
             )
           )
         ),
@@ -5269,6 +5562,45 @@ function App(){
         )
       )
     ),
+    // Running a charts-built setlist: set tabs (if any) over an ordered
+    // list of the actual chart titles — tap one and it opens in the exact
+    // same viewer as tapping it from the Songs tab would, so transpose,
+    // auto-scroll and printing all just work without anything new to build
+    // for them here.
+    liveViewingChartSetlist&&e('div',{onClick:()=>setViewingChartSetlist(null),className:'overlay'},
+      e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:420,maxHeight:'85vh',overflowY:'auto',padding:0}},
+        e('div',{style:{display:'flex',gap:8,padding:'14px 20px',borderBottom:'1px solid #e5e7eb'}},
+          e('button',{onClick:()=>setViewingChartSetlist(null),style:{flex:1,padding:'9px 0'}},'Close')
+        ),
+        e('div',{style:{padding:'20px'}},
+          e('div',{style:{fontSize:16,fontWeight:600,marginBottom:4}},liveViewingChartSetlist.name),
+          e('div',{style:{fontSize:11,color:'#9ca3af',marginBottom:14}},chartsSetlistSummary(liveViewingChartSetlist)),
+          liveViewingChartSetlist.structure==='sets'&&e('div',{style:{display:'flex',gap:6,marginBottom:14,overflowX:'auto'}},
+            (liveViewingChartSetlist.sets||[]).map((s,i)=>e('div',{key:i,onClick:()=>setChartSetlistTab(i),
+                style:{flexShrink:0,padding:'7px 13px',borderRadius:99,fontSize:12.5,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap',
+                  border:i===chartSetlistTab?'1px solid '+theme.mid:'1px solid #e5e7eb',
+                  background:i===chartSetlistTab?theme.pale:'#fff',color:i===chartSetlistTab?theme.primary:'#6b7280'}},
+                `Set ${i+1} · ${s.songs.length}`))
+          ),
+          e('div',{style:{borderRadius:12,border:'1px solid #e5e7eb',overflow:'hidden'}},
+            ((liveViewingChartSetlist.sets&&liveViewingChartSetlist.sets[chartSetlistTab]&&liveViewingChartSetlist.sets[chartSetlistTab].songs)||[])
+              .map((id,pos,arr)=>{
+                const sg=songs.find(s=>s.id===id);
+                return e('div',{key:id,onClick:()=>{if(sg){setViewingChartSetlist(null);setViewingSong(sg);}},
+                    style:{padding:'10px 14px',borderBottom:pos<arr.length-1?'1px solid #e5e7eb':'none',display:'flex',alignItems:'center',gap:10,cursor:sg?'pointer':'default',opacity:sg?1:.5}},
+                  e('span',{style:{width:18,textAlign:'center',fontSize:11,color:'#9ca3af',flexShrink:0}},pos+1),
+                  e('div',{style:{flex:1,minWidth:0}},
+                    e('div',{style:{fontSize:13.5,fontWeight:500,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},sg?sg.name:'(chart removed from your library)'),
+                    sg&&sg.key&&e('div',{style:{fontSize:11,color:'#9ca3af'}},e('span',{style:{color:theme.primary,fontWeight:600}},sg.key),sg.tempo?' · '+sg.tempo+' bpm':'')
+                  ),
+                  sg&&e('span',{style:{color:'#9ca3af',fontSize:15}},'›')
+                );
+              })
+          )
+        )
+      )
+    ),
+    chartBuilder&&e(ChartSetBuilderModal,{songs,initial:chartBuilder,theme,onClose:()=>setChartBuilder(null),onSave:saveChartsSetlist}),
     // Songs viewer runs "stage mode" — dark background, amber accent —
     // unlike every other modal in the app, which follows the band's chosen
     // theme. This is the one screen actually read off a stand in a dark
