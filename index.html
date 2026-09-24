@@ -4002,7 +4002,10 @@ function App(){
     const gig=askHomeAddress;
     setAskHomeAddress(null);
     setHomeAddressDraft('');
-    goHome(gig,trimmed);
+    // Same "track miles?" confirmation Map already asks — saving a home
+    // address for the first time shouldn't skip it just because it's also
+    // the first time through this particular path.
+    setAskTrack({...gig,homeAddress:trimmed});
   };
   const shareGig=gig=>{
     const dateLabel=new Date(gig.date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
@@ -5420,7 +5423,7 @@ function App(){
             // Always shown now — if there's no address yet, tapping it
             // asks for one right here instead of just silently doing
             // nothing (the old behavior, if this were still hidden).
-            e('button',{onClick:()=>{if(settings.homeAddress){goHome(gigPopup);}else{setAskHomeAddress(gigPopup);setGigPopup(null);}},title:'Drive home',
+            e('button',{onClick:()=>{if(settings.homeAddress){setAskTrack({...gigPopup,homeAddress:settings.homeAddress});setGigPopup(null);}else{setAskHomeAddress(gigPopup);setGigPopup(null);}},title:'Drive home',
               style:{flex:1,padding:'8px 0 7px',borderRadius:10,background:'#E1F5EE',color:'#0F6E56',fontWeight:500,border:'none',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:2}},
               e('span',{style:{fontSize:16}},'🏠'),e('span',{style:{fontSize:10,fontWeight:600}},'Drive home')
             ),
@@ -5454,11 +5457,14 @@ function App(){
           "We'll use GPS to track your mileage. A banner will appear so you can stop tracking when you arrive."
         ),
         e('div',{style:{display:'flex',gap:8}},
-          // Skip: just show the maps chooser, no tracking
+          // Skip: go straight to directions, no tracking. Shared by both
+          // Map and Drive Home now — homeAddress on the gig tells us which.
           e('button',{
             onClick:()=>{
-              openMapsChooser(askTrack.venue,askTrack.location);
+              const gig=askTrack;
               setAskTrack(null);
+              if(gig.homeAddress) setMapsChoice({label:'Home · '+gig.homeAddress,dest:gig.homeAddress});
+              else openMapsChooser(gig.venue,gig.location);
             },
             style:{flex:1,padding:'9px 0',borderRadius:10,border:'1px solid #d1d5db',cursor:'pointer',fontSize:14}
           },'Skip'),
@@ -5469,7 +5475,8 @@ function App(){
             onClick:()=>{
               const gig=askTrack;
               setAskTrack(null);             // close modal
-              startTracking(gig,()=>openMapsChooser(gig.venue,gig.location));
+              if(gig.homeAddress) goHome(gig,gig.homeAddress);
+              else startTracking(gig,()=>openMapsChooser(gig.venue,gig.location));
             },
             style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:14}
           },'Yes, track')
