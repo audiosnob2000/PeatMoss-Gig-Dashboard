@@ -382,3 +382,46 @@ exports.sendGigReminders = onSchedule({schedule: 'every 5 minutes', timeZone: 'A
   });
   await batch.commit();
 });
+
+// --- Weekly changelog ---
+// Posts a band message summarizing the app changes shipped in the last 7
+// days, pulled straight from the public repo's commit history — no separate
+// changelog to keep in sync by hand. Written with the Admin SDK, so it
+// reuses the same bandMessages collection and cap the in-app composer uses
+// (see BAND_MESSAGE_CAP in index.html); notifyOnBandMessage above still
+// fires the push notification for it like any other post.
+const CHANGELOG_REPO = 'audiosnob2000/PeatMoss-Gig-Dashboard';
+const CHANGELOG_BAND_MESSAGE_CAP = 2;
+
+exports.postWeeklyChangelog = onSchedule({schedule: 'every monday 09:00', timeZone: 'America/New_York'}, async () => {
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const res = await fetch(
+    `https://api.github.com/repos/${CHANGELOG_REPO}/commits?sha=main&since=${since}&per_page=50`,
+    {headers: {'User-Agent': 'peatmoss-gig-dashboard-changelog'}}
+  );
+  if (!res.ok) {
+    console.error(`postWeeklyChangelog: GitHub API returned ${res.status}`);
+    return;
+  }
+  const commits = await res.json();
+
+  // GitHub returns newest first. Commit subjects in this repo already read
+  // as user-facing feature descriptions, so just strip the trailing PR
+  // number and merge commits, and use them as-is.
+  const titles = commits
+    .map(c => (c.commit.message.split('\n')[0] || '').trim())
+    .filter(t => t && !/^merge /i.test(t))
+    .map(t => t.replace(/\s*\(#\d+\)\s*$/, ''));
+
+  console.log(`postWeeklyChangelog: ${commits.length} commit(s) since ${since}, ${titles.length} usable title(s).`);
+  if (!titles.length) return;
+
+  let text = 'This week: ' + titles.slice(0, 5).join(' · ');
+  if (text.length > 280) text = text.slice(0, 277) + '…';
+
+  const bandMessages = admin.firestore().collection('bandMessages');
+  const existingSnap = await bandMessages.orderBy('postedAt', 'desc').get();
+  const overflow = existingSnap.docs.slice(CHANGELOG_BAND_MESSAGE_CAP - 1);
+  await Promise.all(overflow.map(d => d.ref.delete()));
+  await bandMessages.doc().set({text, postedAt: new Date().toISOString()});
+});
