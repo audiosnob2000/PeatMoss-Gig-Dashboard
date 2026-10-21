@@ -3642,6 +3642,9 @@ function App(){
   const [editItemValue,setEditItemValue]=useState('');
   const [gigPopup,setGigPopup]=useState(null);
   const [dayPopup,setDayPopup]=useState(null);
+  const [dayChoice,setDayChoice]=useState(null);
+  const [unavailable,setUnavailable]=useState([]);
+  const [unavailName,setUnavailName]=useState('');
   const [googleAccessToken,setGoogleAccessToken]=useState(()=>loadStoredGoogleAuth().token);
   const [googleTokenExpiresAt,setGoogleTokenExpiresAt]=useState(()=>loadStoredGoogleAuth().expiresAt);
   const [googleAuthError,setGoogleAuthError]=useState('');
@@ -3976,6 +3979,15 @@ function App(){
         return;
       }
       setSetlists(snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>a.id<b.id?-1:1));
+    },onDbError);
+    return unsub;
+  },[]);
+  // Live-sync unavailable dates — a fresh feature, no legacy local data to
+  // migrate. One doc per person per date (keyed by date+uid) so re-marking
+  // the same day just updates the name instead of piling up duplicates.
+  useEffect(()=>{
+    const unsub=db.collection('unavailableDates').onSnapshot(snap=>{
+      setUnavailable(snap.docs.map(d=>({id:d.id,...d.data()})));
     },onDbError);
     return unsub;
   },[]);
@@ -4685,6 +4697,17 @@ function App(){
   }),[gigs,chartYear,chartShowPast,upcomingGigsAll]);
 
   const gigsByDate=useMemo(()=>{const m={};(settings.showPast?gigs:gigs.filter(g=>g.date>=todayStr||unpaidGigIds.includes(g.id))).forEach(g=>{if(!m[g.date])m[g.date]=[];m[g.date].push(g);});return m;},[gigs,settings.showPast,unpaidGigIds]);
+  const unavailableByDate=useMemo(()=>{const m={};unavailable.forEach(u=>{if(!m[u.date])m[u.date]=[];m[u.date].push(u);});return m;},[unavailable]);
+  const unavailId=date=>date+'__'+getUserId();
+  const markUnavailable=(date,name)=>{
+    const trimmed=(name||'').trim();
+    if(!trimmed)return;
+    try{localStorage.setItem('pmtf_unavail_name',trimmed);}catch{}
+    db.collection('unavailableDates').doc(unavailId(date)).set({date,name:trimmed,uid:getUserId(),updatedAt:Date.now()}).catch(()=>{});
+  };
+  const unmarkUnavailable=date=>{
+    db.collection('unavailableDates').doc(unavailId(date)).delete().catch(()=>{});
+  };
 
   // "What's changed since you were last here" banner. There's no per-gig
   // timestamp to compare against (calendar-sourced gigs in particular never
@@ -5092,9 +5115,12 @@ function App(){
             const allCancelled=hasgig&&dg.every(g=>g.status==='cancelled');
             const hasWedding=dg.some(g=>g.type==='wedding');
             const hasUnpaid=dg.some(g=>unpaidGigIds.includes(g.id));
+            const du=unavailableByDate[ds]||[];
             return e('div',{key:day,className:'cal-cell',onClick:()=>{
                 if(unpaidMode){if(hasgig)toggleUnpaidForDay(dg);return;}
-                if(dg.length===1)openGigPopup(dg[0]);else if(dg.length>1)setDayPopup({date:ds,gigs:dg});else openAdd(ds);
+                if(dg.length===1)openGigPopup(dg[0]);
+                else if(dg.length>1)setDayPopup({date:ds,gigs:dg});
+                else{setDayChoice({date:ds});try{setUnavailName(localStorage.getItem('pmtf_unavail_name')||'');}catch{setUnavailName('');}}
               },
               style:{minHeight:56,padding:'4px 5px',borderRadius:8,cursor:'pointer',position:'relative',
                 background:allCancelled?'#FEE2E2':hasWedding?'#EEEDFE':hasgig?'#E1F5EE':'#f9fafb',
@@ -5112,6 +5138,7 @@ function App(){
                 return e('div',{key:g.id,className:'cal-gig',style:{fontSize:9,marginTop:2,color:gs.color,background:gs.bg,borderRadius:3,padding:'1px 4px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',
                   outline:unpaidMode?'2px dashed #DC2626':isChanged?'2px solid #2563EB':'none',outlineOffset:1}},(g.selfPA?'🔊 ':'')+g.venue);
               }),
+              du.map(u=>e('div',{key:'u'+u.id,className:'cal-unavail',style:{fontSize:9,marginTop:2,color:'#92400E',background:'#FEF3C7',border:'1px solid #FCD34D',borderRadius:3,padding:'1px 4px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},'✕ '+u.name)),
               hasUnpaid&&e('div',{style:{position:'absolute',top:1,right:1,background:'#DC2626',color:'#fff',fontSize:7,fontWeight:700,width:11,height:11,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center'}},'$')
             );
           })
@@ -5120,7 +5147,8 @@ function App(){
           e('div',{style:{display:'flex',gap:12,flexWrap:'wrap'}},
             e('span',{style:{display:'flex',alignItems:'center',gap:5}},e('span',{style:{width:10,height:10,borderRadius:3,background:'#E1F5EE',border:'1px solid #5DCAA5',display:'inline-block'}}),' has gig'),
             e('span',{style:{display:'flex',alignItems:'center',gap:5}},e('span',{style:{width:10,height:10,borderRadius:3,background:'#FEE2E2',border:'1px solid #F87171',display:'inline-block'}}),' cancelled'),
-            e('span',{style:{display:'flex',alignItems:'center',gap:5}},e('span',{style:{width:10,height:10,borderRadius:3,background:'#f9fafb',border:'1px solid #e5e7eb',display:'inline-block'}}),' open')
+            e('span',{style:{display:'flex',alignItems:'center',gap:5}},e('span',{style:{width:10,height:10,borderRadius:3,background:'#f9fafb',border:'1px solid #e5e7eb',display:'inline-block'}}),' open'),
+            e('span',{style:{display:'flex',alignItems:'center',gap:5}},e('span',{style:{width:10,height:10,borderRadius:3,background:'#FEF3C7',border:'1px solid #FCD34D',display:'inline-block'}}),' unavailable')
           ),
           e('span',{style:{display:'flex',alignItems:'center',gap:5}},
             e('span',{style:{background:'#DC2626',color:'#fff',fontSize:7,fontWeight:700,width:11,height:11,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}},'$'),
@@ -5697,6 +5725,33 @@ function App(){
     ),
     modal&&e(Modal,{gig:modal.mode==='edit'?modal.gig:null,prefillDate:modal.prefillDate,onSave:saveGig,onDelete:deleteGig,onClose:closeModal,
       calendarLocked:!googleAccessToken&&modal.mode==='edit'&&!!modal.gig?.fromCalendar}),
+
+    dayChoice&&e('div',{onClick:()=>setDayChoice(null),className:'overlay'},
+      e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:340}},
+        e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}},
+          e('span',{style:{fontSize:16,fontWeight:600}},new Date(dayChoice.date+'T12:00:00').toLocaleDateString([],{weekday:'long',month:'long',day:'numeric'})),
+          e('button',{onClick:()=>setDayChoice(null),style:{border:'none',background:'none',fontSize:20,color:'#9ca3af',cursor:'pointer',padding:'0 4px'}},'×')
+        ),
+        e('div',{style:{fontSize:12.5,color:'#6b7280',marginBottom:14}},
+          (unavailableByDate[dayChoice.date]||[]).length
+            ?(unavailableByDate[dayChoice.date]||[]).map(u=>u.name).join(', ')+' unavailable this day.'
+            :'Nothing booked yet for this date.'
+        ),
+        e('button',{onClick:()=>{const d=dayChoice.date;setDayChoice(null);openAdd(d);},
+          style:{width:'100%',padding:'9px 0',borderRadius:10,border:'none',background:theme.mid,color:'#fff',fontWeight:500,cursor:'pointer',fontSize:14}},'+ Add gig'),
+        e('div',{style:{textAlign:'center',fontSize:10.5,color:'#9ca3af',textTransform:'uppercase',letterSpacing:'0.04em',margin:'12px 0 8px'}},'or'),
+        (unavailableByDate[dayChoice.date]||[]).some(u=>u.uid===getUserId())
+          ?e('button',{onClick:()=>{unmarkUnavailable(dayChoice.date);setDayChoice(null);},
+              style:{width:'100%',padding:'9px 0',borderRadius:10,border:'1px solid #FCD34D',background:'#FEF3C7',color:'#92400E',fontWeight:500,cursor:'pointer',fontSize:14}},"✓ You're marked unavailable — tap to remove")
+          :e('div',{style:{display:'flex',gap:6}},
+              e('input',{value:unavailName,onChange:ev=>setUnavailName(ev.target.value),placeholder:'Your name',
+                onKeyDown:ev=>{if(ev.key==='Enter'&&unavailName.trim()){markUnavailable(dayChoice.date,unavailName);setDayChoice(null);}},
+                style:{flex:1,padding:'8px 10px',border:'1px solid #FCD34D',borderRadius:8,fontSize:13}}),
+              e('button',{onClick:()=>{markUnavailable(dayChoice.date,unavailName);setDayChoice(null);},disabled:!unavailName.trim(),
+                style:{padding:'8px 14px',borderRadius:8,border:'1px solid #FCD34D',background:'#FEF3C7',color:'#92400E',fontWeight:600,cursor:unavailName.trim()?'pointer':'not-allowed',fontSize:13,whiteSpace:'nowrap'}},'✕ Unavailable')
+            )
+      )
+    ),
 
     dayPopup&&e('div',{onClick:()=>setDayPopup(null),className:'overlay'},
       e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:360}},
