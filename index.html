@@ -3585,12 +3585,42 @@ function App(){
   const [transposeSteps,setTransposeSteps]=useState(0);
   const [autoScrollOn,setAutoScrollOn]=useState(false);
   const [autoScrollSpeed,setAutoScrollSpeed]=useState(1);
+  // Font size for typed charts only — a photo chart's text is baked into
+  // the image, nothing here to resize. Persisted like other personal
+  // reading preferences (not synced — what's legible depends on this
+  // device and whoever's holding it).
+  const [songFontSize,setSongFontSize]=useState(()=>{try{const s=localStorage.getItem('pmtf_song_font_size');return s?Number(s):14;}catch{return 14;}});
+  useEffect(()=>{try{localStorage.setItem('pmtf_song_font_size',String(songFontSize));}catch{}},[songFontSize]);
   const songViewerScrollRef=useRef(null);
   const autoScrollRemainderRef=useRef(0);
+  const songWakeLockRef=useRef(null);
   useEffect(()=>{
     setTransposeSteps(0);
     setAutoScrollOn(false);
   },[viewingSong&&viewingSong.id]);
+  // Keep the screen awake while a chart is open on stage — a dark screen
+  // mid-song is the whole problem this exists to prevent. The lock is
+  // released automatically by the browser when the tab goes to the
+  // background (phone locked, app switched), so it has to be re-requested
+  // on return rather than assumed to still be held.
+  useEffect(()=>{
+    if(!viewingSong||!('wakeLock' in navigator))return;
+    let active=true;
+    const acquire=()=>{
+      navigator.wakeLock.request('screen').then(lock=>{
+        if(!active){lock.release().catch(()=>{});return;}
+        songWakeLockRef.current=lock;
+      }).catch(()=>{});
+    };
+    acquire();
+    const onVisible=()=>{if(document.visibilityState==='visible'&&!songWakeLockRef.current)acquire();};
+    document.addEventListener('visibilitychange',onVisible);
+    return ()=>{
+      active=false;
+      document.removeEventListener('visibilitychange',onVisible);
+      if(songWakeLockRef.current){songWakeLockRef.current.release().catch(()=>{});songWakeLockRef.current=null;}
+    };
+  },[!!viewingSong]);
   useEffect(()=>{
     if(!autoScrollOn)return;
     const el=songViewerScrollRef.current;
@@ -5681,7 +5711,7 @@ function App(){
             },style:{flex:1,padding:'9px 0',borderRadius:8,border:'1px solid #302C24',background:'#1D1B17',color:'#F1EDE3',cursor:'pointer',fontWeight:500}},'🖨️ Print'),
           e('button',{onClick:()=>shareSong(liveViewingSong),style:{flex:1,padding:'9px 0',borderRadius:8,border:'none',background:'#FFB020',color:'#141311',cursor:'pointer',fontWeight:700}},'📤 Share')
         ),
-        (liveViewingSong.type==='text'||liveViewingSong.type==='image')&&e('div',{className:'no-print',style:{display:'flex',gap:7,padding:'0 20px 12px',alignItems:'center'}},
+        (liveViewingSong.type==='text'||liveViewingSong.type==='image')&&e('div',{className:'no-print',style:{display:'flex',gap:7,padding:'0 20px 12px',alignItems:'center',flexWrap:'wrap'}},
           // Transposition needs actual chord text to shift, which a photo
           // doesn't have — auto-scroll has no such requirement, it just
           // scrolls the screen, so it works on a photo chart too.
@@ -5691,6 +5721,12 @@ function App(){
             e('span',{style:{fontSize:11,color:'#F1EDE3',minWidth:40,textAlign:'center',fontWeight:600}},transposeSteps===0?'Key':(transposeSteps>0?'+':'')+transposeSteps),
             e('button',{onClick:()=>setTransposeSteps(s=>s+1),title:'Transpose up',
               style:{background:'none',border:'none',color:'#FFB020',fontSize:15,fontWeight:700,cursor:'pointer',padding:'6px 9px'}},'+')
+          ),
+          liveViewingSong.type==='text'&&e('div',{style:{display:'flex',alignItems:'center',gap:2,background:'#1D1B17',border:'1px solid #302C24',borderRadius:8,padding:'2px 2px'}},
+            e('button',{onClick:()=>setSongFontSize(s=>Math.max(10,s-1)),title:'Smaller text',
+              style:{background:'none',border:'none',color:'#FFB020',fontSize:12,fontWeight:700,cursor:'pointer',padding:'6px 8px'}},'A−'),
+            e('button',{onClick:()=>setSongFontSize(s=>Math.min(28,s+1)),title:'Bigger text',
+              style:{background:'none',border:'none',color:'#FFB020',fontSize:16,fontWeight:700,cursor:'pointer',padding:'6px 8px'}},'A+')
           ),
           e('button',{onClick:()=>setAutoScrollOn(v=>!v),
             style:{flex:1,padding:'8px 0',borderRadius:8,border:'1px solid #302C24',background:autoScrollOn?'#FFB020':'#1D1B17',color:autoScrollOn?'#141311':'#FFB020',fontWeight:700,fontSize:12,cursor:'pointer'}},
@@ -5718,7 +5754,7 @@ function App(){
           (liveViewingSong.key||liveViewingSong.tempo||liveViewingSong.tag)&&e('div',{style:{fontSize:12,color:'#FFB020',marginBottom:14,display:'flex',gap:8,flexWrap:'wrap'}},
             [liveViewingSong.key,liveViewingSong.tempo?liveViewingSong.tempo+' bpm':null,liveViewingSong.tag].filter(Boolean).join('  ·  ')
           ),
-          liveViewingSong.type==='text'&&e('div',{style:{fontSize:14,color:'#F1EDE3',whiteSpace:'pre-wrap',lineHeight:1.6,fontFamily:'monospace'}},transposeChart(liveViewingSong.content,transposeSteps)),
+          liveViewingSong.type==='text'&&e('div',{style:{fontSize:songFontSize,color:'#F1EDE3',whiteSpace:'pre-wrap',lineHeight:1.6,fontFamily:'monospace'}},transposeChart(liveViewingSong.content,transposeSteps)),
           liveViewingSong.type==='image'&&e('div',{style:{display:'flex',justifyContent:'center'}},
             e('img',{src:liveViewingSong.content,style:{
               // Rotated stays capped (its rotated width is really the
