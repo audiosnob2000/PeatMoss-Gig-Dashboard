@@ -2864,7 +2864,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
     const newTrip={id:'trip'+Date.now(),venue:manualLabel.trim()||'Manual entry',date:manualDate,miles:parseFloat(miles.toFixed(1)),manual:true};
     setMileageLog(prev=>[...prev,newTrip]);
     const{id,...tripBody}=newTrip;
-    db.collection('mileageTrips').doc(id).set({...tripBody,deviceId:getUserId()}).catch(()=>{});
+    db.collection('mileageTrips').doc(id).set({...tripBody,deviceId:getUserId()}).catch(()=>alert('Could not save — check your connection and try again.'));
     setManualDate(todayStr);setManualMiles('');setManualLabel('');
     setAddingTrip(false);
   };
@@ -3183,7 +3183,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
                 e('div',{style:{fontSize:13,fontWeight:500,color:theme.primary}},toDisplayDistance(t.miles).toFixed(1)+' '+mileageUnit),
                 e('button',{onClick:()=>{
                     setMileageLog(prev=>prev.filter(x=>x!==t));
-                    if(t.id) db.collection('mileageTrips').doc(t.id).delete().catch(()=>{});
+                    if(t.id) db.collection('mileageTrips').doc(t.id).delete().catch(()=>alert('Could not delete — check your connection and try again.'));
                   },
                   style:{border:'none',background:'none',color:'#d1d5db',fontSize:18,cursor:'pointer',padding:'0 4px',lineHeight:1}},'×')
               )
@@ -3194,7 +3194,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
                 if(!window.confirm('Clear all mileage logs?'))return;
                 const batch=db.batch();
                 mileageLog.forEach(t=>{if(t.id)batch.delete(db.collection('mileageTrips').doc(t.id));});
-                batch.commit().catch(()=>{});
+                batch.commit().catch(()=>alert('Could not delete — check your connection and try again.'));
                 setMileageLog([]);
               },style:{fontSize:12,color:'#b91c1c',borderColor:'#fca5a5',width:'100%',padding:'7px 0'}},'Clear mileage log')
           )
@@ -3724,6 +3724,16 @@ function App(){
     if(!auth.currentUser) deniedWhileSignedOutRef.current=true;
     setAccessDenied(true);
   };
+  // Shared landing spot for a write that failed silently before now. A
+  // permission-denied write gets the same full-screen sign-in gate as a
+  // dead listener (onDbError already covers that case) rather than a
+  // second, redundant message; anything else gets the plain "didn't save"
+  // alert this app already uses elsewhere, so the voice stays consistent.
+  const reportWriteError=action=>err=>{
+    onDbError(err);
+    if(err&&err.code==='permission-denied')return;
+    alert('Could not '+action+' — check your connection and try again.');
+  };
   // Signing in re-subscribes only the listeners that depend on authUser;
   // the rest were attached once with no dependencies and stay dead. Rather
   // than thread a re-subscribe through eight effects for a path taken once
@@ -3774,26 +3784,36 @@ function App(){
     const legacyId=getDeviceId();
     if(uid===legacyId)return;
     identityMigratedRef.current=true;
-    db.collection('mileageTrips').get().then(snap=>{
-      const mine=snap.docs.filter(d=>d.data().deviceId===legacyId);
-      return Promise.all(mine.map(d=>db.collection('mileageTrips').doc(d.id).update({deviceId:uid})));
-    }).catch(()=>{});
-    db.collection('songs').get().then(snap=>{
-      const mine=snap.docs.filter(d=>d.data().deviceId===legacyId);
-      return Promise.all(mine.map(d=>db.collection('songs').doc(d.id).update({deviceId:uid})));
-    }).catch(()=>{});
-    db.collection('checklists').doc(uid).get().then(uidDoc=>{
-      if(uidDoc.exists)return;
-      return db.collection('checklists').doc(legacyId).get().then(legacyDoc=>{
-        if(legacyDoc.exists)return db.collection('checklists').doc(uid).set(legacyDoc.data());
-      });
-    }).catch(()=>{});
-    db.collection('unpaidGigs').doc(uid).get().then(uidDoc=>{
-      if(uidDoc.exists)return;
-      return db.collection('unpaidGigs').doc(legacyId).get().then(legacyDoc=>{
-        if(legacyDoc.exists)return db.collection('unpaidGigs').doc(uid).set(legacyDoc.data());
-      });
-    }).catch(()=>{});
+    // One alert for the whole migration, not one per collection — a failed
+    // run leaves data reachable under the old device id (see above), and
+    // this says so once instead of firing up to four near-identical alerts.
+    Promise.allSettled([
+      db.collection('mileageTrips').get().then(snap=>{
+        const mine=snap.docs.filter(d=>d.data().deviceId===legacyId);
+        return Promise.all(mine.map(d=>db.collection('mileageTrips').doc(d.id).update({deviceId:uid})));
+      }),
+      db.collection('songs').get().then(snap=>{
+        const mine=snap.docs.filter(d=>d.data().deviceId===legacyId);
+        return Promise.all(mine.map(d=>db.collection('songs').doc(d.id).update({deviceId:uid})));
+      }),
+      db.collection('checklists').doc(uid).get().then(uidDoc=>{
+        if(uidDoc.exists)return;
+        return db.collection('checklists').doc(legacyId).get().then(legacyDoc=>{
+          if(legacyDoc.exists)return db.collection('checklists').doc(uid).set(legacyDoc.data());
+        });
+      }),
+      db.collection('unpaidGigs').doc(uid).get().then(uidDoc=>{
+        if(uidDoc.exists)return;
+        return db.collection('unpaidGigs').doc(legacyId).get().then(legacyDoc=>{
+          if(legacyDoc.exists)return db.collection('unpaidGigs').doc(uid).set(legacyDoc.data());
+        });
+      })
+    ]).then(results=>{
+      if(results.some(r=>r.status==='rejected')){
+        onDbError(results.find(r=>r.status==='rejected').reason);
+        alert("Couldn't fully move your mileage/checklist history to this account. It's still there under this device — sign out and back in once you have a connection to finish moving it.");
+      }
+    });
   },[authUser]);
 
   // Band-wide messages (e.g. "all black suits tonight") — each post is its
@@ -3867,12 +3887,12 @@ function App(){
   useEffect(()=>{try{localStorage.setItem('pmtf_settings',JSON.stringify(settings));}catch{}},[settings]);
   useEffect(()=>{
     try{localStorage.setItem('pmtf_members',JSON.stringify(members));}catch{}
-    if(checklistHydratedRef.current) db.collection('checklists').doc(getUserId()).set({members}).catch(()=>{});
+    if(checklistHydratedRef.current) db.collection('checklists').doc(getUserId()).set({members}).catch(reportWriteError('save your packing list'));
   },[members]);
   useEffect(()=>{try{localStorage.setItem('pmtf_mileage',JSON.stringify(mileageLog));}catch{}},[mileageLog]);
   useEffect(()=>{
     try{localStorage.setItem('pmtf_unpaid_gigs',JSON.stringify(unpaidGigIds));}catch{}
-    if(unpaidHydratedRef.current) db.collection('unpaidGigs').doc(getUserId()).set({gigIds:unpaidGigIds}).catch(()=>{});
+    if(unpaidHydratedRef.current) db.collection('unpaidGigs').doc(getUserId()).set({gigIds:unpaidGigIds}).catch(reportWriteError('save your unpaid-gig marks'));
   },[unpaidGigIds]);
   useEffect(()=>{try{if(pushToken)localStorage.setItem('pmtf_push_token',pushToken);else localStorage.removeItem('pmtf_push_token');}catch{}},[pushToken]);
   // Register the service worker once so it's ready to receive background
@@ -3913,7 +3933,7 @@ function App(){
     });
   };
   const disablePushNotifications=()=>{
-    if(pushToken) db.collection('fcmTokens').doc(pushToken).delete().catch(()=>{});
+    if(pushToken) db.collection('fcmTokens').doc(pushToken).delete().catch(reportWriteError('disable notifications'));
     setPushToken(null);
   };
   // Keep this device's reminder timing choices in sync with its Firestore
@@ -3926,13 +3946,13 @@ function App(){
       selfPaReminderEnabled:settings.selfPaReminderEnabled,selfPaReminderTime:settings.selfPaReminderTime,
       selfPaReminderTarget:settings.selfPaReminderTarget,
       bandMessageNotifs:settings.bandMessageNotifs
-    }).catch(()=>{});
+    }).catch(reportWriteError('save your notification settings'));
   },[pushToken,settings.gigReminder1,settings.gigReminder2,settings.selfPaReminderEnabled,settings.selfPaReminderTime,settings.selfPaReminderTarget,settings.bandMessageNotifs]);
   // The reminder Cloud Function can't read localStorage, so the calendar ID
   // needs a shared copy it can actually reach.
   useEffect(()=>{
     if(!settings.calendarId)return;
-    db.collection('bandSettings').doc('global').set({calendarId:settings.calendarId},{merge:true}).catch(()=>{});
+    db.collection('bandSettings').doc('global').set({calendarId:settings.calendarId},{merge:true}).catch(reportWriteError('save the calendar ID'));
   },[settings.calendarId]);
   // Live-sync the stage plot from Firestore, shared band-wide (unlike
   // mileage/checklist/unpaid-gigs, this is one doc for the whole band, not
@@ -3961,7 +3981,7 @@ function App(){
   },[]);
   useEffect(()=>{
     if(!stagePlotHydratedRef.current)return;
-    db.collection('bandSettings').doc('stagePlot').set({stagePlotUrl:settings.stagePlotUrl||'',stagePlotFile:settings.stagePlotFile||null}).catch(()=>{});
+    db.collection('bandSettings').doc('stagePlot').set({stagePlotUrl:settings.stagePlotUrl||'',stagePlotFile:settings.stagePlotFile||null}).catch(reportWriteError('save the stage plot'));
   },[settings.stagePlotUrl,settings.stagePlotFile]);
   // Live-sync setlists from Firestore so every band member sees the same
   // list. On first run, if Firestore is empty but this device already has
@@ -4418,7 +4438,7 @@ function App(){
     // sign-in state — this is what makes a newly-added gig show up
     // everywhere instantly instead of waiting on the next calendar sync.
     const{id:_gid,...gigBody}=g;
-    db.collection('gigs').doc(String(g.id)).set(gigBody).catch(()=>{});
+    db.collection('gigs').doc(String(g.id)).set(gigBody).catch(reportWriteError('save this gig'));
     closeModal();
   };
   const deleteGig=async id=>{
@@ -4438,7 +4458,7 @@ function App(){
       }
     }
     setGigs(p=>p.filter(x=>x.id!==id));
-    db.collection('gigs').doc(String(id)).delete().catch(()=>{});
+    db.collection('gigs').doc(String(id)).delete().catch(reportWriteError('delete this gig'));
     closeModal();
   };
 
@@ -4660,7 +4680,7 @@ function App(){
       };
       setMileageLog(prev=>[...prev,newTrip]);
       const{id,...tripBody}=newTrip;
-      db.collection('mileageTrips').doc(id).set({...tripBody,deviceId:getUserId()}).catch(()=>{});
+      db.collection('mileageTrips').doc(id).set({...tripBody,deviceId:getUserId()}).catch(reportWriteError('save this mileage trip'));
     }
     setTrackingMiles(null);
     trackingRef.current=null;
@@ -4703,10 +4723,10 @@ function App(){
     const trimmed=(name||'').trim();
     if(!trimmed)return;
     try{localStorage.setItem('pmtf_unavail_name',trimmed);}catch{}
-    db.collection('unavailableDates').doc(unavailId(date)).set({date,name:trimmed,uid:getUserId(),updatedAt:Date.now()}).catch(()=>{});
+    db.collection('unavailableDates').doc(unavailId(date)).set({date,name:trimmed,uid:getUserId(),updatedAt:Date.now()}).catch(reportWriteError('mark you unavailable'));
   };
   const unmarkUnavailable=date=>{
-    db.collection('unavailableDates').doc(unavailId(date)).delete().catch(()=>{});
+    db.collection('unavailableDates').doc(unavailId(date)).delete().catch(reportWriteError('remove your unavailable mark'));
   };
 
   // "What's changed since you were last here" banner. There's no per-gig
