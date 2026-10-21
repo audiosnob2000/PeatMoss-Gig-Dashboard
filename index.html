@@ -4197,15 +4197,26 @@ function App(){
       fetch(FUNCTIONS_BASE_URL+'/exchangeGoogleAuthCode',{
         method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({code,deviceId:getDeviceId(),redirectUri:GOOGLE_REDIRECT_URI})
-      }).then(r=>r.json().then(data=>({ok:r.ok,data}))).then(({ok,data})=>{
+      // A cold-starting or erroring function can answer with a plain-text or
+      // HTML body instead of JSON — parsing that blindly used to throw and
+      // land every such case in the generic "could not reach the server"
+      // catch below, hiding a real server response behind a network-error
+      // message. Falling back to {} here keeps that distinction: a true
+      // network failure still hits the catch with its own real message,
+      // while a server response that just wasn't JSON shows its status.
+      }).then(async r=>{
+        let data={};
+        try{data=await r.json();}catch{}
+        return {ok:r.ok,status:r.status,data};
+      }).then(({ok,status,data})=>{
         if(ok){
           setGoogleAccessToken(data.accessToken);
           setGoogleTokenExpiresAt(Date.now()+data.expiresIn*1000);
           setGoogleAuthError('');
         } else {
-          setGoogleAuthError('Google sign-in failed: '+(data.error||'unknown error'));
+          setGoogleAuthError('Google sign-in failed: '+(data.error||('server returned status '+status)));
         }
-      }).catch(()=>setGoogleAuthError('Google sign-in failed: could not reach the server.'))
+      }).catch(err=>setGoogleAuthError('Google sign-in failed: '+((err&&err.message)||'could not reach the server.')))
         .finally(()=>{reopenIfNeeded();cleanUrl();});
     } else if(err){
       setGoogleAuthError('Google sign-in failed: '+err);
