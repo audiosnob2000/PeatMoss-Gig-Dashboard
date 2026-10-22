@@ -3591,9 +3591,46 @@ function App(){
   // device and whoever's holding it).
   const [songFontSize,setSongFontSize]=useState(()=>{try{const s=localStorage.getItem('pmtf_song_font_size');return s?Number(s):14;}catch{return 14;}});
   useEffect(()=>{try{localStorage.setItem('pmtf_song_font_size',String(songFontSize));}catch{}},[songFontSize]);
+  // Null means "no custom size yet" — the box falls back to its original
+  // comfortable-reading-column sizing. Set only once the corner handle is
+  // actually dragged, then persisted like the other reading preferences.
+  const [songViewerSize,setSongViewerSize]=useState(()=>{try{const s=localStorage.getItem('pmtf_song_viewer_size');return s?JSON.parse(s):null;}catch{return null;}});
   const songViewerScrollRef=useRef(null);
+  const songViewerBoxRef=useRef(null);
   const autoScrollRemainderRef=useRef(0);
   const songWakeLockRef=useRef(null);
+  // Drag the corner handle to resize the box itself, the same pointer-drag
+  // approach used for reordering a set list — tracked with plain listeners
+  // on document rather than React state mid-drag, since there's nothing to
+  // fight a re-render over here, just two numbers.
+  const onSongResizeDown=ev0=>{
+    ev0.preventDefault();
+    const el=songViewerBoxRef.current;
+    if(!el)return;
+    const startRect=el.getBoundingClientRect();
+    const startX=ev0.clientX,startY=ev0.clientY;
+    try{ev0.currentTarget.setPointerCapture(ev0.pointerId);}catch{}
+    let latest=null;
+    // Capped to what the overlay's own 1rem padding on every side actually
+    // leaves available — the overlay is a flex container, so a box asking
+    // for more than that gets silently shrunk back down by flexbox anyway
+    // (see flexShrink:0 below for why that no longer also fights a resize
+    // back to the *smaller* explicit size this drag just set).
+    const maxW=window.innerWidth-32,maxH=window.innerHeight-32;
+    const onMove=ev=>{
+      const w=Math.max(280,Math.min(maxW,startRect.width+(ev.clientX-startX)));
+      const h=Math.max(240,Math.min(maxH,startRect.height+(ev.clientY-startY)));
+      latest={width:Math.round(w),height:Math.round(h)};
+      setSongViewerSize(latest);
+    };
+    const onUp=()=>{
+      document.removeEventListener('pointermove',onMove);
+      document.removeEventListener('pointerup',onUp);
+      if(latest){try{localStorage.setItem('pmtf_song_viewer_size',JSON.stringify(latest));}catch{}}
+    };
+    document.addEventListener('pointermove',onMove);
+    document.addEventListener('pointerup',onUp);
+  };
   useEffect(()=>{
     setTransposeSteps(0);
     setAutoScrollOn(false);
@@ -5694,13 +5731,25 @@ function App(){
     // unlike every other modal in the app, which follows the band's chosen
     // theme. This is the one screen actually read off a stand in a dark
     // room, so it earns breaking from the theme; nothing else does.
-    viewingSong&&e('div',{onClick:()=>setViewingSong(null),className:'overlay',style:{background:'rgba(0,0,0,0.7)',padding:0}},
-      // Runs full-screen rather than the comfortable-reading-column width
-      // every other modal uses — this is the one screen actually read off
-      // a stand mid-song, where every extra line visible without scrolling
-      // matters. dvh (not vh) so an in-browser tab's collapsing address bar
-      // doesn't clip the bottom of the chart.
-      e('div',{ref:songViewerScrollRef,onClick:ev=>ev.stopPropagation(),className:'modal',style:{width:'100vw',maxWidth:'100vw',height:'100dvh',maxHeight:'100dvh',borderRadius:0,overflowY:'auto',padding:0,background:'#141311'}},
+    viewingSong&&e('div',{onClick:()=>setViewingSong(null),className:'overlay',style:{background:'rgba(0,0,0,0.7)'}},
+      // A photo chart has no adjustable text size the way a typed chart
+      // does, so the only way to make it legible is more screen real
+      // estate — let it use most of the viewport width instead of the
+      // same comfortable-reading-column width that suits typed charts.
+      // Once the corner handle below has been dragged, songViewerSize
+      // takes over as an explicit pixel size and this default no longer
+      // applies — position:relative so that handle can anchor to this
+      // box's own corner rather than the page's.
+      e('div',{ref:songViewerBoxRef,onClick:ev=>ev.stopPropagation(),className:'modal',style:{
+        position:'relative',display:'flex',flexDirection:'column',flexShrink:0,
+        width:songViewerSize?songViewerSize.width+'px':(liveViewingSong.type==='image'?'min(94vw, 720px)':'min(420px, 100%)'),
+        height:songViewerSize?songViewerSize.height+'px':undefined,
+        maxHeight:songViewerSize?songViewerSize.height+'px':'85vh',
+        overflow:'hidden',padding:0,background:'#141311'}},
+      // Scrolls as its own unit, separate from the outer box, so the resize
+      // handle below can stay pinned to the box's actual corner instead of
+      // scrolling away with the chart content.
+      e('div',{ref:songViewerScrollRef,style:{flex:'1 1 auto',minHeight:0,overflowY:'auto'}},
         e('div',{className:'no-print',style:{display:'flex',gap:8,padding:'14px 20px',borderBottom:'1px solid #302C24'}},
           e('button',{onClick:()=>setViewingSong(null),style:{flex:1,padding:'9px 0',background:'#1D1B17',color:'#F1EDE3',border:'1px solid #302C24'}},'Close'),
           liveViewingSong.type==='image'&&e('button',{onClick:()=>toggleSongRotation(liveViewingSong),title:'Rotate',
@@ -5792,6 +5841,20 @@ function App(){
               style:{display:'inline-block',padding:'9px 18px',borderRadius:10,background:'#FFB020',color:'#141311',fontWeight:700,textDecoration:'none',fontSize:14}},'🔗 Open link')
           )
         )
+      ),
+      // Drag to resize the box itself — bottom-right corner, the usual spot
+      // for a window resize grip. A direct child of the outer (non-scrolling)
+      // box, absolutely positioned against it, so it stays put in that
+      // corner no matter how far the chart content above has scrolled.
+      e('div',{className:'no-print',onPointerDown:onSongResizeDown,title:'Drag to resize',
+        style:{position:'absolute',bottom:4,right:4,width:30,height:30,
+          display:'flex',alignItems:'center',justifyContent:'center',
+          cursor:'nwse-resize',touchAction:'none',color:'#FFB020',opacity:0.8,
+          background:'rgba(20,19,17,0.6)',borderRadius:6,zIndex:2}},
+        e('svg',{width:16,height:16,viewBox:'0 0 16 16',fill:'none',stroke:'currentColor',strokeWidth:1.6,strokeLinecap:'round'},
+          e('path',{d:'M14 2 L2 14'}),e('path',{d:'M14 7 L7 14'}),e('path',{d:'M14 12 L12 14'})
+        )
+      )
       )
     ),
     modal&&e(Modal,{gig:modal.mode==='edit'?modal.gig:null,prefillDate:modal.prefillDate,onSave:saveGig,onDelete:deleteGig,onClose:closeModal,
