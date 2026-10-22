@@ -5694,15 +5694,13 @@ function App(){
     // unlike every other modal in the app, which follows the band's chosen
     // theme. This is the one screen actually read off a stand in a dark
     // room, so it earns breaking from the theme; nothing else does.
-    viewingSong&&e('div',{onClick:()=>setViewingSong(null),className:'overlay',style:{background:'rgba(0,0,0,0.7)'}},
-      // A photo chart has no adjustable text size the way a typed chart
-      // does, so the only way to make it legible is more screen real
-      // estate — let it use most of the viewport width instead of the
-      // same comfortable-reading-column width that suits typed charts.
-      // The .modal class sets an explicit width:min(420px,100%) — a
-      // max-width override alone can only ever shrink that, never grow it,
-      // so the wider image case needs its own explicit width too.
-      e('div',{ref:songViewerScrollRef,onClick:ev=>ev.stopPropagation(),className:'modal',style:{width:liveViewingSong.type==='image'?'min(94vw, 720px)':'min(420px, 100%)',maxHeight:'85vh',overflowY:'auto',padding:0,background:'#141311'}},
+    viewingSong&&e('div',{onClick:()=>setViewingSong(null),className:'overlay',style:{background:'rgba(0,0,0,0.7)',padding:0}},
+      // Runs full-screen rather than the comfortable-reading-column width
+      // every other modal uses — this is the one screen actually read off
+      // a stand mid-song, where every extra line visible without scrolling
+      // matters. dvh (not vh) so an in-browser tab's collapsing address bar
+      // doesn't clip the bottom of the chart.
+      e('div',{ref:songViewerScrollRef,onClick:ev=>ev.stopPropagation(),className:'modal',style:{width:'100vw',maxWidth:'100vw',height:'100dvh',maxHeight:'100dvh',borderRadius:0,overflowY:'auto',padding:0,background:'#141311'}},
         e('div',{className:'no-print',style:{display:'flex',gap:8,padding:'14px 20px',borderBottom:'1px solid #302C24'}},
           e('button',{onClick:()=>setViewingSong(null),style:{flex:1,padding:'9px 0',background:'#1D1B17',color:'#F1EDE3',border:'1px solid #302C24'}},'Close'),
           liveViewingSong.type==='image'&&e('button',{onClick:()=>toggleSongRotation(liveViewingSong),title:'Rotate',
@@ -5760,7 +5758,13 @@ function App(){
               '💾 Save'+(liveViewingSong.key&&liveViewingSong.key.trim()?' as '+transposeChordToken(liveViewingSong.key.trim(),transposeSteps):''))
           )
         ),
-        e('div',{className:'schedule-print-area song-viewer-print',style:{padding:liveViewingSong.type==='image'?'12px':'20px'}},
+        e('div',{className:'schedule-print-area song-viewer-print',
+          // Tapping the chart itself toggles auto-scroll the same as the
+          // button does — reaching a small button mid-song beats fumbling
+          // for a button, especially holding an instrument. Only wired up
+          // where auto-scroll itself is offered (text/image charts).
+          onClick:(liveViewingSong.type==='text'||liveViewingSong.type==='image')?()=>setAutoScrollOn(v=>!v):undefined,
+          style:{padding:liveViewingSong.type==='image'?'12px':'20px',cursor:(liveViewingSong.type==='text'||liveViewingSong.type==='image')?'pointer':'default'}},
           e('div',{style:{fontSize:16,fontWeight:600,marginBottom:4,color:'#F1EDE3'}},liveViewingSong.name),
           (liveViewingSong.key||liveViewingSong.tempo||liveViewingSong.tag)&&e('div',{style:{fontSize:12,color:'#FFB020',marginBottom:14,display:'flex',gap:8,flexWrap:'wrap'}},
             [liveViewingSong.key,liveViewingSong.tempo?liveViewingSong.tempo+' bpm':null,liveViewingSong.tag].filter(Boolean).join('  ·  ')
