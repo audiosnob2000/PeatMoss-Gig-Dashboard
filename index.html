@@ -3118,16 +3118,10 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
       // expand step, no separate View button to hunt for) since there's
       // nothing to show inline; the whole point of the row is the tap.
       e(Section,{icon:'📊',iconBg:'#E1F5EE',title:'Band Stats',isOpen:false,onToggle:()=>setShowBandStatsModal(true)}),
-      e(Section,{icon:'🎵',iconBg:'#FDF0DC',title:'Metronome',summary:metronomeTempos.length?metronomeTempos.length+' saved tempo'+(metronomeTempos.length===1?'':'s'):'No saved tempos yet',isOpen:openSections.has('metronome'),onToggle:()=>toggleSection('metronome')},
-        e(Row,{label:'Saved tempos',sub:'Name a song, save its BPM, tap to start the click',border:false,
-          right:e('button',{onClick:()=>setShowMetronomeModal(true),style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'Open')
-        })
-      ),
-      e(Section,{icon:'🎚️',iconBg:'#111827',title:'Stage Meter',summary:'SPL + 32-band RTA, mic-based',isOpen:openSections.has('stagemeter'),onToggle:()=>toggleSection('stagemeter')},
-        e(Row,{label:'Decibel meter & analyzer',sub:'Live dBA reading and a third-octave RTA — press a band to identify its frequency',border:false,
-          right:e('button',{onClick:()=>setShowStageMeterModal(true),style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'Open')
-        })
-      ),
+      // Same as Band Stats above — tapping the row opens the tool directly,
+      // isOpen permanently false since there's nothing to show inline.
+      e(Section,{icon:'🎵',iconBg:'#FDF0DC',title:'Metronome',summary:metronomeTempos.length?metronomeTempos.length+' saved tempo'+(metronomeTempos.length===1?'':'s'):'No saved tempos yet',isOpen:false,onToggle:()=>setShowMetronomeModal(true)}),
+      e(Section,{icon:'🎚️',iconBg:'#111827',title:'Stage Meter',summary:'SPL + 32-band RTA, mic-based',isOpen:false,onToggle:()=>setShowStageMeterModal(true)}),
       e(Section,{icon:'ℹ️',iconBg:'#E5E7EB',title:'About',summary:'v1.0.0',isOpen:openSections.has('about'),onToggle:()=>toggleSection('about')},
         e(Row,{label:'Version',sub:'1.0.0',border:true,right:null}),
         e(Row,{label:'Share app',sub:'Coming soon',border:false,right:e('button',{disabled:true,style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #e5e7eb',color:'#9ca3af',cursor:'not-allowed',background:'#f9fafb'}},'Coming soon')})
