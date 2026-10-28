@@ -138,50 +138,6 @@ exports.notifyOnNewSetlist = onDocumentCreated('setlists/{setlistId}', async (ev
   }
 });
 
-// Each band message post is its own doc in bandMessages (up to
-// BAND_MESSAGE_CAP active at once, client-side) — onDocumentCreated fires
-// exactly once per post, giving each message its own independent
-// notification. Editing an existing message (an update, not a create)
-// intentionally does NOT re-notify, since that's a correction, not a new
-// announcement.
-exports.notifyOnBandMessage = onDocumentCreated('bandMessages/{messageId}', async (event) => {
-  const msg = event.data.data();
-  if (!msg || !msg.text) return;
-
-  const tokensSnap = await admin.firestore().collection('fcmTokens').get();
-  if (tokensSnap.empty) return;
-
-  // bandMessageNotifs is opt-out, not opt-in — tokens registered before this
-  // setting existed have no such field and should still get pinged.
-  const tokenDocs = tokensSnap.docs.filter(d => d.data().bandMessageNotifs !== false);
-  if (!tokenDocs.length) return;
-  const tokens = tokenDocs.map(d => d.id);
-
-  const response = await admin.messaging().sendEachForMulticast({
-    notification: {
-      title: 'Band message',
-      body: msg.text
-    },
-    data: { url: APP_URL },
-    tokens
-  });
-
-  const staleTokens = [];
-  response.responses.forEach((res, i) => {
-    if (!res.success) {
-      const code = res.error && res.error.code;
-      if (code === 'messaging/registration-token-not-registered' || code === 'messaging/invalid-registration-token') {
-        staleTokens.push(tokens[i]);
-      }
-    }
-  });
-  if (staleTokens.length) {
-    const batch = admin.firestore().batch();
-    staleTokens.forEach(t => batch.delete(admin.firestore().collection('fcmTokens').doc(t)));
-    await batch.commit();
-  }
-});
-
 // --- Gig reminders ---
 // Read straight from Firestore's `gigs` collection — the app's own data,
 // synced by every device regardless of whether anyone is signed into

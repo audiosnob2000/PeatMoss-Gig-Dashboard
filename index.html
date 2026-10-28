@@ -899,34 +899,6 @@ function timeAgo(iso){
   return Math.floor(hrs/24)+'d ago';
 }
 
-// Persistent, non-blocking banner for a band-wide message — sits right
-// under the header, above the tab bar, and stays visible (doesn't block
-// anything) until dismissed. A NEW message always shows even if an older
-// one was dismissed, since dismissal is tracked per message id, not a
-// blanket "seen a message before" flag. Up to 2 can be active at once
-// (BAND_MESSAGE_CAP), each with its own id/timestamp/notification.
-const BAND_MESSAGE_CAP=2;
-function BandMessageBanner({message,onEdit,onDismiss}){
-  return e('div',{style:{margin:'0 1rem 0.6rem',background:'#FFF7ED',border:'1px solid #FDBA74',borderRadius:10,
-      padding:'9px 11px',display:'flex',gap:9,alignItems:'flex-start'}},
-    e('span',{style:{fontSize:15,lineHeight:1,marginTop:1}},'📣'),
-    e('div',{style:{flex:1,minWidth:0,fontSize:12.5,color:'#7C2D12',lineHeight:1.4}},
-      e('div',{style:{fontSize:9.5,textTransform:'uppercase',letterSpacing:'0.05em',color:'#C2410C',fontWeight:600,marginBottom:1}},
-        'Band message · '+timeAgo(message.postedAt)),
-      message.text
-    ),
-    e('button',{onClick:()=>onEdit(message),title:'Edit',style:{border:'none',background:'none',cursor:'pointer',fontSize:12,color:'#C2410C',opacity:0.75,padding:'2px 4px',flexShrink:0}},'✏️'),
-    e('button',{onClick:()=>onDismiss(message.id),title:'Dismiss',style:{border:'none',background:'none',cursor:'pointer',fontSize:14,color:'#C2410C',opacity:0.75,padding:'0 2px',flexShrink:0}},'×')
-  );
-}
-function BandMessageBannerStack({messages,dismissedIds,onEdit,onDismiss}){
-  const visible=(messages||[]).filter(m=>dismissedIds.indexOf(m.id)===-1);
-  if(!visible.length)return null;
-  return e('div',{style:{marginBottom:visible.length?'0.4rem':0}},
-    visible.map(m=>e(BandMessageBanner,{key:m.id,message:m,onEdit,onDismiss}))
-  );
-}
-
 function formatChangeDate(dateStr){
   return new Date(dateStr+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
 }
@@ -979,57 +951,6 @@ function WhatsChangedBanner({summary,expanded,onToggle,onDismiss,onOpenGig}){
   );
 }
 
-// Compose/edit/delete card for a single band message. Each message is its
-// own Firestore doc (bandMessages collection) — passing message=null opens
-// a blank compose box for a new post; passing an existing message edits
-// just that one in place without touching any other active message.
-function BandMessageModal({message,onSave,onDelete,onClose}){
-  const [text,setText]=useState(message&&message.text||'');
-  const [saving,setSaving]=useState(false);
-  const [error,setError]=useState('');
-  const [slow,setSlow]=useState(false);
-  useEffect(()=>{
-    if(!saving){setSlow(false);return;}
-    const t=setTimeout(()=>setSlow(true),5000);
-    return ()=>clearTimeout(t);
-  },[saving]);
-  const hasExisting=!!message;
-  const submit=()=>{
-    if(!text.trim())return;
-    setSaving(true);setError('');
-    onSave(text.trim()).then(onClose).catch(err=>{setSaving(false);setError((err&&err.message)||'Could not post — check your connection and try again.');});
-  };
-  const submitDelete=()=>{
-    setSaving(true);setError('');
-    onDelete().then(onClose).catch(err=>{setSaving(false);setError((err&&err.message)||'Could not delete — check your connection and try again.');});
-  };
-  return e('div',{onClick:onClose,className:'overlay'},
-    e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:360}},
-      e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}},
-        e('div',{style:{fontSize:16,fontWeight:700}},'Band message'),
-        e('button',{onClick:onClose,style:{border:'none',background:'none',fontSize:18,color:'#9ca3af',cursor:'pointer',padding:'0 4px'}},'×')
-      ),
-      e('textarea',{value:text,maxLength:100,rows:3,autoFocus:true,
-        placeholder:'Type something for the whole band to see…',
-        onChange:ev=>setText(ev.target.value),
-        style:{width:'100%',resize:'none',fontFamily:'inherit',fontSize:13,padding:'9px 10px',border:'1px solid #d1d5db',borderRadius:8,color:'#111827'}
-      }),
-      e('div',{style:{fontSize:10.5,color:'#9ca3af',marginTop:5}},
-        text.length+'/100'+(hasExisting?' · posted '+timeAgo(message.postedAt):' · visible to everyone until deleted')
-      ),
-      error&&e('div',{style:{fontSize:11.5,color:'#B91C1C',marginTop:8}},'⚠ '+error),
-      slow&&!error&&e('div',{style:{fontSize:11.5,color:'#9ca3af',marginTop:8}},'Still trying — this can take a moment on a slow connection.'),
-      e('div',{style:{display:'flex',gap:8,marginTop:14}},
-        e('button',{onClick:submit,disabled:!text.trim()||saving,
-          style:{flex:1,padding:'9px 0',borderRadius:9,border:'none',background:(text.trim()&&!saving)?'#1D9E75':'#a7d9c6',color:'#fff',fontWeight:600,fontSize:13,cursor:(text.trim()&&!saving)?'pointer':'default'}},
-          saving?'Saving…':(hasExisting?'Update':'Post to band')),
-        hasExisting&&e('button',{onClick:submitDelete,disabled:saving,
-          style:{flex:'0 0 auto',padding:'9px 14px',borderRadius:9,border:'none',background:'#FEE2E2',color:'#B91C1C',fontWeight:600,fontSize:13,cursor:saving?'default':'pointer'}},
-          'Delete')
-      )
-    )
-  );
-}
 // Same gigs-by-month chart that used to live in its own tab — moved into
 // Settings (reached via a "View" button) since it's checked far less often
 // than the calendar/setlists/songs, freeing up a tab-bar slot. All state
@@ -2791,9 +2712,8 @@ function CustomColorSwatch({selected,customColor,onPick}){
   );
 }
 
-function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar,onAutoScrolled,syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,bandMessages,onNewBandMessage,onEditBandMessage,onDeleteBandMessage,bandMessageModal,bandMessageModalTarget,onCloseBandMessageModal,saveBandMessageModal,deleteBandMessageModal,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,onSendReset,onChangePassword}){
+function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar,onAutoScrolled,syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,onSendReset,onChangePassword}){
   const googleCalendarRowRef=useRef(null);
-  const [confirmDeleteMsgId,setConfirmDeleteMsgId]=useState(null);
   const [showBandStatsModal,setShowBandStatsModal]=useState(false);
   // Metronome: per-device, same reasoning as mileage/checklist — a saved
   // tempo is personal practice data, not something the whole band needs to
@@ -2811,13 +2731,6 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
   useEffect(()=>{try{localStorage.setItem('pmtf_metronome_flash',metronomeFlash?'1':'0');}catch{}},[metronomeFlash]);
   useEffect(()=>{try{localStorage.setItem('pmtf_metronome_volume',String(metronomeVolume));}catch{}},[metronomeVolume]);
   useEffect(()=>{try{localStorage.setItem('pmtf_metronome_tap_click',metronomeTapClick?'1':'0');}catch{}},[metronomeTapClick]);
-  const notificationsSectionRef=useRef(null);
-  const jumpToNotifications=()=>{
-    setOpenSections(prev=>{const next=new Set(prev);next.add('notifications');return next;});
-    setTimeout(()=>{
-      if(notificationsSectionRef.current) notificationsSectionRef.current.scrollIntoView({behavior:'smooth',block:'start'});
-    },50);
-  };
   // All sections collapse to a one-line summary by default (see Section
   // below) so opening Settings doesn't dump every card open at once. Auto-
   // scrolling to the Calendar row (after a Google sign-in redirect) has to
@@ -3041,7 +2954,6 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
       e(Section,{icon:'🏠',iconBg:'#E0EFFE',title:'Home',summary:homeSummary,isOpen:openSections.has('home'),onToggle:()=>toggleSection('home')},
         e(HomeAddressInput,{settings,setSettings,theme})
       ),
-      e('div',{ref:notificationsSectionRef},
       e(Section,{icon:'🔔',iconBg:'#FEF3C7',title:'Notifications',summary:notificationsSummary,isOpen:openSections.has('notifications'),onToggle:()=>toggleSection('notifications')},
         e(Row,{label:'Push notifications',
           sub:pushEnabling?'Enabling…':pushToken?reminderSummary():'Get notified on this device when you have upcoming gigs',
@@ -3052,12 +2964,6 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
                 onToggle:()=>{if(pushToken)disablePushNotifications();else enablePushNotifications();}})
         }),
         pushError&&e('div',{style:{padding:'0 14px 12px',fontSize:12,color:'#b91c1c'}},pushError),
-        pushToken&&e(Row,{label:'📣 Band message notifications',
-          sub:'Get pinged when someone posts a band-wide message',
-          border:true,
-          right:e(Toggle,{on:settings.bandMessageNotifs,label:'Band message notifications',
-            onToggle:()=>setSettings(s=>({...s,bandMessageNotifs:!s.bandMessageNotifs}))})
-        }),
         pushToken&&e(Row,{label:'First reminder',sub:'Your early heads-up before a show',border:true,
           right:e(ReminderTimeSelect,{value:settings.gigReminder1,onChange:v=>setSettings(s=>({...s,gigReminder1:v}))})
         }),
@@ -3083,7 +2989,6 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
             else setSettings(s=>({...s,selfPaReminderTime:v}));
           }})
         })
-      )
       ),
       e(Section,{icon:'📅',iconBg:'#EDE9FE',title:'Calendar',summary:calendarSummary,isOpen:openSections.has('calendar'),onToggle:()=>toggleSection('calendar')},
         e(Row,{label:'Show past gigs on Calendar',border:true,right:e(Toggle,{on:settings.showPast,onToggle:()=>setSettings(s=>({...s,showPast:!s.showPast}))})}),
@@ -3209,48 +3114,10 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
           right:e('button',{onClick:()=>setShowSchedulePreview(true),style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'View')
         })
       ),
-      e(Section,{icon:'📣',iconBg:'#FFEDD5',title:'Band Message',summary:bandMessages.length?'"'+bandMessages[0].text+'"':'Not set',isOpen:openSections.has('bandmessage'),onToggle:()=>toggleSection('bandmessage')},
-        !bandMessages.length&&e(Row,{label:'No message posted',
-          sub:'Post something everyone will see when they open the app',
-          border:true,
-          right:e('button',{onClick:onNewBandMessage,style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'Post')
-        }),
-        bandMessages.map(msg=>e('div',{key:msg.id},
-          e(Row,{label:'"'+msg.text+'"',sub:'Posted '+timeAgo(msg.postedAt),border:confirmDeleteMsgId!==msg.id,
-            right:e('div',{style:{display:'flex',gap:6}},
-              e('button',{onClick:()=>onEditBandMessage(msg),style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'Edit'),
-              e('button',{onClick:()=>setConfirmDeleteMsgId(msg.id),title:'Delete',
-                style:{width:28,height:28,borderRadius:8,border:'1px solid #FCA5A5',background:'#FEF2F2',color:'#B91C1C',cursor:'pointer',fontSize:12.5}},'🗑')
-            )
-          }),
-          confirmDeleteMsgId===msg.id&&e('div',{style:{margin:'0 14px 12px',padding:'10px 11px',borderRadius:10,background:'#FEF2F2',border:'1px solid #FCA5A5'}},
-            e('div',{style:{fontSize:12,color:'#7F1D1D',marginBottom:8}},'Delete this message for the whole band?'),
-            e('div',{style:{display:'flex',gap:8}},
-              e('button',{onClick:()=>{onDeleteBandMessage(msg.id).catch(()=>alert('Could not delete — check your connection and try again.'));setConfirmDeleteMsgId(null);},
-                style:{fontSize:11.5,padding:'5px 10px',borderRadius:7,border:'none',cursor:'pointer',fontWeight:600,background:'#DC2626',color:'#fff'}},'Delete'),
-              e('button',{onClick:()=>setConfirmDeleteMsgId(null),
-                style:{fontSize:11.5,padding:'5px 10px',borderRadius:7,border:'1px solid #d1d5db',cursor:'pointer',fontWeight:600,background:'#fff',color:'#374151'}},'Cancel')
-            )
-          )
-        )),
-        bandMessages.length>0&&e('div',{onClick:onNewBandMessage,
-          style:{margin:'2px 14px 14px',padding:9,borderRadius:9,border:'1.5px dashed #d1d5db',textAlign:'center',fontSize:12,color:theme.mid,fontWeight:600,cursor:'pointer'}},
-          '+ Post a new message'),
-        e('div',{onClick:jumpToNotifications,
-          style:{margin:'0 14px 14px',padding:'9px 11px',borderRadius:10,cursor:'pointer',
-            background:(pushToken&&settings.bandMessageNotifs)?'#F0FDF9':'#F9FAFB',
-            border:'1px solid '+((pushToken&&settings.bandMessageNotifs)?'#A7E8D4':'#E5E7EB'),
-            display:'flex',alignItems:'center',justifyContent:'space-between'}},
-          e('span',{style:{fontSize:12,color:'#374151'}},'Notifications for this device'),
-          e('span',{style:{fontSize:12.5,fontWeight:700,color:(pushToken&&settings.bandMessageNotifs)?theme.mid:'#9ca3af'}},
-            (pushToken&&settings.bandMessageNotifs)?'ON ›':'OFF ›')
-        )
-      ),
-      e(Section,{icon:'📊',iconBg:'#E1F5EE',title:'Band Stats',isOpen:openSections.has('bandstats'),onToggle:()=>toggleSection('bandstats')},
-        e(Row,{label:'Gigs by month',sub:'Bar/line chart, weddings, private events',border:false,
-          right:e('button',{onClick:()=>setShowBandStatsModal(true),style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'View')
-        })
-      ),
+      // Tapping this opens Band Stats directly — isOpen is always false (no
+      // expand step, no separate View button to hunt for) since there's
+      // nothing to show inline; the whole point of the row is the tap.
+      e(Section,{icon:'📊',iconBg:'#E1F5EE',title:'Band Stats',isOpen:false,onToggle:()=>setShowBandStatsModal(true)}),
       e(Section,{icon:'🎵',iconBg:'#FDF0DC',title:'Metronome',summary:metronomeTempos.length?metronomeTempos.length+' saved tempo'+(metronomeTempos.length===1?'':'s'):'No saved tempos yet',isOpen:openSections.has('metronome'),onToggle:()=>toggleSection('metronome')},
         e(Row,{label:'Saved tempos',sub:'Name a song, save its BPM, tap to start the click',border:false,
           right:e('button',{onClick:()=>setShowMetronomeModal(true),style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'Open')
@@ -3266,10 +3133,6 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         e(Row,{label:'Share app',sub:'Coming soon',border:false,right:e('button',{disabled:true,style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #e5e7eb',color:'#9ca3af',cursor:'not-allowed',background:'#f9fafb'}},'Coming soon')})
       )
     ),
-    bandMessageModal&&e(BandMessageModal,{
-      message:bandMessageModalTarget,onClose:onCloseBandMessageModal,
-      onSave:saveBandMessageModal,onDelete:deleteBandMessageModal
-    }),
     showBandStatsModal&&e(BandStatsModal,{
       chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,theme,
       onClose:()=>setShowBandStatsModal(false)
@@ -3498,7 +3361,7 @@ function friendlyAuthError(err){
 
 function App(){
   const [settings,setSettings]=useState(()=>{
-    const defaults={bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,showPastShows:false,homeAddress:'',stagePlotUrl:'',stagePlotFile:null,calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com',gigReminder1:'off',gigReminder2:'off',selfPaReminderEnabled:false,selfPaReminderTime:'4h',selfPaReminderTarget:'reminder2',bandMessageNotifs:true};
+    const defaults={bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,showPastShows:false,homeAddress:'',stagePlotUrl:'',stagePlotFile:null,calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com',gigReminder1:'off',gigReminder2:'off',selfPaReminderEnabled:false,selfPaReminderTime:'4h',selfPaReminderTarget:'reminder2'};
     try{
       const s=localStorage.getItem('pmtf_settings');
       if(!s) return defaults;
@@ -3886,53 +3749,6 @@ function App(){
     });
   },[authUser]);
 
-  // Band-wide messages (e.g. "all black suits tonight") — each post is its
-  // own doc in the bandMessages collection (shared band-wide, same pattern
-  // as the stage plot/setlists) so up to BAND_MESSAGE_CAP can be active at
-  // once, each with its own id/timestamp/notification, instead of one
-  // shared slot that overwrites on every post. No hydration guard needed
-  // since there's no legacy local-only data to migrate, and writes only
-  // happen on an explicit Post/Update/Delete tap, not a passive sync effect.
-  const [bandMessages,setBandMessages]=useState([]);
-  // null = modal closed, 'new' = compose a blank message, a message object
-  // = editing that specific message in place.
-  const [bandMessageModal,setBandMessageModal]=useState(null);
-  const [dismissedMessageIds,setDismissedMessageIds]=useState(()=>{
-    try{return JSON.parse(localStorage.getItem('pmtf_dismissed_message_ids')||'[]');}catch{return [];}
-  });
-  useEffect(()=>{
-    const unsub=db.collection('bandMessages').onSnapshot(snap=>{
-      const msgs=snap.docs.map(d=>({id:d.id,...d.data()}));
-      msgs.sort((a,b)=>(b.postedAt||'').localeCompare(a.postedAt||''));
-      setBandMessages(msgs);
-    },onDbError);
-    return unsub;
-  },[]);
-  // Returns the write promise (rather than firing-and-forgetting) so the
-  // modal can show a real error instead of optimistically closing and
-  // silently losing the message if the write never reaches the server.
-  const postBandMessage=text=>{
-    const overflow=bandMessages.slice(BAND_MESSAGE_CAP-1);
-    const cleanup=Promise.all(overflow.map(m=>db.collection('bandMessages').doc(m.id).delete()));
-    return cleanup.then(()=>db.collection('bandMessages').doc().set({text,postedAt:new Date().toISOString()}));
-  };
-  const updateBandMessageText=(id,text)=>db.collection('bandMessages').doc(id).update({text});
-  const deleteBandMessageById=id=>db.collection('bandMessages').doc(id).delete();
-  const isEditingBandMessage=bandMessageModal&&bandMessageModal!=='new';
-  const bandMessageModalTarget=isEditingBandMessage?bandMessageModal:null;
-  const saveBandMessageModal=text=>isEditingBandMessage
-    ?updateBandMessageText(bandMessageModal.id,text)
-    :postBandMessage(text);
-  const deleteBandMessageModal=()=>isEditingBandMessage
-    ?deleteBandMessageById(bandMessageModal.id)
-    :Promise.resolve();
-  const dismissBandMessage=id=>{
-    setDismissedMessageIds(prev=>{
-      const next=prev.indexOf(id)===-1?[...prev,id]:prev;
-      try{localStorage.setItem('pmtf_dismissed_message_ids',JSON.stringify(next));}catch{}
-      return next;
-    });
-  };
 
   const theme=useMemo(()=>{
     const base=settings.theme==='custom'&&settings.customColor?buildTheme(settings.customColor,{preserveLightness:true}):(THEMES[settings.theme]||THEMES.green);
@@ -3997,7 +3813,7 @@ function App(){
         firebase.messaging().getToken({vapidKey:FCM_VAPID_KEY,serviceWorkerRegistration:registration})
       ).then(token=>{
         if(!token) throw new Error('No token returned.');
-        return db.collection('fcmTokens').doc(token).set({token,createdAt:todayStr,ua:navigator.userAgent,reminder1:settings.gigReminder1,reminder2:settings.gigReminder2,selfPaReminderEnabled:settings.selfPaReminderEnabled,selfPaReminderTime:settings.selfPaReminderTime,selfPaReminderTarget:settings.selfPaReminderTarget,bandMessageNotifs:settings.bandMessageNotifs}).then(()=>token);
+        return db.collection('fcmTokens').doc(token).set({token,createdAt:todayStr,ua:navigator.userAgent,reminder1:settings.gigReminder1,reminder2:settings.gigReminder2,selfPaReminderEnabled:settings.selfPaReminderEnabled,selfPaReminderTime:settings.selfPaReminderTime,selfPaReminderTarget:settings.selfPaReminderTarget}).then(()=>token);
       }).then(token=>{
         setPushToken(token);setPushEnabling(false);
       }).catch(err=>{
@@ -4018,10 +3834,9 @@ function App(){
     db.collection('fcmTokens').doc(pushToken).update({
       reminder1:settings.gigReminder1,reminder2:settings.gigReminder2,
       selfPaReminderEnabled:settings.selfPaReminderEnabled,selfPaReminderTime:settings.selfPaReminderTime,
-      selfPaReminderTarget:settings.selfPaReminderTarget,
-      bandMessageNotifs:settings.bandMessageNotifs
+      selfPaReminderTarget:settings.selfPaReminderTarget
     }).catch(reportWriteError('save your notification settings'));
-  },[pushToken,settings.gigReminder1,settings.gigReminder2,settings.selfPaReminderEnabled,settings.selfPaReminderTime,settings.selfPaReminderTarget,settings.bandMessageNotifs]);
+  },[pushToken,settings.gigReminder1,settings.gigReminder2,settings.selfPaReminderEnabled,settings.selfPaReminderTime,settings.selfPaReminderTarget]);
   // The reminder Cloud Function can't read localStorage, so the calendar ID
   // needs a shared copy it can actually reach.
   useEffect(()=>{
@@ -4820,8 +4635,8 @@ function App(){
   // timestamp to compare against (calendar-sourced gigs in particular never
   // carry one), so this diffs the current gig list against a lightweight
   // snapshot of what it looked like the last time this device acknowledged
-  // it, saved locally — not Firestore-synced, same as dismissedMessageIds,
-  // since "have I personally seen this" is inherently per-device.
+  // it, saved locally — not Firestore-synced, since "have I personally
+  // seen this" is inherently per-device.
   const [changeSummary,setChangeSummary]=useState(null);
   const [changeExpanded,setChangeExpanded]=useState(false);
   const [highlightedGigIds,setHighlightedGigIds]=useState(()=>new Set());
@@ -5141,7 +4956,7 @@ function App(){
   // isn't coming, there is nothing useful behind this.
   if(accessDenied)return e(SignInGate,{authUser,authBusy,authError,onSignUp:signUpWithEmail,onSignIn:signInWithEmail,onSignOut:signOutOfAccount,onSendReset:sendPasswordReset,theme});
 
-  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,bandMessages,onNewBandMessage:()=>setBandMessageModal('new'),onEditBandMessage:msg=>setBandMessageModal(msg),onDeleteBandMessage:deleteBandMessageById,bandMessageModal,bandMessageModalTarget,onCloseBandMessageModal:()=>setBandMessageModal(null),saveBandMessageModal,deleteBandMessageModal,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,authUser,authBusy,authError,onSignUp:signUpWithEmail,onSignIn:signInWithEmail,onSignOut:signOutOfAccount,onSendReset:sendPasswordReset,onChangePassword:changePassword});
+  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,authUser,authBusy,authError,onSignUp:signUpWithEmail,onSignIn:signInWithEmail,onSignOut:signOutOfAccount,onSendReset:sendPasswordReset,onChangePassword:changePassword});
 
   return e('div',{style:{maxWidth:720,margin:'0 auto',paddingBottom:'2rem'}},
     e('div',{style:{background:theme.primary,borderRadius:'0 0 20px 20px',padding:'1.25rem 1.25rem 1.5rem',marginBottom:'1.25rem'}},
@@ -5186,10 +5001,6 @@ function App(){
       )
     ),
     e('div',{style:{padding:'0 1rem'}},
-      e(BandMessageBannerStack,{
-        messages:bandMessages,dismissedIds:dismissedMessageIds,
-        onEdit:msg=>setBandMessageModal(msg),onDismiss:dismissBandMessage
-      }),
       e(WhatsChangedBanner,{
         summary:changeSummary,expanded:changeExpanded,
         onToggle:()=>setChangeExpanded(x=>!x),onDismiss:dismissChangeSummary,onOpenGig:openGigPopup
@@ -6126,11 +5937,6 @@ function App(){
     ),
     e(PrintStandaloneBanner,{show:setlistPrintStandaloneHelp,onDismiss:()=>setSetlistPrintStandaloneHelp(false),theme}),
     e(PrintStandaloneBanner,{show:songPrintStandaloneHelp,onDismiss:()=>setSongPrintStandaloneHelp(false),theme}),
-
-    bandMessageModal&&e(BandMessageModal,{
-      message:bandMessageModalTarget,onClose:()=>setBandMessageModal(null),
-      onSave:saveBandMessageModal,onDelete:deleteBandMessageModal
-    }),
 
     confirmDelete&&members.filter(m=>m.id===confirmDelete).map(m=>
       e('div',{key:'confirm',onClick:()=>setConfirmDelete(null),className:'overlay'},
