@@ -3086,7 +3086,8 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
       )
       ),
       e(Section,{icon:'📅',iconBg:'#EDE9FE',title:'Calendar',summary:calendarSummary,isOpen:openSections.has('calendar'),onToggle:()=>toggleSection('calendar')},
-        e(Row,{label:'Show past gigs',sub:'Applies to both Calendar and Shows tabs',border:true,right:e(Toggle,{on:settings.showPast,onToggle:()=>setSettings(s=>({...s,showPast:!s.showPast}))})}),
+        e(Row,{label:'Show past gigs on Calendar',border:true,right:e(Toggle,{on:settings.showPast,onToggle:()=>setSettings(s=>({...s,showPast:!s.showPast}))})}),
+        e(Row,{label:'Show past gigs on Shows list',border:true,right:e(Toggle,{on:settings.showPastShows,onToggle:()=>setSettings(s=>({...s,showPastShows:!s.showPastShows}))})}),
         e('div',{ref:googleCalendarRowRef},
           e(Row,{label:googleAccessToken?'Connected to Google Calendar':'Connect Google Calendar',
             sub:googleAccessToken?'Gigs you add/edit/delete now write directly to the shared calendar':'Sign in to make "+ Add gig" write to the real shared calendar instead of just this device',
@@ -3497,7 +3498,7 @@ function friendlyAuthError(err){
 
 function App(){
   const [settings,setSettings]=useState(()=>{
-    const defaults={bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,homeAddress:'',stagePlotUrl:'',stagePlotFile:null,calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com',gigReminder1:'off',gigReminder2:'off',selfPaReminderEnabled:false,selfPaReminderTime:'4h',selfPaReminderTarget:'reminder2',bandMessageNotifs:true};
+    const defaults={bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,showPastShows:false,homeAddress:'',stagePlotUrl:'',stagePlotFile:null,calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com',gigReminder1:'off',gigReminder2:'off',selfPaReminderEnabled:false,selfPaReminderTime:'4h',selfPaReminderTarget:'reminder2',bandMessageNotifs:true};
     try{
       const s=localStorage.getItem('pmtf_settings');
       if(!s) return defaults;
@@ -4774,8 +4775,10 @@ function App(){
   const upcomingGigsAll=gigs.filter(g=>g.date>=todayStr);
   // "Show past gigs" off should still surface gigs marked unpaid, even once
   // their date has passed — otherwise a gig you're tracking as unpaid just
-  // vanishes from the Calendar/Shows tabs the moment its date passes.
-  const listGigs=settings.showPast?gigs:gigs.filter(g=>g.date>=todayStr||unpaidGigIds.includes(g.id));
+  // vanishes the moment its date passes. Calendar and Shows each have their
+  // own on/off for this now, so one tab can hide past gigs while the other
+  // still shows them.
+  const listGigs=settings.showPastShows?gigs:gigs.filter(g=>g.date>=todayStr||unpaidGigIds.includes(g.id));
   const upcomingCount=upcomingGigsAll.length;
   const confirmed=upcomingGigsAll.filter(g=>g.status==='confirmed').length;
   const weddings=upcomingGigsAll.filter(g=>g.type==='wedding').length;
@@ -4783,7 +4786,7 @@ function App(){
   const upcoming=useMemo(()=>[...listGigs].sort((a,b)=>{
     const va=a[sort.col]||'',vb=b[sort.col]||'';
     return va<vb?-sort.dir:va>vb?sort.dir:0;
-  }),[gigs,sort,settings.showPast,unpaidGigIds]);
+  }),[gigs,sort,settings.showPastShows,unpaidGigIds]);
   const filteredUpcoming=useMemo(()=>{
     const q=showsSearch.trim().toLowerCase();
     if(!q)return upcoming;
