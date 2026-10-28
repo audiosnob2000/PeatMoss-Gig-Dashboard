@@ -23,7 +23,6 @@ service cloud.firestore {
     match /gigs/{doc}          { allow read, write: if signedIn(); }
     match /songs/{doc}         { allow read, write: if signedIn(); }
     match /setlists/{doc}      { allow read, write: if signedIn(); }
-    match /bandMessages/{doc}  { allow read, write: if signedIn(); }
     match /bandSettings/{doc}  { allow read, write: if signedIn(); }
     match /unavailableDates/{doc} { allow read, write: if signedIn(); }
 
