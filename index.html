@@ -460,8 +460,9 @@ function ChartSetBuilderModal({songs,initial,theme,onSave,onClose}){
           songs.length===0&&e('div',{style:{padding:'1.5rem',textAlign:'center',color:'#6b7280',fontSize:13}},'No song charts yet — add some under the Songs tab first'),
           songs.filter(sg=>songMatchesQuery(sg,search)).map((sg,idx,arr)=>{
             const picked=isPicked(sg.id);
+            const pickIcon=sg.type==='image'?'📷':sg.type==='html'?'🌐':sg.type==='link'?'🔗':sg.type==='file'?'📎':'🗒️';
             return e('div',{key:sg.id,style:{padding:'9px 12px',borderBottom:idx<arr.length-1?'1px solid #e5e7eb':'none',display:'flex',alignItems:'center',gap:10}},
-              e('div',{style:{width:30,height:30,borderRadius:8,background:theme.pale,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}},'🎼'),
+              e('div',{style:{width:30,height:30,borderRadius:8,background:theme.pale,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}},pickIcon),
               e('div',{style:{flex:1,minWidth:0}},
                 e('div',{style:{fontSize:13.5,fontWeight:500,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},sg.name),
                 e('div',{style:{fontSize:11,color:'#9ca3af'}},sg.key&&e('span',{style:{color:theme.primary,fontWeight:600}},sg.key+' · '),[sg.tempo?sg.tempo+' bpm':null,sg.tag].filter(Boolean).join(' · '))
@@ -5123,7 +5124,7 @@ function App(){
           songs.length>0&&songs.filter(songMatchesSearch).length===0&&
             e('div',{style:{padding:'2rem',textAlign:'center',color:'#6b7280',fontSize:13}},'No songs match "'+songSearch+'"'),
           songs.filter(songMatchesSearch).map((sg,idx,arr)=>{
-            const icon=sg.type==='image'?'🎼':sg.type==='html'?'🌐':sg.type==='link'?'🔗':sg.type==='file'?'📎':'🎵';
+            const icon=sg.type==='image'?'📷':sg.type==='html'?'🌐':sg.type==='link'?'🔗':sg.type==='file'?'📎':'🗒️';
             const border=idx<arr.length-1?'1px solid #e5e7eb':'none';
             if(editingSongId===sg.id){
               const canReplace=sg.type==='image'||sg.type==='file'||sg.type==='html';
@@ -5286,7 +5287,7 @@ function App(){
               // tapped (open a real interactive song vs. open one static
               // file) — icon, tile color, and a small tag all change
               // together so that's obvious before you tap, not after.
-              const icon=isBuilt?'🎬':sl.type==='image'?'🎼':sl.type==='html'?'🌐':sl.type==='link'?'🔗':sl.type==='file'?'📎':'🎵';
+              const icon=isBuilt?'🎬':sl.type==='image'?'📷':sl.type==='html'?'🌐':sl.type==='link'?'🔗':sl.type==='file'?'📎':'🗒️';
               const tileBg=isBuilt?theme.pale:'#eef1f3';
               const border=idx<setlists.length-1?'1px solid #e5e7eb':'none';
               const tagStyle={display:'inline-block',fontSize:8.5,fontWeight:700,letterSpacing:'.03em',padding:'1.5px 5px',borderRadius:4,marginLeft:5,verticalAlign:1};
