@@ -2807,8 +2807,8 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
     if(settings.selfPaReminderEnabled)parts.push('🔊 sound override on');
     return parts.length?parts.join(', '):'No reminders set';
   };
-  const THEME_LABEL={green:'Green',blue:'Blue',purple:'Purple',red:'Red',dark:'Dark',custom:'Custom'};
-  const appearanceSummary=(THEME_LABEL[settings.theme]||'Green')+' theme';
+  const THEME_LABEL={green:'Green',blue:'Blue',purple:'Purple',red:'Red',dark:'Dark',orange:'Orange',teal:'Teal',pink:'Pink',custom:'Custom'};
+  const appearanceSummary=(THEME_LABEL[settings.theme]||'Teal')+' theme';
   const homeSummary=settings.homeAddress
     ?(settings.homeAddress.length>34?settings.homeAddress.slice(0,34)+'…':settings.homeAddress)
     :'Not set';
@@ -3355,7 +3355,7 @@ function friendlyAuthError(err){
 
 function App(){
   const [settings,setSettings]=useState(()=>{
-    const defaults={bandName:'Peat Moss & The Fertilizers',theme:'green',defaultTab:'calendar',showPast:false,showPastShows:false,homeAddress:'',stagePlotUrl:'',stagePlotFile:null,calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com',gigReminder1:'off',gigReminder2:'off',selfPaReminderEnabled:false,selfPaReminderTime:'4h',selfPaReminderTarget:'reminder2'};
+    const defaults={bandName:'Peat Moss & The Fertilizers',theme:'teal',defaultTab:'calendar',showPast:false,showPastShows:false,homeAddress:'',stagePlotUrl:'',stagePlotFile:null,calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com',gigReminder1:'off',gigReminder2:'off',selfPaReminderEnabled:false,selfPaReminderTime:'4h',selfPaReminderTarget:'reminder2'};
     try{
       const s=localStorage.getItem('pmtf_settings');
       if(!s) return defaults;
@@ -3745,7 +3745,7 @@ function App(){
 
 
   const theme=useMemo(()=>{
-    const base=settings.theme==='custom'&&settings.customColor?buildTheme(settings.customColor,{preserveLightness:true}):(THEMES[settings.theme]||THEMES.green);
+    const base=settings.theme==='custom'&&settings.customColor?buildTheme(settings.customColor,{preserveLightness:true}):(THEMES[settings.theme]||THEMES.teal);
     const dark=needsDarkText(base.primary);
     return {...base,
       headerText:dark?'#1a1a2e':'#fff',
