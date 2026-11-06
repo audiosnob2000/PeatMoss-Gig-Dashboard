@@ -2,7 +2,7 @@
   "name": "functions",
   "description": "Cloud Functions for PeatMoss Gig Dashboard — sends a push notification to the band when a new setlist is uploaded.",
   "engines": {
-    "node": "20"
+    "node": "22"
   },
   "main": "index.js",
   "dependencies": {
