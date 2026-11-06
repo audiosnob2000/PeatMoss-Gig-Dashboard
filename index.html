@@ -4367,16 +4367,29 @@ function App(){
       const now=new Date();
       const start=new Date(now.getFullYear(),0,1).toISOString();
       const end=new Date(now.getFullYear(),11,31).toISOString();
-      const url=`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(settings.calendarId)}/events?key=${GOOGLE_API_KEY}&timeMin=${start}&timeMax=${end}&singleEvents=true&orderBy=startTime&maxResults=100`;
-      const res=await fetch(url);
-      const data=await res.json();
-      if(!res.ok){
-        if(!silent)alert('Could not sync calendar: '+(data.error?.message||'check that the Calendar ID is correct and the calendar is public.'));
+      const base=`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(settings.calendarId)}/events?key=${GOOGLE_API_KEY}&timeMin=${start}&timeMax=${end}&singleEvents=true&orderBy=startTime&maxResults=100`;
+      // A full year can hold more than 100 events once personal
+      // "unavailable" notices pile up alongside real gigs — a single page
+      // silently drops everything past it with no error, which is how
+      // gigs later in the year went missing from sync. Follow
+      // nextPageToken until the whole year is actually in hand.
+      let items=[];
+      let pageToken='';
+      let errorData=null;
+      do{
+        const res=await fetch(base+(pageToken?'&pageToken='+encodeURIComponent(pageToken):''));
+        const data=await res.json();
+        if(!res.ok){ errorData=data; break; }
+        items=items.concat(data.items||[]);
+        pageToken=data.nextPageToken||'';
+      }while(pageToken);
+      if(errorData){
+        if(!silent)alert('Could not sync calendar: '+(errorData.error?.message||'check that the Calendar ID is correct and the calendar is public.'));
         setCalSyncing(false);
         return;
       }
-      if(data.items&&data.items.length>0){
-        const calGigs=data.items.map(ev=>{
+      if(items.length>0){
+        const calGigs=items.map(ev=>{
           const date=ev.start?.date||ev.start?.dateTime?.slice(0,10)||'';
           if(!date) return null;
           // Require a location for events we didn't create ourselves — that's
