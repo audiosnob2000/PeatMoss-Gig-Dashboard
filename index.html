@@ -5069,6 +5069,17 @@ function App(){
       e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}},
         e('div',{style:{fontSize:11,color:theme.headerSoft||theme.accent,fontWeight:500,letterSpacing:'0.08em',textTransform:'uppercase'}},'Gig Dashboard'),
         e('div',{style:{display:'flex',alignItems:'center',gap:8,flexShrink:0}},
+          // Only reachable here once there's a gig today — the only way
+          // this normal view renders on a gig day at all is after Gig Day
+          // was already dismissed via "Calendar ›", so this is its one way
+          // back without reloading the app.
+          todaysGigs.length>0&&e('button',{
+            onClick:()=>setGigDayOpen(true),
+            title:'Back to Gig Day',
+            style:{display:'flex',alignItems:'center',gap:5,border:'none',cursor:'pointer',
+              background:`rgba(${theme.headerBase},0.15)`,color:theme.headerSoft||'#D1FADF',
+              fontSize:11,fontWeight:600,padding:'4px 10px',borderRadius:99}
+          },'🎤 Gig Day'),
           e('button',{
             onClick:()=>{setSettingsAutoScroll(true);setShowSettings(true);},
             title:googleAccessToken?'Connected to Google Calendar':'Not signed in to Google Calendar',
