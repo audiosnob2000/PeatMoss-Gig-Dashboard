@@ -3354,6 +3354,89 @@ function friendlyAuthError(err){
   return (code&&map[code])||(err&&err.message)||'Something went wrong — try again.';
 }
 
+// ── Gig Day screen ──────────────────────────────────────────────────────
+// Takes over as the landing view when there's a gig today. Every card is a
+// live view of data the app already has — nothing here is new state to
+// maintain, it's just surfaced in the order you'd actually need it on the
+// day of a show.
+function GigDayCard({icon,title,action,onAction,theme,children}){
+  return e('div',{style:{border:'1px solid #e5e7eb',borderRadius:12,overflow:'hidden',marginBottom:10,background:'#fff'}},
+    e('div',{style:{display:'flex',alignItems:'center',gap:7,padding:'9px 12px',background:'#fafbfa',borderBottom:'1px solid #e5e7eb'}},
+      e('span',{style:{fontSize:13}},icon),
+      e('span',{style:{fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.05em',color:'#4b5563',flex:1}},title),
+      action&&e('span',{onClick:onAction,style:{fontSize:11,fontWeight:600,color:theme.mid,cursor:'pointer'}},action)
+    ),
+    e('div',{style:{padding:'11px 12px'}},children)
+  );
+}
+function GigDayScreen({todaysGigs,theme,settings,unpaidGigIds,onToggleUnpaid,mileageLog,openMapsChooser,onTrackMiles,members,nextGigAfterToday,onOpenChecklist,onClose}){
+  const checklistDone=members.reduce((s,m)=>s+m.items.filter(it=>it.checked).length,0);
+  const checklistTotal=members.reduce((s,m)=>s+m.items.length,0);
+  const stagePlotSet=!!(settings.stagePlotUrl||settings.stagePlotFile);
+  const openStagePlot=()=>window.open(settings.stagePlotUrl||settings.stagePlotFile.content,'_blank');
+  return e('div',{style:{maxWidth:720,margin:'0 auto',paddingBottom:'2rem'}},
+    e('div',{style:{background:`linear-gradient(158deg,${theme.primary},${theme.mid})`,borderRadius:'0 0 20px 20px',padding:'1.1rem 1.1rem 1.3rem',color:theme.headerText||'#fff'}},
+      e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:10,letterSpacing:'0.08em',fontWeight:700,opacity:0.9,marginBottom:10}},
+        e('span',null,'GIG DASHBOARD'),
+        e('span',{onClick:onClose,style:{cursor:'pointer',fontWeight:600}},'Calendar ›')
+      ),
+      e('span',{style:{display:'inline-block',background:'#FFB020',color:'#3d2600',fontSize:9.5,fontWeight:800,letterSpacing:'0.07em',padding:'3px 8px',borderRadius:99,marginBottom:8}},
+        todaysGigs.length>1?todaysGigs.length+' SHOWS TONIGHT':'TONIGHT'),
+      todaysGigs.map((gig,i)=>e('div',{key:gig.id,style:{marginBottom:i<todaysGigs.length-1?10:0}},
+        e('div',{style:{fontSize:21,fontWeight:700,lineHeight:1.15,letterSpacing:'-0.01em',marginBottom:2}},(gig.selfPA?'🔊 ':'')+gig.venue),
+        e('div',{style:{fontSize:12,opacity:0.88}},
+          new Date(gig.date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})+
+          (gig.location?' · '+gig.location:'')+(gig.time?' · '+gig.time:'')
+        ),
+        e(Badge,{status:gig.status})
+      ))
+    ),
+    e('div',{style:{padding:'13px 14px 18px'}},
+      todaysGigs.map(gig=>e('div',{key:gig.id},
+        gig.location&&e(GigDayCard,{icon:'📍',title:'Getting there',theme},
+          e('div',{style:{fontSize:13,marginBottom:9}},gig.location),
+          e('div',{style:{display:'flex',gap:7}},
+            e('button',{onClick:()=>openMapsChooser(gig.venue,gig.location),
+              style:{flex:1,padding:'9px 0',borderRadius:9,border:'none',background:theme.mid,color:theme.midText||'#fff',fontWeight:650,fontSize:12.5,cursor:'pointer'}},'Navigate'),
+            e('button',{onClick:()=>onTrackMiles(gig),
+              style:{flex:1,padding:'9px 0',borderRadius:9,border:'1px solid #e5e7eb',background:'#fff',color:'#374151',fontWeight:650,fontSize:12.5,cursor:'pointer'}},'Track miles')
+          )
+        ),
+        e(GigDayCard,{icon:'💰',title:'Pay & mileage',theme},
+          e('div',{style:{display:'flex',gap:8,marginBottom:9}},
+            e('div',{style:{flex:1,background:'#fafbfa',border:'1px solid #e5e7eb',borderRadius:9,padding:9,textAlign:'center'}},
+              e('b',{style:{display:'block',fontSize:15,fontWeight:700}},
+                mileageLog.filter(t=>t.gigId===gig.id).reduce((s,t)=>s+t.miles,0).toFixed(1)),
+              e('span',{style:{fontSize:9.5,color:'#6b7280',textTransform:'uppercase',letterSpacing:'0.05em'}},'Miles logged')),
+            e('div',{style:{flex:1,background:'#fafbfa',border:'1px solid #e5e7eb',borderRadius:9,padding:9,textAlign:'center'}},
+              e('b',{style:{display:'block',fontSize:15,fontWeight:700}},unpaidGigIds.includes(gig.id)?'Unpaid':'Paid'),
+              e('span',{style:{fontSize:9.5,color:'#6b7280',textTransform:'uppercase',letterSpacing:'0.05em'}},'Status'))
+          ),
+          e('button',{onClick:()=>onToggleUnpaid(gig.id),
+            style:{width:'100%',padding:'9px 0',borderRadius:9,border:'none',background:theme.mid,color:theme.midText||'#fff',fontWeight:650,fontSize:12.5,cursor:'pointer'}},
+            unpaidGigIds.includes(gig.id)?'Mark paid':'Mark unpaid')
+        ),
+        gig.notes&&e(GigDayCard,{icon:'📝',title:'Notes',theme},
+          e('div',{style:{fontSize:12.5,lineHeight:1.5,color:'#374151',background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:9,padding:'9px 11px',whiteSpace:'pre-wrap'}},gig.notes)
+        )
+      )),
+      stagePlotSet&&e(GigDayCard,{icon:'🎛️',title:'Stage plot',theme,action:'View ›',onAction:openStagePlot},
+        e('div',{style:{fontSize:12.5,color:'#6b7280'}},'Tap to open what you saved in Settings.')
+      ),
+      e(GigDayCard,{icon:'✅',title:'Checklist',theme,action:'Open ›',onAction:onOpenChecklist},
+        e('div',{style:{fontSize:12.5,color:'#6b7280'}},
+          checklistTotal>0?`${checklistDone} of ${checklistTotal} packed`:'No lists yet — add one in the Checklist tab')
+      ),
+      nextGigAfterToday&&e(GigDayCard,{icon:'📅',title:'Next up',theme},
+        e('div',{style:{fontSize:13.5,fontWeight:600}},nextGigAfterToday.venue),
+        e('div',{style:{fontSize:11.5,color:'#6b7280',marginTop:2}},
+          new Date(nextGigAfterToday.date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})+
+          (nextGigAfterToday.time?' · '+nextGigAfterToday.time:''))
+      )
+    )
+  );
+}
+
 function App(){
   const [settings,setSettings]=useState(()=>{
     const defaults={bandName:'Peat Moss & The Fertilizers',theme:'teal',defaultTab:'calendar',showPast:false,showPastShows:false,homeAddress:'',stagePlotUrl:'',stagePlotFile:null,calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com',gigReminder1:'off',gigReminder2:'off',selfPaReminderEnabled:false,selfPaReminderTime:'4h',selfPaReminderTarget:'reminder2'};
@@ -3578,6 +3661,10 @@ function App(){
   const [googleAuthError,setGoogleAuthError]=useState('');
   const [showSettings,setShowSettings]=useState(false);
   const [settingsAutoScroll,setSettingsAutoScroll]=useState(false);
+  // Dismissing Gig Day (the "Calendar ›" link) just falls through to the
+  // normal tab view for the rest of this session — reopening the app on
+  // the same gig day brings it back, same as any other fresh load.
+  const [gigDayOpen,setGigDayOpen]=useState(true);
   const [pushToken,setPushToken]=useState(()=>{try{return localStorage.getItem('pmtf_push_token');}catch{return null;}});
   const [pushEnabling,setPushEnabling]=useState(false);
   const [pushError,setPushError]=useState('');
@@ -4595,6 +4682,10 @@ function App(){
   };
   // ────────────────────────────────────────────────────────────────────────
 
+  const todaysGigs=gigs.filter(g=>g.date===todayStr);
+  const gigAfterToday=[...gigs].filter(g=>g.date>todayStr).sort((a,b)=>a.date>b.date?1:-1)[0];
+  const toggleUnpaidGig=id=>setUnpaidGigIds(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id]);
+
   const upcomingGigsAll=gigs.filter(g=>g.date>=todayStr);
   // "Show past gigs" off should still surface gigs marked unpaid, even once
   // their date has passed — otherwise a gig you're tracking as unpaid just
@@ -4965,6 +5056,13 @@ function App(){
   if(accessDenied)return e(SignInGate,{authUser,authBusy,authError,onSignUp:signUpWithEmail,onSignIn:signInWithEmail,onSignOut:signOutOfAccount,onSendReset:sendPasswordReset,theme});
 
   if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,authUser,authBusy,authError,onSignUp:signUpWithEmail,onSignIn:signInWithEmail,onSignOut:signOutOfAccount,onSendReset:sendPasswordReset,onChangePassword:changePassword});
+
+  if(gigDayOpen&&todaysGigs.length>0)return e(GigDayScreen,{
+    todaysGigs,theme,settings,unpaidGigIds,onToggleUnpaid:toggleUnpaidGig,mileageLog,
+    openMapsChooser,onTrackMiles:gig=>setAskTrack(gig),members,nextGigAfterToday:gigAfterToday,
+    onOpenChecklist:()=>{setGigDayOpen(false);setTab('checklist');},
+    onClose:()=>setGigDayOpen(false)
+  });
 
   return e('div',{style:{maxWidth:720,margin:'0 auto',paddingBottom:'2rem'}},
     e('div',{style:{background:theme.primary,borderRadius:'0 0 20px 20px',padding:'1.25rem 1.25rem 1.5rem',marginBottom:'1.25rem'}},
