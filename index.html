@@ -588,6 +588,16 @@ function scheduleShortTime(t){
   if(ampm&&!/AM|PM/i.test(start)) start+=' '+ampm[0].toUpperCase();
   return start.replace(/:00(?=\s?(AM|PM))/i,'').trim();
 }
+// The back half of a "7-10 PM" style range — same convention as
+// scheduleShortTime's front half. Only meaningful when the set time is
+// actually a range; a single value like "6pm" has no end to report.
+function scheduleEndTime(t){
+  if(!t) return '';
+  const parts=t.split(/[–-]/).map(s=>s.trim());
+  if(parts.length<2) return '';
+  const end=parts[parts.length-1];
+  return end.replace(/:00(?=\s?(AM|PM))/i,'').trim();
+}
 
 // One file input covers "Photos" and "Files" — the browser/OS picker
 // already offers both sources for the same <input type=file>. What we do
@@ -3369,7 +3379,7 @@ function GigDayCard({icon,title,action,onAction,theme,children}){
     e('div',{style:{padding:'11px 12px'}},children)
   );
 }
-function GigDayScreen({todaysGigs,theme,settings,unpaidGigIds,onToggleUnpaid,mileageLog,openMapsChooser,onTrackMiles,members,nextGigAfterToday,onOpenChecklist,onClose}){
+function GigDayScreen({todaysGigs,theme,settings,unpaidGigIds,onToggleUnpaid,mileageLog,openMapsChooser,onTrackMiles,members,onToggleItem,nextGigAfterToday,onClose}){
   const checklistDone=members.reduce((s,m)=>s+m.items.filter(it=>it.checked).length,0);
   const checklistTotal=members.reduce((s,m)=>s+m.items.length,0);
   const stagePlotSet=!!(settings.stagePlotUrl||settings.stagePlotFile);
@@ -3393,6 +3403,20 @@ function GigDayScreen({todaysGigs,theme,settings,unpaidGigIds,onToggleUnpaid,mil
     ),
     e('div',{style:{padding:'13px 14px 18px'}},
       todaysGigs.map(gig=>e('div',{key:gig.id},
+        gig.time&&e(GigDayCard,{icon:'🕐',title:"Tonight's schedule",theme},
+          e('div',{style:{display:'flex',flexDirection:'column'}},
+            e('div',{style:{display:'flex',alignItems:'center',gap:10,padding:'7px 0',borderBottom:scheduleEndTime(gig.time)?'1px dashed #e8eae8':'none'}},
+              e('span',{style:{width:9,height:9,borderRadius:'50%',background:theme.mid,flexShrink:0}}),
+              e('span',{style:{flex:1,fontSize:13,fontWeight:500}},'Load-in'),
+              e('span',{style:{fontSize:13,fontWeight:700,fontVariantNumeric:'tabular-nums'}},scheduleShortTime(gig.time))
+            ),
+            scheduleEndTime(gig.time)&&e('div',{style:{display:'flex',alignItems:'center',gap:10,padding:'7px 0'}},
+              e('span',{style:{width:9,height:9,borderRadius:'50%',background:'#d1d5db',flexShrink:0}}),
+              e('span',{style:{flex:1,fontSize:13,fontWeight:500}},'Done'),
+              e('span',{style:{fontSize:13,fontWeight:700,fontVariantNumeric:'tabular-nums'}},scheduleEndTime(gig.time))
+            )
+          )
+        ),
         gig.location&&e(GigDayCard,{icon:'📍',title:'Getting there',theme},
           e('div',{style:{fontSize:13,marginBottom:9}},gig.location),
           e('div',{style:{display:'flex',gap:7}},
@@ -3423,9 +3447,22 @@ function GigDayScreen({todaysGigs,theme,settings,unpaidGigIds,onToggleUnpaid,mil
       stagePlotSet&&e(GigDayCard,{icon:'🎛️',title:'Stage plot',theme,action:'View ›',onAction:openStagePlot},
         e('div',{style:{fontSize:12.5,color:'#6b7280'}},'Tap to open what you saved in Settings.')
       ),
-      e(GigDayCard,{icon:'✅',title:'Checklist',theme,action:'Open ›',onAction:onOpenChecklist},
-        e('div',{style:{fontSize:12.5,color:'#6b7280'}},
-          checklistTotal>0?`${checklistDone} of ${checklistTotal} packed`:'No lists yet — add one in the Checklist tab')
+      e(GigDayCard,{icon:'✅',title:'What to bring',theme},
+        checklistTotal===0
+          ?e('div',{style:{fontSize:12.5,color:'#6b7280'}},'No lists yet — add one in the Checklist tab')
+          :e('div',null,
+            e('div',{style:{fontSize:11.5,color:'#6b7280',marginBottom:8}},`${checklistDone} of ${checklistTotal} packed`),
+            members.map(m=>e('div',{key:m.id,style:{marginBottom:m.items.length?10:0}},
+              members.length>1&&e('div',{style:{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.05em',color:'#9ca3af',marginBottom:4}},m.name),
+              m.items.map((it,idx)=>e('div',{key:it.id,onClick:()=>onToggleItem(m.id,it.id),
+                style:{display:'flex',alignItems:'center',gap:9,padding:'6px 0',borderTop:idx>0?'1px solid #f1f2f1':'none',cursor:'pointer'}},
+                e('span',{style:{width:16,height:16,borderRadius:5,border:it.checked?'none':'1.5px solid #cbd5d1',background:it.checked?theme.mid:'transparent',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}},
+                  it.checked?e('span',{style:{color:'#fff',fontSize:11,fontWeight:800}},'✓'):null
+                ),
+                e('span',{style:{fontSize:12.5,color:it.checked?'#9ca3af':'#111827',textDecoration:it.checked?'line-through':'none'}},it.text)
+              ))
+            ))
+          )
       ),
       nextGigAfterToday&&e(GigDayCard,{icon:'📅',title:'Next up',theme},
         e('div',{style:{fontSize:13.5,fontWeight:600}},nextGigAfterToday.venue),
@@ -5059,8 +5096,8 @@ function App(){
 
   if(gigDayOpen&&todaysGigs.length>0)return e(GigDayScreen,{
     todaysGigs,theme,settings,unpaidGigIds,onToggleUnpaid:toggleUnpaidGig,mileageLog,
-    openMapsChooser,onTrackMiles:gig=>setAskTrack(gig),members,nextGigAfterToday:gigAfterToday,
-    onOpenChecklist:()=>{setGigDayOpen(false);setTab('checklist');},
+    openMapsChooser,onTrackMiles:gig=>setAskTrack(gig),members,onToggleItem:toggleItem,
+    nextGigAfterToday:gigAfterToday,
     onClose:()=>setGigDayOpen(false)
   });
 
