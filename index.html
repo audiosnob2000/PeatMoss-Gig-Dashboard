@@ -3379,12 +3379,115 @@ function GigDayCard({icon,title,action,onAction,theme,children}){
     e('div',{style:{padding:'11px 12px'}},children)
   );
 }
-function GigDayScreen({todaysGigs,theme,settings,unpaidGigIds,onToggleUnpaid,mileageLog,openMapsChooser,onTrackMiles,members,onToggleItem,nextGigAfterToday,onClose}){
+// The maps chooser, GPS-tracking confirmation/banner, and related modals —
+// previously only rendered inside the normal tab view's JSX, so tapping
+// Navigate or Track miles from the Gig Day screen set the same state but
+// had nothing on screen to show it until you left Gig Day and landed back
+// on a view that actually rendered these. Pulled out once so both views
+// can render the identical modals instead of only one of them being able to.
+function TravelModals({askTrack,setAskTrack,goHome,openMapsChooser,startTracking,askHomeAddress,setAskHomeAddress,homeAddressDraft,setHomeAddressDraft,saveHomeAddressAndGo,mapsChoice,setMapsChoice,theme,trackingMiles,stopTracking,gpsStandaloneHelp,dismissGpsStandaloneHelp}){
+  return e(React.Fragment,null,
+    // ── "Track miles?" confirmation modal ───────────────────────────────────
+    askTrack&&e('div',{onClick:()=>setAskTrack(null),className:'overlay'},
+      e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:360}},
+        e('div',{style:{fontSize:16,fontWeight:500,marginBottom:6}},'Track miles for this trip?'),
+        e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:20}},
+          "We'll use GPS to track your mileage. A banner will appear so you can stop tracking when you arrive."
+        ),
+        e('div',{style:{display:'flex',gap:8}},
+          e('button',{
+            onClick:()=>{
+              const gig=askTrack;
+              setAskTrack(null);
+              if(gig.homeAddress) setMapsChoice({label:'Home · '+gig.homeAddress,dest:gig.homeAddress});
+              else openMapsChooser(gig.venue,gig.location);
+            },
+            style:{flex:1,padding:'9px 0',borderRadius:10,border:'1px solid #d1d5db',cursor:'pointer',fontSize:14}
+          },'Skip'),
+          e('button',{
+            onClick:()=>{
+              const gig=askTrack;
+              setAskTrack(null);
+              if(gig.homeAddress) goHome(gig,gig.homeAddress);
+              else startTracking(gig,()=>openMapsChooser(gig.venue,gig.location));
+            },
+            style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:14}
+          },'Yes, track')
+        )
+      )
+    ),
+    // ── "Add your home address" modal ───────────────────────────────────────
+    askHomeAddress&&e('div',{onClick:()=>{setAskHomeAddress(null);setHomeAddressDraft('');},className:'overlay'},
+      e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:360}},
+        e('div',{style:{fontSize:16,fontWeight:500,marginBottom:6}},'Add your home address'),
+        e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:16}},
+          "Set this once and the Home button will take you there after any gig, one tap."
+        ),
+        e('input',{value:homeAddressDraft,onChange:ev=>setHomeAddressDraft(ev.target.value),
+          placeholder:'123 Main St, Rocky Point, NY',autoFocus:true,
+          onKeyDown:ev=>{if(ev.key==='Enter')saveHomeAddressAndGo();},
+          style:{padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,fontSize:14,width:'100%',marginBottom:12}}),
+        e('div',{style:{display:'flex',gap:8}},
+          e('button',{onClick:()=>{setAskHomeAddress(null);setHomeAddressDraft('');},
+            style:{flex:1,padding:'9px 0',borderRadius:10,border:'1px solid #d1d5db',background:'#fff',cursor:'pointer',fontSize:14}},'Cancel'),
+          e('button',{onClick:saveHomeAddressAndGo,
+            style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:14}},'Save & Go')
+        )
+      )
+    ),
+    // ── "Which maps app?" sheet ─────────────────────────────────────────────
+    mapsChoice&&e(MapsChooserSheet,{label:mapsChoice.label,dest:mapsChoice.dest,onClose:()=>setMapsChoice(null)}),
+    // ── Persistent tracking banner ───────────────────────────────────────────
+    trackingMiles&&e('div',{style:{
+      position:'fixed',bottom:20,left:'50%',transform:'translateX(-50%)',
+      width:'min(380px,92vw)',background:'#fff',borderRadius:14,
+      padding:'12px 16px',
+      boxShadow:'0 4px 24px rgba(0,0,0,0.18)',
+      border:`2px solid ${theme.mid}`,
+      display:'flex',alignItems:'center',justifyContent:'space-between',
+      gap:12,zIndex:9999
+    }},
+      e('div',{style:{display:'flex',alignItems:'center',gap:10}},
+        e('div',{className:'tracking-dot',style:{width:10,height:10,borderRadius:'50%',background:'#22c55e',flexShrink:0}}),
+        e('div',null,
+          e('div',{style:{fontSize:13,fontWeight:600,color:'#111827'}},'Tracking miles'),
+          e('div',{style:{fontSize:12,color:'#6b7280',marginTop:1}},
+            trackingMiles.venueName+' · '+(trackingMiles.miles||0).toFixed(1)+' mi'
+          )
+        )
+      ),
+      e('button',{
+        onClick:stopTracking,
+        style:{background:'#dc2626',color:'#fff',border:'none',borderRadius:8,padding:'8px 18px',cursor:'pointer',fontWeight:600,fontSize:14,flexShrink:0}
+      },'⏹ Stop')
+    ),
+    gpsStandaloneHelp&&e('div',{style:{
+      position:'fixed',bottom:20,left:'50%',transform:'translateX(-50%)',
+      width:'min(380px,92vw)',background:'#fff',borderRadius:14,
+      padding:'12px 16px',boxShadow:'0 4px 24px rgba(0,0,0,0.18)',
+      border:'2px solid #dc2626',display:'flex',flexDirection:'column',gap:8,zIndex:9999
+    }},
+      e('div',{style:{fontSize:12.5,color:'#374151',lineHeight:1.4}},
+        'Mileage tracking needs location access, which doesn\'t work reliably in the installed app on iPhone — an Apple limitation. Open this page in Safari to track mileage there instead.'
+      ),
+      e('div',{style:{display:'flex',gap:8}},
+        e('a',{href:'x-safari-'+withDeviceIdParam(window.location.href),target:'_blank',rel:'noopener',onClick:dismissGpsStandaloneHelp,
+          style:{flex:1,textAlign:'center',padding:'8px 0',borderRadius:8,background:theme.mid,color:'#fff',fontWeight:600,fontSize:13,textDecoration:'none'}},
+          '↗ Open in Safari'),
+        e('button',{onClick:dismissGpsStandaloneHelp,
+          style:{padding:'8px 14px',borderRadius:8,border:'0.5px solid #d1d5db',background:'#fff',color:'#374151',cursor:'pointer',fontSize:13,fontWeight:500}},
+          'Dismiss')
+      )
+    )
+  );
+}
+function GigDayScreen({todaysGigs,theme,settings,unpaidGigIds,onToggleUnpaid,mileageLog,openMapsChooser,travelModalsProps,members,onToggleItem,nextGigAfterToday,onClose}){
   const checklistDone=members.reduce((s,m)=>s+m.items.filter(it=>it.checked).length,0);
   const checklistTotal=members.reduce((s,m)=>s+m.items.length,0);
   const stagePlotSet=!!(settings.stagePlotUrl||settings.stagePlotFile);
   const openStagePlot=()=>window.open(settings.stagePlotUrl||settings.stagePlotFile.content,'_blank');
-  return e('div',{style:{maxWidth:720,margin:'0 auto',paddingBottom:'2rem'}},
+  return e(React.Fragment,null,
+  e('div',{style:{maxWidth:720,margin:'0 auto',paddingBottom:'2rem'}},
     e('div',{style:{background:`linear-gradient(158deg,${theme.primary},${theme.mid})`,borderRadius:'0 0 20px 20px',padding:'1.1rem 1.1rem 1.3rem',color:theme.headerText||'#fff'}},
       e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:10,letterSpacing:'0.08em',fontWeight:700,opacity:0.9,marginBottom:10}},
         e('span',null,'GIG DASHBOARD'),
@@ -3422,7 +3525,7 @@ function GigDayScreen({todaysGigs,theme,settings,unpaidGigIds,onToggleUnpaid,mil
           e('div',{style:{display:'flex',gap:7}},
             e('button',{onClick:()=>openMapsChooser(gig.venue,gig.location),
               style:{flex:1,padding:'9px 0',borderRadius:9,border:'none',background:theme.mid,color:theme.midText||'#fff',fontWeight:650,fontSize:12.5,cursor:'pointer'}},'Navigate'),
-            e('button',{onClick:()=>onTrackMiles(gig),
+            e('button',{onClick:()=>travelModalsProps.setAskTrack(gig),
               style:{flex:1,padding:'9px 0',borderRadius:9,border:'1px solid #e5e7eb',background:'#fff',color:'#374151',fontWeight:650,fontSize:12.5,cursor:'pointer'}},'Track miles')
           )
         ),
@@ -3471,6 +3574,8 @@ function GigDayScreen({todaysGigs,theme,settings,unpaidGigIds,onToggleUnpaid,mil
           (nextGigAfterToday.time?' · '+nextGigAfterToday.time:''))
       )
     )
+  ),
+  e(TravelModals,travelModalsProps)
   );
 }
 
@@ -5094,9 +5199,11 @@ function App(){
 
   if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,authUser,authBusy,authError,onSignUp:signUpWithEmail,onSignIn:signInWithEmail,onSignOut:signOutOfAccount,onSendReset:sendPasswordReset,onChangePassword:changePassword});
 
+  const travelModalsProps={askTrack,setAskTrack,goHome,openMapsChooser,startTracking,askHomeAddress,setAskHomeAddress,homeAddressDraft,setHomeAddressDraft,saveHomeAddressAndGo,mapsChoice,setMapsChoice,theme,trackingMiles,stopTracking,gpsStandaloneHelp,dismissGpsStandaloneHelp};
+
   if(gigDayOpen&&todaysGigs.length>0)return e(GigDayScreen,{
     todaysGigs,theme,settings,unpaidGigIds,onToggleUnpaid:toggleUnpaidGig,mileageLog,
-    openMapsChooser,onTrackMiles:gig=>setAskTrack(gig),members,onToggleItem:toggleItem,
+    openMapsChooser,travelModalsProps,members,onToggleItem:toggleItem,
     nextGigAfterToday:gigAfterToday,
     onClose:()=>setGigDayOpen(false)
   });
@@ -5979,116 +6086,8 @@ function App(){
       )
     ),
 
-    // ── "Track miles?" confirmation modal ───────────────────────────────────
-    askTrack&&e('div',{onClick:()=>setAskTrack(null),className:'overlay'},
-      e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:360}},
-        e('div',{style:{fontSize:16,fontWeight:500,marginBottom:6}},'Track miles for this trip?'),
-        e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:20}},
-          "We'll use GPS to track your mileage. A banner will appear so you can stop tracking when you arrive."
-        ),
-        e('div',{style:{display:'flex',gap:8}},
-          // Skip: go straight to directions, no tracking. Shared by both
-          // Map and Drive Home now — homeAddress on the gig tells us which.
-          e('button',{
-            onClick:()=>{
-              const gig=askTrack;
-              setAskTrack(null);
-              if(gig.homeAddress) setMapsChoice({label:'Home · '+gig.homeAddress,dest:gig.homeAddress});
-              else openMapsChooser(gig.venue,gig.location);
-            },
-            style:{flex:1,padding:'9px 0',borderRadius:10,border:'1px solid #d1d5db',cursor:'pointer',fontSize:14}
-          },'Skip'),
-          // Track: request location FIRST (must be synchronous with the tap
-          // on iOS standalone), then show the maps chooser once that's
-          // been answered.
-          e('button',{
-            onClick:()=>{
-              const gig=askTrack;
-              setAskTrack(null);             // close modal
-              if(gig.homeAddress) goHome(gig,gig.homeAddress);
-              else startTracking(gig,()=>openMapsChooser(gig.venue,gig.location));
-            },
-            style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:14}
-          },'Yes, track')
-        )
-      )
-    ),
+    e(TravelModals,travelModalsProps),
 
-    // ── "Add your home address" modal — shown when Home is tapped before
-    // an address has been set in Settings, so the button always does
-    // something useful instead of silently being disabled. ─────────────────
-    askHomeAddress&&e('div',{onClick:()=>{setAskHomeAddress(null);setHomeAddressDraft('');},className:'overlay'},
-      e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:360}},
-        e('div',{style:{fontSize:16,fontWeight:500,marginBottom:6}},'Add your home address'),
-        e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:16}},
-          "Set this once and the Home button will take you there after any gig, one tap."
-        ),
-        e('input',{value:homeAddressDraft,onChange:ev=>setHomeAddressDraft(ev.target.value),
-          placeholder:'123 Main St, Rocky Point, NY',autoFocus:true,
-          onKeyDown:ev=>{if(ev.key==='Enter')saveHomeAddressAndGo();},
-          style:{padding:'8px 10px',border:'1px solid #d1d5db',borderRadius:8,fontSize:14,width:'100%',marginBottom:12}}),
-        e('div',{style:{display:'flex',gap:8}},
-          e('button',{onClick:()=>{setAskHomeAddress(null);setHomeAddressDraft('');},
-            style:{flex:1,padding:'9px 0',borderRadius:10,border:'1px solid #d1d5db',background:'#fff',cursor:'pointer',fontSize:14}},'Cancel'),
-          e('button',{onClick:saveHomeAddressAndGo,
-            style:{flex:1,padding:'9px 0',borderRadius:10,background:theme.mid,color:'#fff',border:'none',fontWeight:500,cursor:'pointer',fontSize:14}},'Save & Go')
-        )
-      )
-    ),
-
-    // ── "Which maps app?" sheet ─────────────────────────────────────────────
-    mapsChoice&&e(MapsChooserSheet,{label:mapsChoice.label,dest:mapsChoice.dest,onClose:()=>setMapsChoice(null)}),
-
-    // ── Persistent tracking banner ─────────────────────────────────────────
-    trackingMiles&&e('div',{style:{
-      position:'fixed',bottom:20,left:'50%',transform:'translateX(-50%)',
-      width:'min(380px,92vw)',background:'#fff',borderRadius:14,
-      padding:'12px 16px',
-      boxShadow:'0 4px 24px rgba(0,0,0,0.18)',
-      border:`2px solid ${theme.mid}`,
-      display:'flex',alignItems:'center',justifyContent:'space-between',
-      gap:12,zIndex:9999  // raised z-index so it's always on top
-    }},
-      e('div',{style:{display:'flex',alignItems:'center',gap:10}},
-        e('div',{
-          className:'tracking-dot',
-          style:{width:10,height:10,borderRadius:'50%',background:'#22c55e',flexShrink:0}
-        }),
-        e('div',null,
-          e('div',{style:{fontSize:13,fontWeight:600,color:'#111827'}},'Tracking miles'),
-          e('div',{style:{fontSize:12,color:'#6b7280',marginTop:1}},
-            trackingMiles.venueName+' · '+(trackingMiles.miles||0).toFixed(1)+' mi'
-          )
-        )
-      ),
-      e('button',{
-        onClick:stopTracking,
-        style:{background:'#dc2626',color:'#fff',border:'none',borderRadius:8,padding:'8px 18px',cursor:'pointer',fontWeight:600,fontSize:14,flexShrink:0}
-      },'⏹ Stop')
-    ),
-
-    // Real <a> tag, not a scripted window.open() — that doesn't reliably
-    // hand off to Safari from inside an installed iOS home-screen app. The
-    // x-safari- URL scheme prefix (see the matching home-address link above)
-    // forces an actual Safari hand-off instead of a same-URL no-op.
-    gpsStandaloneHelp&&e('div',{style:{
-      position:'fixed',bottom:20,left:'50%',transform:'translateX(-50%)',
-      width:'min(380px,92vw)',background:'#fff',borderRadius:14,
-      padding:'12px 16px',boxShadow:'0 4px 24px rgba(0,0,0,0.18)',
-      border:'2px solid #dc2626',display:'flex',flexDirection:'column',gap:8,zIndex:9999
-    }},
-      e('div',{style:{fontSize:12.5,color:'#374151',lineHeight:1.4}},
-        'Mileage tracking needs location access, which doesn\'t work reliably in the installed app on iPhone — an Apple limitation. Open this page in Safari to track mileage there instead.'
-      ),
-      e('div',{style:{display:'flex',gap:8}},
-        e('a',{href:'x-safari-'+withDeviceIdParam(window.location.href),target:'_blank',rel:'noopener',onClick:dismissGpsStandaloneHelp,
-          style:{flex:1,textAlign:'center',padding:'8px 0',borderRadius:8,background:theme.mid,color:'#fff',fontWeight:600,fontSize:13,textDecoration:'none'}},
-          '↗ Open in Safari'),
-        e('button',{onClick:dismissGpsStandaloneHelp,
-          style:{padding:'8px 14px',borderRadius:8,border:'0.5px solid #d1d5db',background:'#fff',color:'#374151',cursor:'pointer',fontSize:13,fontWeight:500}},
-          'Dismiss')
-      )
-    ),
     e(PrintStandaloneBanner,{show:setlistPrintStandaloneHelp,onDismiss:()=>setSetlistPrintStandaloneHelp(false),theme}),
     e(PrintStandaloneBanner,{show:songPrintStandaloneHelp,onDismiss:()=>setSongPrintStandaloneHelp(false),theme}),
 
