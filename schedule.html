@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+<title>Peat Moss Show Schedule</title>
+<meta name="theme-color" content="#0E8A93"/>
+<meta name="robots" content="noindex"/>
+<meta name="description" content="Upcoming shows for Peat Moss &amp; The Fertilizers."/>
+<style>
+:root{
+  --bg:#f4f6f8;--card:#fff;--fg:#14201f;--muted:#5d6b69;--line:#e1e6e5;
+  --accent:#0E8A93;--accent-dark:#0a5f66;--tile:#e2f3f4;--tile-fg:#0a5f66;
+  --wed:#eeedfe;--wed-fg:#534ab7;--priv:#fceee9;--priv-fg:#993c1d;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0f1514;--card:#182120;--fg:#eaf1f0;--muted:#9db0ad;--line:#2a3837;
+  --accent:#4fc3cb;--accent-dark:#4fc3cb;--tile:#123b3f;--tile-fg:#8be0e6;
+  --wed:#26244d;--wed-fg:#b9b4ff;--priv:#3b221b;--priv-fg:#f2b29c;
+}}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--fg);line-height:1.4;
+  padding-bottom:max(2rem,env(safe-area-inset-bottom))}
+header{background:#0E8A93;color:#fff;text-align:center;
+  padding:max(1.6rem,env(safe-area-inset-top)) 1rem 1.5rem;border-radius:0 0 22px 22px}
+header .kicker{font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.8}
+header h1{font-size:clamp(22px,6vw,30px);font-weight:700;margin-top:6px;text-wrap:balance}
+header p{font-size:14px;opacity:.9;margin-top:4px}
+main{max-width:640px;margin:0 auto;padding:1rem max(1rem,env(safe-area-inset-left)) 0 max(1rem,env(safe-area-inset-right))}
+h2{font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:1.4rem .2rem .5rem}
+.list{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.gig{display:flex;gap:14px;align-items:center;padding:12px 14px;border-top:1px solid var(--line)}
+.gig:first-child{border-top:0}
+.tile{flex:0 0 52px;text-align:center;border-radius:10px;padding:7px 0;background:var(--tile);color:var(--tile-fg)}
+.tile b{display:block;font-size:20px;line-height:1}
+.tile span{display:block;font-size:10.5px;font-weight:600;margin-top:3px;letter-spacing:.04em}
+.gig.wedding .tile{background:var(--wed);color:var(--wed-fg)}
+.gig.private .tile{background:var(--priv);color:var(--priv-fg)}
+.info{flex:1;min-width:0}
+.venue{font-weight:600;font-size:16px;overflow-wrap:anywhere}
+.sub{font-size:13.5px;color:var(--muted);margin-top:2px}
+.dir{flex:0 0 auto;font-size:13px;font-weight:600;color:var(--accent-dark);text-decoration:none;
+  border:1px solid var(--line);border-radius:99px;padding:8px 12px;min-height:40px;display:inline-flex;align-items:center}
+.dir:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.state{text-align:center;color:var(--muted);padding:2.5rem 1rem;font-size:15px}
+.state button{margin-top:12px;font:inherit;font-weight:600;color:#fff;background:#0E8A93;border:0;border-radius:10px;padding:10px 18px;min-height:44px}
+footer{text-align:center;font-size:12px;color:var(--muted);margin-top:1.6rem;padding:0 1rem}
+</style>
+</head>
+<body>
+<header>
+  <div class="kicker">Show schedule</div>
+  <h1>Peat Moss &amp; The Fertilizers</h1>
+  <p>Upcoming shows</p>
+</header>
+<main id="main" aria-live="polite"><div class="state">Loading the schedule…</div></main>
+<footer id="foot"></footer>
+<script>
+// Read-only: this page only ever READS. No sign-in, no Firebase SDK, no writes,
+// and it never shows notes, mileage, charts or anything else from the app.
+const CALENDAR_ID='d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com';
+const API_KEY='AIzaSyDDfPjbqTtgXOacnkjrr9SbGVcWWVW3hYg';
+const EXTRA_GIGS_URL='https://us-central1-peatmoss-gig-dashboard-4f41b.cloudfunctions.net/publicSchedule';
+const MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
+const MON3=MONTHS.map(m=>m.slice(0,3).toUpperCase());
+
+const pad=n=>String(n).padStart(2,'0');
+const ymd=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+
+// "2026-10-10T18:00:00-04:00" -> "6 PM" using the clock exactly as written (no timezone shifting).
+function clock(iso){
+  const m=/T(\d{2}):(\d{2})/.exec(iso||'');if(!m)return '';
+  let h=+m[1];const min=m[2];const ap=h>=12?'PM':'AM';h=h%12||12;
+  return h+(min==='00'?'':':'+min)+' '+ap;
+}
+function timeText(ev){
+  const tag=/Time:\s*([^·]+)/.exec(ev.description||'');
+  if(tag&&tag[1].trim())return tag[1].trim().replace(/\s*-\s*/g,'–');
+  const s=clock(ev.start&&ev.start.dateTime),e=clock(ev.end&&ev.end.dateTime);
+  return s&&e&&s!==e?s+'–'+e:s;
+}
+function townOf(loc){
+  const p=(loc||'').split(',').map(s=>s.trim()).filter(Boolean);
+  if(p.length<2)return loc||'';
+  const i=p.findIndex((x,k)=>k>0&&/^[A-Za-z]{2}(\s|$)/.test(x));
+  if(i<1)return p.slice(0,2).join(', ');
+  return p[i-1]+', '+p[i].replace(/\d+/g,'').trim();
+}
+function shortVenue(name,type){
+  if(type==='wedding'||type==='private event')return name;
+  const m=(name||'').match(/^(.*?)(?:,| @ | – | -)/);
+  return ((m?m[1]:name)||name||'').replace(/\s+concert series$/i,'').trim()||name;
+}
+function typeOf(name,desc){
+  const t=/Type:\s*([a-z ]+?)\s*(?:·|$)/i.exec(desc||'');
+  if(t)return t[1].trim().toLowerCase();
+  return /wedding/i.test(name||'')?'wedding':'bar';
+}
+
+async function calendarGigs(){
+  const from=new Date();from.setHours(0,0,0,0);
+  const to=new Date(from);to.setDate(to.getDate()+548);
+  const base='https://www.googleapis.com/calendar/v3/calendars/'+encodeURIComponent(CALENDAR_ID)+'/events?key='+API_KEY+
+    '&timeMin='+encodeURIComponent(from.toISOString())+'&timeMax='+encodeURIComponent(to.toISOString())+
+    '&singleEvents=true&orderBy=startTime&maxResults=250';
+  let items=[],token='';
+  do{
+    const r=await fetch(base+(token?'&pageToken='+encodeURIComponent(token):''));
+    if(!r.ok)throw new Error('calendar '+r.status);
+    const d=await r.json();items=items.concat(d.items||[]);token=d.nextPageToken||'';
+  }while(token);
+  return items.map(ev=>{
+    const date=(ev.start&&(ev.start.date||(ev.start.dateTime||'').slice(0,10)))||'';
+    const desc=ev.description||'';
+    // Stricter than the app on purpose: the app also counts app-made entries with no
+    // location, which includes availability notes ("Jim Not Available"). Nothing like
+    // that belongs on a page anyone can open, so a public show must have a location.
+    if(!date||!ev.location)return null;
+    const st=/Status:\s*([a-z]+)/i.exec(desc);const status=st?st[1].toLowerCase():'confirmed';
+    const type=typeOf(ev.summary,desc);
+    return{date,venue:ev.summary||'Untitled',location:ev.location||'',time:timeText(ev),type,status};
+  }).filter(Boolean);
+}
+// Gigs that exist only inside the app (never put on Google Calendar). Optional: if it fails we still show the calendar.
+async function appOnlyGigs(){
+  try{const r=await fetch(EXTRA_GIGS_URL);if(!r.ok)return [];const d=await r.json();return d.gigs||[];}catch(e){return [];}
+}
+
+function render(gigs){
+  const today=ymd(new Date());
+  const seen=new Set();
+  const shown=gigs.filter(g=>g.date>=today&&g.status!=='cancelled'&&g.status!=='hold')
+    .filter(g=>{const k=g.date+'|'+(g.venue||'').trim().toLowerCase();if(seen.has(k))return false;seen.add(k);return true;})
+    .sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:(a.time||'').localeCompare(b.time||''));
+  const main=document.getElementById('main');
+  if(!shown.length){main.innerHTML='<div class="state">No upcoming shows posted right now. Check back soon.</div>';return;}
+  const groups=[];
+  shown.forEach(g=>{const key=g.date.slice(0,7);let grp=groups[groups.length-1];if(!grp||grp.key!==key){grp={key,gigs:[]};groups.push(grp);}grp.gigs.push(g);});
+  const yearNow=new Date().getFullYear();
+  main.textContent='';
+  groups.forEach(grp=>{
+    const [y,m]=grp.key.split('-').map(Number);
+    const h=document.createElement('h2');h.textContent=MONTHS[m-1]+(y!==yearNow?' '+y:'');main.appendChild(h);
+    const list=document.createElement('div');list.className='list';
+    grp.gigs.forEach(g=>{
+      const row=document.createElement('div');
+      row.className='gig'+(g.type==='wedding'?' wedding':g.type==='private event'?' private':'');
+      const tile=document.createElement('div');tile.className='tile';
+      const b=document.createElement('b');b.textContent=String(+g.date.slice(8,10));
+      const s=document.createElement('span');s.textContent=MON3[m-1];
+      tile.append(b,s);
+      const info=document.createElement('div');info.className='info';
+      const v=document.createElement('div');v.className='venue';v.textContent=shortVenue(g.venue,g.type);
+      const sub=document.createElement('div');sub.className='sub';
+      const dow=new Date(g.date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short'});
+      sub.textContent=[dow,g.time,townOf(g.location)].filter(Boolean).join(' · ');
+      info.append(v,sub);
+      row.append(tile,info);
+      if(g.location){
+        const a=document.createElement('a');a.className='dir';a.textContent='Directions';
+        a.href='https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent(g.location);
+        a.target='_blank';a.rel='noopener';a.setAttribute('aria-label','Directions to '+shortVenue(g.venue,g.type));
+        row.appendChild(a);
+      }
+      list.appendChild(row);
+    });
+    main.appendChild(list);
+  });
+  document.getElementById('foot').textContent='Times and dates can change — this page updates itself. Last checked '+
+    new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})+'.';
+}
+
+async function load(){
+  const main=document.getElementById('main');
+  main.innerHTML='<div class="state">Loading the schedule…</div>';
+  try{
+    const [cal,extra]=await Promise.all([calendarGigs(),appOnlyGigs()]);
+    render(cal.concat(extra));
+  }catch(err){
+    main.innerHTML='<div class="state">Couldn’t load the schedule. Check your connection and try again.<br><button id="retry">Try again</button></div>';
+    document.getElementById('retry').onclick=load;
+  }
+}
+load();
+</script>
+</body>
+</html>

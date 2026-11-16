@@ -102,6 +102,28 @@ exports.revokeGoogleAuth = onRequest(async (req, res) => {
   }
 });
 
+// Read-only feed for the public schedule page (schedule.html). Returns only
+// the fields that page shows, only for gigs that exist solely inside the app
+// (calendar copies are skipped — the page reads those from Google Calendar
+// itself), and never notes, pay, or anything personal.
+exports.publicSchedule = onRequest(async (req, res) => {
+  res.set('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
+  res.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  if (req.method === 'OPTIONS') { res.status(204).send(''); return; }
+  if (req.method !== 'GET') { res.status(405).json({error: 'Method not allowed'}); return; }
+  try {
+    const today = new Date().toLocaleDateString('en-CA', {timeZone: 'America/New_York'});
+    const snap = await admin.firestore().collection('gigs').where('date', '>=', today).get();
+    const gigs = snap.docs.map(d => d.data())
+      .filter(g => !g.fromCalendar && g.status !== 'cancelled')
+      .map(g => ({date: g.date, venue: g.venue || 'Untitled', location: g.location || '', time: g.time || '', type: g.type || 'bar', status: g.status || 'confirmed'}));
+    res.set('Cache-Control', 'public, max-age=60');
+    res.json({gigs});
+  } catch (err) {
+    res.status(500).json({error: 'Could not load the schedule'});
+  }
+});
+
 exports.notifyOnNewSetlist = onDocumentCreated('setlists/{setlistId}', async (event) => {
   const setlist = event.data.data();
   const name = (setlist && setlist.name) || 'a new setlist';
