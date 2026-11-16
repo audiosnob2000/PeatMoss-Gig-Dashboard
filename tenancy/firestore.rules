@@ -1,0 +1,137 @@
+rules_version = '2';
+
+// Multi-band access rules. NOT deployed: the live rules are the root firestore.rules,
+// and the deploy workflow only watches that file. These replace it at the cutover.
+//
+// Model: everything a band owns lives under bands/{bandId}. A person's role in a band is
+// the document bands/{bandId}/members/{uid}, written only by Cloud Functions (Admin SDK),
+// never by a client. So "is this person in this band" is one lookup, and a query that
+// forgets the band reads nothing instead of reading someone else's data.
+//
+// Roles: owner, admin, member, sub (read-only fill-in).
+// Reads are never blocked by billing. A lapsed band keeps full read access; only new
+// shared content is blocked, via bands/{bandId}.billing.writable (set by the server).
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function band(bandId) { return /databases/$(database)/documents/bands/$(bandId); }
+    function memberPath(bandId) { return /databases/$(database)/documents/bands/$(bandId)/members/$(request.auth.uid); }
+
+    function isMember(bandId) { return signedIn() && exists(memberPath(bandId)); }
+    function roleOf(bandId) { return get(memberPath(bandId)).data.role; }
+    function hasRole(bandId, roles) { return isMember(bandId) && roleOf(bandId) in roles; }
+    function isManager(bandId) { return hasRole(bandId, ['owner', 'admin']); }
+    function isPlayer(bandId) { return hasRole(bandId, ['owner', 'admin', 'member']); }
+
+    // Billing lapse blocks writes to shared band content only; missing field means allowed.
+    function bandWritable(bandId) {
+      return get(band(bandId)).data.get('billing', {}).get('writable', true) != false;
+    }
+    function canWriteShared(bandId) { return isPlayer(bandId) && bandWritable(bandId); }
+
+    function mine(data) { return data.get('uid', '') == request.auth.uid; }
+    function uidUnchanged() { return request.resource.data.get('uid', '') == resource.data.get('uid', ''); }
+
+    match /bands/{bandId} {
+      allow read: if isMember(bandId);
+      // Created and deleted only by Cloud Functions. Admins may change these fields and
+      // nothing else: owner, billing, createdAt and the rest are server-only.
+      allow update: if isManager(bandId)
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['name', 'timeZone', 'calendarId', 'publicScheduleEnabled']);
+      allow create, delete: if false;
+
+      match /members/{uid} {
+        allow read: if isMember(bandId);
+        allow write: if false;
+      }
+
+      match /invites/{code} {
+        allow read: if isManager(bandId);
+        allow write: if false;
+      }
+
+      match /gigs/{id} {
+        allow read: if isMember(bandId);
+        allow create, update, delete: if canWriteShared(bandId);
+      }
+
+      match /setlists/{id} {
+        allow read: if isMember(bandId);
+        allow create, update, delete: if canWriteShared(bandId);
+      }
+
+      // Availability marks are the band's scheduling, not a fill-in's business.
+      match /unavailableDates/{id} {
+        allow read: if isPlayer(bandId);
+        allow create: if canWriteShared(bandId) && mine(request.resource.data);
+        allow update, delete: if canWriteShared(bandId) && mine(resource.data);
+      }
+
+      // Charts. A private chart is readable and editable only by whoever made it, enforced
+      // here rather than by hiding it on the phone. A client must ask for shared charts and
+      // its own separately (two queries), because rules are not filters. A chart counts as
+      // shared only if it says so explicitly: defaulting a missing field to "shared" makes
+      // the engine accept an unfiltered list that includes private charts (tested).
+      match /songs/{id} {
+        allow read: if isMember(bandId)
+          && (resource.data.get('shared', false) == true || mine(resource.data));
+        allow create: if canWriteShared(bandId) && mine(request.resource.data);
+        allow update: if canWriteShared(bandId) && uidUnchanged()
+          && (resource.data.get('shared', false) == true || mine(resource.data));
+        allow delete: if canWriteShared(bandId)
+          && (resource.data.get('shared', false) == true || mine(resource.data));
+      }
+
+      // Band-wide settings such as the stage plot.
+      match /settings/{doc} {
+        allow read: if isMember(bandId);
+        allow write: if isManager(bandId) && bandWritable(bandId);
+      }
+
+      // Personal bookkeeping. Never blocked by billing, never visible to anyone else.
+      match /checklists/{uid} {
+        allow read, write: if isMember(bandId) && request.auth.uid == uid;
+      }
+      match /unpaidGigs/{uid} {
+        allow read, write: if isPlayer(bandId) && request.auth.uid == uid;
+      }
+      match /mileageTrips/{tripId} {
+        allow read: if isPlayer(bandId) && mine(resource.data);
+        allow create: if isPlayer(bandId) && mine(request.resource.data);
+        allow update: if isPlayer(bandId) && mine(resource.data) && uidUnchanged();
+        allow delete: if isPlayer(bandId) && mine(resource.data);
+      }
+
+      // A phone registers its own push token. Nobody can read tokens back; only the
+      // reminder functions (Admin SDK) do.
+      match /fcmTokens/{token} {
+        allow read: if false;
+        allow create: if isMember(bandId) && mine(request.resource.data);
+        allow update: if isMember(bandId) && mine(resource.data) && uidUnchanged();
+        allow delete: if isMember(bandId) && mine(resource.data);
+      }
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if false;
+      match /memberships/{bandId} {
+        allow read: if signedIn() && request.auth.uid == uid;
+        allow write: if false;
+      }
+      // Google refresh tokens and similar. Server only.
+      match /private/{doc=**} {
+        allow read, write: if false;
+      }
+    }
+
+    // Everything else (sentReminders, stripeCustomers, stripeEvents, and today's flat
+    // collections) is closed. A collection nobody wrote a rule for fails shut, not open.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
