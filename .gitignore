@@ -3,3 +3,4 @@ functions/.env
 *.log
 .firebase/
 tenancy/node_modules/
+tenancy/*.log
