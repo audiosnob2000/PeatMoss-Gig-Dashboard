@@ -237,7 +237,38 @@ async function setMemberRole(db, uid, { bandId, targetUid, role } = {}) {
   return { ok: true };
 }
 
+// The owner hands the band to someone else, who becomes the owner; the old owner becomes
+// an admin. One transaction, so a band never has zero owners or two. The new owner must be a
+// current member whose own subscription is active (a locked-out owner would lock the band's
+// governance), and must have room under the owned-bands cap.
+async function transferOwnership(db, uid, { bandId, targetUid } = {}, now = Date.now()) {
+  requireUid(uid);
+  if (!bandId || !targetUid) throw new BandError('invalid-argument', 'bandId and targetUid are required.');
+  if (uid === targetUid) throw new BandError('invalid-argument', 'You already own this band.');
+  return db.runTransaction(async tx => {
+    const bRef = bandRef(db, bandId);
+    const [band, caller, target, owned] = await Promise.all([
+      tx.get(bRef), tx.get(memberRef(db, bandId, uid)), tx.get(memberRef(db, bandId, targetUid)),
+      tx.get(db.collection('users').doc(targetUid).collection('memberships').where('role', '==', 'owner')),
+    ]);
+    // Permission first: a non-owner learns nothing about who is in the band.
+    if (!band.exists || !caller.exists || caller.data().role !== 'owner' || !isActive(caller.data()) || band.data().ownerUid !== uid) {
+      throw new BandError('permission-denied', 'Only the band owner can hand the band over.');
+    }
+    if (!target.exists) throw new BandError('not-found', 'That person is not in this band.');
+    if (!isActive(target.data())) throw new BandError('failed-precondition', 'That person needs an active subscription before they can own the band.');
+    if (owned.size >= MAX_BANDS_OWNED) throw new BandError('failed-precondition', `That person already owns ${MAX_BANDS_OWNED} bands.`);
+
+    tx.update(bRef, { ownerUid: targetUid, ownerChangedAt: now });
+    tx.update(memberRef(db, bandId, targetUid), { role: 'owner' });
+    tx.update(membershipRef(db, targetUid, bandId), { role: 'owner' });
+    tx.update(memberRef(db, bandId, uid), { role: 'admin' });
+    tx.update(membershipRef(db, uid, bandId), { role: 'admin' });
+    return { ok: true, newOwnerUid: targetUid };
+  });
+}
+
 module.exports = {
-  BandError, createBand, createInvite, revokeInvite, redeemInvite, removeMember, setMemberRole,
+  BandError, createBand, createInvite, revokeInvite, redeemInvite, removeMember, setMemberRole, transferOwnership,
   normalizeCode, TRIAL_DAYS, DAY, CODE_ALPHABET, REDEEM_MAX_FAILURES,
 };

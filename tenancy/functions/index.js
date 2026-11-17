@@ -29,3 +29,4 @@ exports.revokeInvite = wrap(band.revokeInvite);
 exports.redeemInvite = wrap(band.redeemInvite);
 exports.removeMember = wrap(band.removeMember);
 exports.setMemberRole = wrap(band.setMemberRole);
+exports.transferOwnership = wrap(band.transferOwnership);

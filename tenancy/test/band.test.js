@@ -275,7 +275,88 @@ test('setMemberRole: only the owner promotes and demotes, never the owner themse
   await assertFails(updateDoc(doc(asClient('mia'), `bands/${id}`), { name: 'Denied again' }));
 });
 
+test('transferOwnership: the new owner gets owner powers, the old owner becomes an admin, records agree everywhere', async () => {
+  const id = await mkBand();
+  await join(id, 'olive', 'mia');
+  await B.transferOwnership(db, 'olive', { bandId: id, targetUid: 'mia' }, T0 + 5);
+  const band = (await db.doc(`bands/${id}`).get()).data();
+  assert.equal(band.ownerUid, 'mia');
+  assert.equal(band.ownerChangedAt, T0 + 5);
+  assert.equal((await db.doc(`bands/${id}/members/mia`).get()).data().role, 'owner');
+  assert.equal((await db.doc(`bands/${id}/members/olive`).get()).data().role, 'admin');
+  assert.equal((await db.doc(`users/mia/memberships/${id}`).get()).data().role, 'owner');
+  assert.equal((await db.doc(`users/olive/memberships/${id}`).get()).data().role, 'admin');
+  assert.equal((await db.collection(`bands/${id}/members`).where('role', '==', 'owner').get()).size, 1);   // exactly one owner
+  // powers moved: new owner can invite an admin and remove the old owner; old owner can do neither, nor take it back
+  await B.createInvite(db, 'mia', { bandId: id, role: 'admin' }, T0);
+  await rejects(B.createInvite(db, 'olive', { bandId: id, role: 'admin' }, T0), 'permission-denied');
+  await rejects(B.transferOwnership(db, 'olive', { bandId: id, targetUid: 'mia' }), 'permission-denied');
+  await rejects(B.removeMember(db, 'olive', { bandId: id, targetUid: 'mia' }), 'failed-precondition');
+  await rejects(B.setMemberRole(db, 'olive', { bandId: id, targetUid: 'mia', role: 'member' }), 'permission-denied');
+  await B.removeMember(db, 'mia', { bandId: id, targetUid: 'olive' });
+});
+
+test('transferOwnership: can go to an admin, and the old owner can then leave like anyone else', async () => {
+  const id = await mkBand();
+  await join(id, 'olive', 'adam', 'admin');
+  await B.transferOwnership(db, 'olive', { bandId: id, targetUid: 'adam' });
+  await B.removeMember(db, 'olive', { bandId: id, targetUid: 'olive' });
+  assert.equal((await db.doc(`bands/${id}/members/olive`).get()).exists, false);
+  assert.equal((await db.doc(`bands/${id}`).get()).data().ownerUid, 'adam');
+});
+
+test('transferOwnership: only the active owner can do it; outsiders learn nothing about membership', async () => {
+  const id = await mkBand();
+  await join(id, 'olive', 'adam', 'admin');
+  await join(id, 'olive', 'mia');
+  for (const who of ['adam', 'mia', 'stan']) {
+    for (const target of ['adam', 'mia', 'ghost'].filter(t => t !== who)) await rejects(B.transferOwnership(db, who, { bandId: id, targetUid: target }), 'permission-denied');
+  }
+  await rejects(B.transferOwnership(db, 'olive', { bandId: id, targetUid: 'ghost' }), 'not-found');
+  await rejects(B.transferOwnership(db, 'olive', { bandId: id, targetUid: 'olive' }), 'invalid-argument');
+  await rejects(B.transferOwnership(db, null, { bandId: id, targetUid: 'mia' }), 'unauthenticated');
+  await rejects(B.transferOwnership(db, 'olive', { bandId: id }), 'invalid-argument');
+  await db.doc(`bands/${id}/members/olive`).update({ covered: false });
+  await rejects(B.transferOwnership(db, 'olive', { bandId: id, targetUid: 'mia' }), 'permission-denied');   // a lapsed owner can't act either
+  assert.equal((await db.doc(`bands/${id}`).get()).data().ownerUid, 'olive');
+});
+
+test('transferOwnership: not to someone locked out, and not to someone already at the owned-bands cap', async () => {
+  const id = await mkBand();
+  await join(id, 'olive', 'ursula');
+  await db.doc(`bands/${id}/members/ursula`).update({ covered: false });
+  await rejects(B.transferOwnership(db, 'olive', { bandId: id, targetUid: 'ursula' }), 'failed-precondition');
+  await join(id, 'olive', 'busy');
+  for (let i = 0; i < 5; i++) await B.createBand(db, 'busy', { name: 'B' + i }, T0);
+  await rejects(B.transferOwnership(db, 'olive', { bandId: id, targetUid: 'busy' }), 'failed-precondition');
+  assert.equal((await db.doc(`bands/${id}`).get()).data().ownerUid, 'olive');
+});
+
+test('transferOwnership: two simultaneous handovers to different people: one wins, never two owners', async () => {
+  const id = await mkBand();
+  await join(id, 'olive', 'mia');
+  await join(id, 'olive', 'max');
+  const r = await Promise.allSettled([
+    B.transferOwnership(db, 'olive', { bandId: id, targetUid: 'mia' }),
+    B.transferOwnership(db, 'olive', { bandId: id, targetUid: 'max' }),
+  ]);
+  assert.equal(r.filter(x => x.status === 'fulfilled').length, 1);
+  assert.equal((await db.collection(`bands/${id}/members`).where('role', '==', 'owner').get()).size, 1);
+  const owner = (await db.doc(`bands/${id}`).get()).data().ownerUid;
+  assert.equal((await db.doc(`bands/${id}/members/${owner}`).get()).data().role, 'owner');
+});
+
+test('transferOwnership: the rules still hold after a handover (clients cannot touch ownerUid)', async () => {
+  const id = await mkBand();
+  await join(id, 'olive', 'mia');
+  await B.transferOwnership(db, 'olive', { bandId: id, targetUid: 'mia' });
+  const { updateDoc } = require('firebase/firestore');
+  await assertFails(updateDoc(doc(asClient('olive'), `bands/${id}`), { ownerUid: 'olive' }));
+  await assertFails(updateDoc(doc(asClient('mia'), `bands/${id}`), { ownerUid: 'stan' }));
+  await assertSucceeds(updateDoc(doc(asClient('olive'), `bands/${id}`), { name: 'Still an admin' }));
+});
+
 test('callable wrappers load and export every function', () => {
   const m = require('../functions/index.js');
-  for (const n of ['createBand', 'createInvite', 'revokeInvite', 'redeemInvite', 'removeMember', 'setMemberRole']) assert.ok(m[n], n);
+  for (const n of ['createBand', 'createInvite', 'revokeInvite', 'redeemInvite', 'removeMember', 'setMemberRole', 'transferOwnership']) assert.ok(m[n], n);
 });
