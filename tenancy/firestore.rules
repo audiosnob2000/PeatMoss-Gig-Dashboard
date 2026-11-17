@@ -8,10 +8,13 @@ rules_version = '2';
 // never by a client. So "is this person in this band" is one lookup, and a query that
 // forgets the band reads nothing instead of reading someone else's data.
 //
-// Roles: owner, admin, member, sub (read-only fill-in).
+// Roles: owner, admin, member. (No read-only fill-in role: a sub gets a text message.)
+//
 // Billing is per person. The server marks a member "covered: false" when their own
-// subscription lapses; that person becomes read-only for shared content and keeps full read
-// access to everything. A missing field means covered (trial, new member). Where the
+// subscription lapses. That person is locked out of the band's content entirely: no gigs,
+// charts, sets, or member list. They can still see the band's name, their own membership
+// record (so the app can say "subscribe to continue"), and their own mileage history (their
+// own records, needed for taxes). A missing field means covered (trial, new member). Where
 // coverage comes from (own plan today, a group seat later) is invisible to these rules.
 
 service cloud.firestore {
@@ -21,19 +24,20 @@ service cloud.firestore {
     function memberPath(bandId) { return /databases/$(database)/documents/bands/$(bandId)/members/$(request.auth.uid); }
 
     function isMember(bandId) { return signedIn() && exists(memberPath(bandId)); }
-    function roleOf(bandId) { return get(memberPath(bandId)).data.role; }
-    function hasRole(bandId, roles) { return isMember(bandId) && roleOf(bandId) in roles; }
+    function memberData(bandId) { return get(memberPath(bandId)).data; }
+    function covered(bandId) { return memberData(bandId).get('covered', true) != false; }
+    // A member whose own subscription is current. Everything below that touches band
+    // content goes through this, so an uncovered person gets nothing.
+    function active(bandId) { return isMember(bandId) && covered(bandId); }
+    function hasRole(bandId, roles) { return active(bandId) && memberData(bandId).role in roles; }
     function isManager(bandId) { return hasRole(bandId, ['owner', 'admin']); }
     function isPlayer(bandId) { return hasRole(bandId, ['owner', 'admin', 'member']); }
-
-    // An uncovered person (their own subscription lapsed) cannot change shared band content.
-    function covered(bandId) { return get(memberPath(bandId)).data.get('covered', true) != false; }
-    function canWriteShared(bandId) { return isPlayer(bandId) && covered(bandId); }
 
     function mine(data) { return data.get('uid', '') == request.auth.uid; }
     function uidUnchanged() { return request.resource.data.get('uid', '') == resource.data.get('uid', ''); }
 
     match /bands/{bandId} {
+      // Name and trial info only; an uncovered member needs it to see the subscribe screen.
       allow read: if isMember(bandId);
       // Created and deleted only by Cloud Functions. Admins may change these fields and
       // nothing else: owner, billing, createdAt and the rest are server-only.
@@ -43,7 +47,7 @@ service cloud.firestore {
       allow create, delete: if false;
 
       match /members/{uid} {
-        allow read: if isMember(bandId);
+        allow read: if active(bandId) || (isMember(bandId) && request.auth.uid == uid);
         allow write: if false;
       }
 
@@ -53,20 +57,17 @@ service cloud.firestore {
       }
 
       match /gigs/{id} {
-        allow read: if isMember(bandId);
-        allow create, update, delete: if canWriteShared(bandId);
+        allow read, create, update, delete: if isPlayer(bandId);
       }
 
       match /setlists/{id} {
-        allow read: if isMember(bandId);
-        allow create, update, delete: if canWriteShared(bandId);
+        allow read, create, update, delete: if isPlayer(bandId);
       }
 
-      // Availability marks are the band's scheduling, not a fill-in's business.
       match /unavailableDates/{id} {
         allow read: if isPlayer(bandId);
-        allow create: if canWriteShared(bandId) && mine(request.resource.data);
-        allow update, delete: if canWriteShared(bandId) && mine(resource.data);
+        allow create: if isPlayer(bandId) && mine(request.resource.data);
+        allow update, delete: if isPlayer(bandId) && mine(resource.data);
       }
 
       // Charts. A private chart is readable and editable only by whoever made it, enforced
@@ -75,41 +76,42 @@ service cloud.firestore {
       // shared only if it says so explicitly: defaulting a missing field to "shared" makes
       // the engine accept an unfiltered list that includes private charts (tested).
       match /songs/{id} {
-        allow read: if isMember(bandId)
+        allow read: if isPlayer(bandId)
           && (resource.data.get('shared', false) == true || mine(resource.data));
-        allow create: if canWriteShared(bandId) && mine(request.resource.data);
-        allow update: if canWriteShared(bandId) && uidUnchanged()
+        allow create: if isPlayer(bandId) && mine(request.resource.data);
+        allow update: if isPlayer(bandId) && uidUnchanged()
           && (resource.data.get('shared', false) == true || mine(resource.data));
-        allow delete: if canWriteShared(bandId)
+        allow delete: if isPlayer(bandId)
           && (resource.data.get('shared', false) == true || mine(resource.data));
       }
 
       // Band-wide settings such as the stage plot.
       match /settings/{doc} {
-        allow read: if isMember(bandId);
-        allow write: if isManager(bandId) && covered(bandId);
+        allow read: if isPlayer(bandId);
+        allow write: if isManager(bandId);
       }
 
-      // Personal bookkeeping. Never blocked by billing, never visible to anyone else.
+      // Personal bookkeeping, never visible to anyone else.
       match /checklists/{uid} {
-        allow read, write: if isMember(bandId) && request.auth.uid == uid;
+        allow read, write: if isPlayer(bandId) && request.auth.uid == uid;
       }
       match /unpaidGigs/{uid} {
         allow read, write: if isPlayer(bandId) && request.auth.uid == uid;
       }
       match /mileageTrips/{tripId} {
-        allow read: if isPlayer(bandId) && mine(resource.data);
+        // Reading your own history stays open even when uncovered (your records, for taxes).
+        allow read: if isMember(bandId) && mine(resource.data);
         allow create: if isPlayer(bandId) && mine(request.resource.data);
         allow update: if isPlayer(bandId) && mine(resource.data) && uidUnchanged();
         allow delete: if isPlayer(bandId) && mine(resource.data);
       }
 
       // A phone registers its own push token. Nobody can read tokens back; only the
-      // reminder functions (Admin SDK) do.
+      // reminder functions (Admin SDK) do. An uncovered person can remove theirs, not add one.
       match /fcmTokens/{token} {
         allow read: if false;
-        allow create: if isMember(bandId) && mine(request.resource.data);
-        allow update: if isMember(bandId) && mine(resource.data) && uidUnchanged();
+        allow create: if isPlayer(bandId) && mine(request.resource.data);
+        allow update: if isPlayer(bandId) && mine(resource.data) && uidUnchanged();
         allow delete: if isMember(bandId) && mine(resource.data);
       }
     }

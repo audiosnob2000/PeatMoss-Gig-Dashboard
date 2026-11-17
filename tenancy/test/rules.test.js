@@ -16,6 +16,8 @@ before(async () => {
 after(async () => { await env.cleanup(); });
 
 // Fresh, identical data before every test.
+//   olive owner, adam admin, mia and max members, all covered (paid up or in trial).
+//   ursula (member) and carl (admin) have a lapsed personal subscription: covered:false.
 beforeEach(async () => {
   await env.clearFirestore();
   await env.withSecurityRulesDisabled(async ctx => {
@@ -24,9 +26,9 @@ beforeEach(async () => {
     for (const [id, name] of [[A, 'Band A'], [B, 'Band B']]) {
       await put(`bands/${id}`, { name, ownerUid: 'olive', timeZone: 'America/New_York', billing: { trialEndsAt: 1 } });
     }
-    const roles = { olive: 'owner', adam: 'admin', mia: 'member', max: 'member', sam: 'sub' };
+    const roles = { olive: 'owner', adam: 'admin', mia: 'member', max: 'member' };
     for (const [uid, role] of Object.entries(roles)) await put(`bands/${A}/members/${uid}`, { role });
-    await put(`bands/${A}/members/ursula`, { role: 'member', covered: false });   // their own subscription lapsed
+    await put(`bands/${A}/members/ursula`, { role: 'member', covered: false });
     await put(`bands/${A}/members/carl`, { role: 'admin', covered: false });
     await put(`bands/${B}/members/bob`, { role: 'owner' });
     for (const b of [A, B]) {
@@ -37,13 +39,17 @@ beforeEach(async () => {
     await put(`bands/${A}/songs/private1`, { name: 'My practice chart', shared: false, uid: 'mia' });
     await put(`bands/${A}/mileageTrips/mia1`, { uid: 'mia', miles: 40 });
     await put(`bands/${A}/mileageTrips/max1`, { uid: 'max', miles: 25 });
+    await put(`bands/${A}/mileageTrips/ursula1`, { uid: 'ursula', miles: 12 });
     await put(`bands/${A}/checklists/mia`, { members: [] });
+    await put(`bands/${A}/checklists/ursula`, { members: [] });
     await put(`bands/${A}/unpaidGigs/mia`, { gigIds: [] });
     await put(`bands/${A}/unavailableDates/2027-02-01__mia`, { date: '2027-02-01', name: 'Mia', uid: 'mia' });
     await put(`bands/${A}/settings/stagePlot`, { stagePlotUrl: '' });
     await put(`bands/${A}/invites/ABC123`, { role: 'member', expiresAt: 1 });
     await put(`bands/${A}/fcmTokens/tok-mia`, { uid: 'mia', token: 'tok-mia' });
+    await put(`bands/${A}/fcmTokens/tok-ursula`, { uid: 'ursula', token: 'tok-ursula' });
     await put(`users/mia/memberships/${A}`, { role: 'member' });
+    await put(`users/ursula/memberships/${A}`, { role: 'member' });
     await put(`users/mia/private/googleAuth`, { refreshToken: 'secret' });
     await put(`sentReminders/x`, { sentAt: 1 });
     // today's flat collections, which must be closed after cutover
@@ -88,8 +94,8 @@ test("band isolation: A's people cannot touch B, and B's cannot touch A", async 
   }
 });
 
-test('every role can read the band, its members, gigs, setlists and shared charts', async () => {
-  for (const uid of ['olive', 'adam', 'mia', 'sam']) {
+test('every paid-up role can read the band, its members, gigs, setlists, shared charts and settings', async () => {
+  for (const uid of ['olive', 'adam', 'mia']) {
     const db = as(uid);
     await ok(g(db, `bands/${A}`));
     await ok(g(db, `bands/${A}/members/mia`));
@@ -101,29 +107,74 @@ test('every role can read the band, its members, gigs, setlists and shared chart
   }
 });
 
-test('owner, admin and member can write shared content; a sub cannot write any of it', async () => {
+test('owner, admin and member can all add, edit and delete gigs, setlists and shared charts', async () => {
   for (const uid of ['olive', 'adam', 'mia']) {
     const db = as(uid);
     await ok(s(db, `bands/${A}/gigs/new-${uid}`, { venue: 'x', date: '2027-03-01' }));
     await ok(updateDoc(doc(db, `bands/${A}/gigs/g1`), { notes: 'hi' }));
     await ok(s(db, `bands/${A}/setlists/new-${uid}`, { name: 'x' }));
     await ok(s(db, `bands/${A}/songs/new-${uid}`, { name: 'x', shared: true, uid }));
+    await ok(deleteDoc(doc(db, `bands/${A}/gigs/new-${uid}`)));
   }
-  const sub = as('sam');
-  await no(s(sub, `bands/${A}/gigs/sub1`, { venue: 'x' }));
-  await no(updateDoc(doc(sub, `bands/${A}/gigs/g1`), { notes: 'hi' }));
-  await no(deleteDoc(doc(sub, `bands/${A}/gigs/g1`)));
-  await no(s(sub, `bands/${A}/setlists/sub1`, { name: 'x' }));
-  await no(s(sub, `bands/${A}/songs/sub1`, { name: 'x', shared: true, uid: 'sam' }));
-  await no(deleteDoc(doc(sub, `bands/${A}/songs/shared1`)));
 });
 
-test("mileage is private: you read, write and delete only your own, and a sub has none", async () => {
+test('LOCKOUT: a person whose own subscription lapsed gets no band content at all', async () => {
+  for (const uid of ['ursula', 'carl']) {
+    const u = as(uid);
+    await no(g(u, `bands/${A}/gigs/g1`));
+    await no(getDocs(collection(u, `bands/${A}/gigs`)));
+    await no(g(u, `bands/${A}/setlists/s1`));
+    await no(g(u, `bands/${A}/songs/shared1`));
+    await no(getDocs(query(collection(u, `bands/${A}/songs`), where('shared', '==', true))));
+    await no(g(u, `bands/${A}/settings/stagePlot`));
+    await no(g(u, `bands/${A}/members/mia`));                       // not even the member list
+    await no(g(u, `bands/${A}/unavailableDates/2027-02-01__mia`));
+    await no(s(u, `bands/${A}/gigs/new`, { venue: 'x' }));
+    await no(updateDoc(doc(u, `bands/${A}/gigs/g1`), { notes: 'x' }));
+    await no(deleteDoc(doc(u, `bands/${A}/gigs/g1`)));
+    await no(s(u, `bands/${A}/setlists/new`, { name: 'x' }));
+    await no(s(u, `bands/${A}/songs/new`, { name: 'x', shared: true, uid }));
+    await no(s(u, `bands/${A}/settings/stagePlot`, { stagePlotUrl: 'https://x' }));
+    await no(s(u, `bands/${A}/unavailableDates/2027-04-01__${uid}`, { date: '2027-04-01', name: 'U', uid }));
+    await no(s(u, `bands/${A}/checklists/${uid}`, { members: [] }));
+    await no(g(u, `bands/${A}/invites/ABC123`));
+    await no(s(u, `bands/${A}/fcmTokens/new-${uid}`, { uid, token: 'x' }));   // lapsed people stop getting reminders
+    await no(s(u, `bands/${A}/mileageTrips/new-${uid}`, { uid, miles: 3 }));
+  }
+  // an uncovered admin has no admin powers either
+  await no(updateDoc(doc(as('carl'), `bands/${A}`), { name: 'Renamed by Carl' }));
+});
+
+test('LOCKOUT leaves exactly what the app needs to say "subscribe to continue", plus your own mileage history', async () => {
+  const u = as('ursula');
+  await ok(g(u, `bands/${A}`));                                      // band name and trial info
+  await ok(g(u, `bands/${A}/members/ursula`));                       // your own membership record
+  await no(g(u, `bands/${A}/members/mia`));
+  await ok(g(u, `users/ursula/memberships/${A}`));
+  await ok(g(u, `bands/${A}/mileageTrips/ursula1`));                 // your own records, for taxes
+  await ok(getDocs(query(collection(u, `bands/${A}/mileageTrips`), where('uid', '==', 'ursula'))));
+  await no(g(u, `bands/${A}/mileageTrips/mia1`));
+  await ok(deleteDoc(doc(u, `bands/${A}/fcmTokens/tok-ursula`)));   // you can stop your own reminders
+  await no(deleteDoc(doc(u, `bands/${A}/mileageTrips/ursula1`)));   // but not edit or delete mileage while lapsed
+  await no(updateDoc(doc(u, `bands/${A}/mileageTrips/ursula1`), { miles: 1 }));
+});
+
+test('resubscribing is instant: flipping the server flag restores everything', async () => {
+  await no(g(as('ursula'), `bands/${A}/gigs/g1`));
+  await env.withSecurityRulesDisabled(ctx => updateDoc(doc(ctx.firestore(), `bands/${A}/members/ursula`), { covered: true }));
+  await ok(g(as('ursula'), `bands/${A}/gigs/g1`));
+  await ok(s(as('ursula'), `bands/${A}/gigs/back`, { venue: 'x' }));
+  // and a member with no flag at all (trial, just joined) is treated as covered
+  await env.withSecurityRulesDisabled(ctx => setDoc(doc(ctx.firestore(), `bands/${A}/members/newbie`), { role: 'member' }));
+  await ok(g(as('newbie'), `bands/${A}/gigs/g1`));
+});
+
+test("mileage is private: you read, write and delete only your own, not even the owner can read it", async () => {
   const mia = as('mia');
   await ok(g(mia, `bands/${A}/mileageTrips/mia1`));
   await no(g(mia, `bands/${A}/mileageTrips/max1`));
   await ok(getDocs(query(collection(mia, `bands/${A}/mileageTrips`), where('uid', '==', 'mia'))));
-  await no(getDocs(collection(mia, `bands/${A}/mileageTrips`)));           // an unfiltered list would include Max's
+  await no(getDocs(collection(mia, `bands/${A}/mileageTrips`)));           // an unfiltered list would include others'
   await no(getDocs(query(collection(mia, `bands/${A}/mileageTrips`), where('uid', '==', 'max'))));
   await ok(s(mia, `bands/${A}/mileageTrips/new`, { uid: 'mia', miles: 10 }));
   await no(s(mia, `bands/${A}/mileageTrips/forged`, { uid: 'max', miles: 10 }));
@@ -131,10 +182,7 @@ test("mileage is private: you read, write and delete only your own, and a sub ha
   await ok(updateDoc(doc(mia, `bands/${A}/mileageTrips/mia1`), { miles: 41 }));
   await no(deleteDoc(doc(mia, `bands/${A}/mileageTrips/max1`)));
   await ok(deleteDoc(doc(mia, `bands/${A}/mileageTrips/mia1`)));
-  // even the owner cannot read a member's mileage
   await no(g(as('olive'), `bands/${A}/mileageTrips/mia1`));
-  const sam = as('sam');
-  await no(s(sam, `bands/${A}/mileageTrips/sam1`, { uid: 'sam', miles: 5 }));
 });
 
 test('checklists and unpaid marks belong to one person', async () => {
@@ -145,11 +193,9 @@ test('checklists and unpaid marks belong to one person', async () => {
   await no(s(as('max'), `bands/${A}/checklists/mia`, { members: [1] }));
   await ok(g(as('mia'), `bands/${A}/unpaidGigs/mia`));
   await no(g(as('max'), `bands/${A}/unpaidGigs/mia`));
-  await no(g(as('sam'), `bands/${A}/unpaidGigs/sam`));                      // a sub has no money screens
-  await ok(s(as('sam'), `bands/${A}/checklists/sam`, { members: [] }));      // but a packing list is fine
 });
 
-test('private charts are readable and editable only by their owner; shared ones by any player', async () => {
+test('private charts are readable and editable only by their owner; shared ones by any paid-up member', async () => {
   const mia = as('mia'), max = as('max'), olive = as('olive');
   await ok(g(mia, `bands/${A}/songs/private1`));
   await no(g(max, `bands/${A}/songs/private1`));
@@ -161,7 +207,7 @@ test('private charts are readable and editable only by their owner; shared ones 
   await ok(getDocs(query(collection(max, `bands/${A}/songs`), where('shared', '==', true))));
   await ok(getDocs(query(collection(mia, `bands/${A}/songs`), where('uid', '==', 'mia'))));
   await no(getDocs(collection(max, `bands/${A}/songs`)));
-  // any player can fix a shared chart, but nobody can reassign who made it
+  // any member can fix a shared chart, but nobody can reassign who made it
   await ok(updateDoc(doc(max, `bands/${A}/songs/shared1`), { key: 'A' }));
   await no(updateDoc(doc(max, `bands/${A}/songs/shared1`), { uid: 'max' }));
   // a chart must be created in your own name
@@ -169,20 +215,22 @@ test('private charts are readable and editable only by their owner; shared ones 
 });
 
 test('membership and roles can only be changed by the server, never from the app', async () => {
-  for (const uid of ['olive', 'adam', 'mia', 'sam', 'stan']) {
+  for (const uid of ['olive', 'adam', 'mia', 'stan']) {
     const db = as(uid);
     await no(s(db, `bands/${A}/members/${uid}`, { role: 'owner' }));
     await no(updateDoc(doc(db, `bands/${A}/members/mia`), { role: 'owner' }));
     await no(deleteDoc(doc(db, `bands/${A}/members/max`)));
     await no(s(db, `users/${uid}/memberships/${A}`, { role: 'owner' }));
   }
+  // a lapsed person cannot mark themselves covered
+  await no(updateDoc(doc(as('ursula'), `bands/${A}/members/ursula`), { covered: true }));
+  await no(s(as('ursula'), `bands/${A}/members/ursula`, { role: 'member', covered: true }));
 });
 
-test('invites: managers can see them, players cannot, nobody can write them', async () => {
+test('invites: managers can see them, members cannot, nobody can write them', async () => {
   await ok(g(as('olive'), `bands/${A}/invites/ABC123`));
   await ok(g(as('adam'), `bands/${A}/invites/ABC123`));
   await no(g(as('mia'), `bands/${A}/invites/ABC123`));
-  await no(g(as('sam'), `bands/${A}/invites/ABC123`));
   await no(s(as('olive'), `bands/${A}/invites/NEW`, { role: 'owner' }));
   await no(s(as('stan'), `bands/${A}/invites/NEW`, { role: 'owner' }));
 });
@@ -192,62 +240,33 @@ test('band settings: admins can edit name, time zone, calendar; nobody can touch
     await ok(updateDoc(doc(as(uid), `bands/${A}`), { name: 'New name', timeZone: 'America/Chicago', calendarId: 'x@group.calendar.google.com' }));
   }
   await no(updateDoc(doc(as('mia'), `bands/${A}`), { name: 'Hijack' }));
-  await no(updateDoc(doc(as('sam'), `bands/${A}`), { name: 'Hijack' }));
   for (const uid of ['olive', 'adam']) {
     const db = as(uid);
     await no(updateDoc(doc(db, `bands/${A}`), { ownerUid: 'mallory' }));
-    await no(updateDoc(doc(db, `bands/${A}`), { billing: { writable: true, status: 'active' } }));
-    await no(updateDoc(doc(db, `bands/${A}`), { 'billing.writable': true }));
+    await no(updateDoc(doc(db, `bands/${A}`), { billing: { status: 'active' } }));
+    await no(updateDoc(doc(db, `bands/${A}`), { 'billing.trialEndsAt': 9999999999 }));
     await no(updateDoc(doc(db, `bands/${A}`), { name: 'ok', createdAt: 5 }));   // one forbidden key poisons the whole update
     await no(deleteDoc(doc(db, `bands/${A}`)));
   }
   await no(s(as('olive'), 'bands/fresh', { name: 'Fresh', ownerUid: 'olive' }));
 });
 
-test('stage plot and settings: managers write, everyone in the band reads', async () => {
+test('stage plot and settings: managers write, every paid-up member reads', async () => {
   await ok(s(as('adam'), `bands/${A}/settings/stagePlot`, { stagePlotUrl: 'https://x' }));
   await no(s(as('mia'), `bands/${A}/settings/stagePlot`, { stagePlotUrl: 'https://x' }));
-  await no(s(as('sam'), `bands/${A}/settings/stagePlot`, { stagePlotUrl: 'https://x' }));
-  await ok(g(as('sam'), `bands/${A}/settings/stagePlot`));
+  await ok(g(as('mia'), `bands/${A}/settings/stagePlot`));
 });
 
-test("an uncovered person (own subscription lapsed) can read everything and keep personal records, but cannot change shared content", async () => {
-  const u = as('ursula');
-  await ok(g(u, `bands/${A}`));
-  await ok(g(u, `bands/${A}/gigs/g1`));
-  await ok(getDocs(collection(u, `bands/${A}/gigs`)));
-  await ok(g(u, `bands/${A}/setlists/s1`));
-  await ok(g(u, `bands/${A}/songs/shared1`));
-  await ok(g(u, `bands/${A}/members/mia`));
-  await ok(s(u, `bands/${A}/mileageTrips/u1`, { uid: 'ursula', miles: 3 }));      // personal bookkeeping is never paywalled
-  await ok(s(u, `bands/${A}/checklists/ursula`, { members: [] }));
-  await no(s(u, `bands/${A}/gigs/new`, { venue: 'x' }));
-  await no(updateDoc(doc(u, `bands/${A}/gigs/g1`), { notes: 'x' }));
-  await no(deleteDoc(doc(u, `bands/${A}/gigs/g1`)));
-  await no(s(u, `bands/${A}/setlists/new`, { name: 'x' }));
-  await no(s(u, `bands/${A}/songs/new`, { name: 'x', shared: true, uid: 'ursula' }));
-  await no(s(u, `bands/${A}/unavailableDates/2027-04-01__ursula`, { date: '2027-04-01', name: 'U', uid: 'ursula' }));
-  // an uncovered admin can still run the band's people settings, but not change shared content
-  await ok(updateDoc(doc(as('carl'), `bands/${A}`), { name: 'Renamed by Carl' }));
-  await no(s(as('carl'), `bands/${A}/settings/stagePlot`, { stagePlotUrl: 'https://x' }));
-  await no(s(as('carl'), `bands/${A}/gigs/new`, { venue: 'x' }));
-  // covered people, and people with no flag at all (trial, newly joined), are unaffected
-  await ok(s(as('mia'), `bands/${A}/gigs/ok`, { venue: 'x' }));
-  await ok(s(as('olive'), `bands/${A}/gigs/ok2`, { venue: 'x' }));
-});
-
-test('availability marks: players only, and only your own', async () => {
+test('availability marks: paid-up members only, and only your own', async () => {
   await ok(g(as('mia'), `bands/${A}/unavailableDates/2027-02-01__mia`));
-  await no(g(as('sam'), `bands/${A}/unavailableDates/2027-02-01__mia`));
   await ok(s(as('max'), `bands/${A}/unavailableDates/2027-02-02__max`, { date: '2027-02-02', name: 'Max', uid: 'max' }));
   await no(s(as('max'), `bands/${A}/unavailableDates/2027-02-02__mia`, { date: '2027-02-02', name: 'Mia', uid: 'mia' }));
   await no(deleteDoc(doc(as('max'), `bands/${A}/unavailableDates/2027-02-01__mia`)));
   await ok(deleteDoc(doc(as('mia'), `bands/${A}/unavailableDates/2027-02-01__mia`)));
 });
 
-test('push tokens: register your own, never read anyone else back, never someone else\'s', async () => {
+test("push tokens: register your own, never read anyone's back, never register someone else's", async () => {
   await ok(s(as('max'), `bands/${A}/fcmTokens/tok-max`, { uid: 'max', token: 'tok-max' }));
-  await ok(s(as('sam'), `bands/${A}/fcmTokens/tok-sam`, { uid: 'sam', token: 'tok-sam' }));   // a sub still gets reminders
   await no(s(as('max'), `bands/${A}/fcmTokens/tok-evil`, { uid: 'mia', token: 'tok-evil' }));
   await no(g(as('mia'), `bands/${A}/fcmTokens/tok-mia`));
   await no(getDocs(collection(as('mia'), `bands/${A}/fcmTokens`)));
