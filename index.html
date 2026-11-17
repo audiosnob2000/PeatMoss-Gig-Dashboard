@@ -21,6 +21,7 @@
 <script src="vendor/firebase-firestore-compat.js"></script>
 <script src="vendor/firebase-messaging-compat.js"></script>
 <script src="vendor/firebase-auth-compat.js"></script>
+<script src="vendor/firebase-functions-compat.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{overflow-x:hidden;width:100%}
@@ -106,6 +107,7 @@ const FCM_VAPID_KEY='BKATe0QN1FrjWid92DVXJx_TCpwjD1iU7G3DTUN_E58quzdW6IbPRHr-h8B
 firebase.initializeApp(firebaseConfig);
 const db=firebase.firestore();
 const auth=firebase.auth();
+const fns=firebase.functions();
 try{db.enablePersistence({synchronizeTabs:true});}catch(err){}
 const messagingSupported=typeof window!=='undefined'&&'serviceWorker' in navigator&&'Notification' in window;
 const GOOGLE_CLIENT_ID='675499838790-l0lgct7rbkbc7u4lttqkpjta3vm9qrvi.apps.googleusercontent.com';
@@ -255,18 +257,6 @@ function transposeChart(text,steps){
 const today=new Date();
 const todayStr=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
 const yr=today.getFullYear();
-// First-run placeholder shown only until a real gig list loads (from
-// Firestore, or from this device's own localStorage cache once it has one).
-// Deliberately generic — this used to be 34 of Peat Moss's actual real
-// gigs, which meant anyone else's first-ever launch of this codebase saw
-// a stranger's real venue/wedding history dressed up to look like their
-// own live calendar. One obviously-fake entry, anchored to whatever month
-// the app happens to open in so it's never visibly stale, avoids that
-// without leaving the calendar looking totally blank on a first launch.
-const sampleMonth=String(today.getMonth()+1).padStart(2,'0');
-const SAMPLE=[
-  {id:1,date:`${yr}-${sampleMonth}-15`,venue:"Example Gig",location:"Tap to see how a gig looks — then add your own",type:"bar",status:"confirmed",time:"7:00–10:00 PM"},
-].map(g=>({...g,fromCalendar:true}));
 
 // A small "which maps app" sheet — two real <a href> links, Apple Maps and
 // Google Maps, each carrying the destination right in its own URL. This
@@ -2338,31 +2328,6 @@ function ReminderTimeSelect({value,onChange}){
 // no way to tell that from the app being broken. Deliberately keyed to
 // permission-denied only: losing signal in a venue reports 'unavailable'
 // instead, and must keep working offline as it always has.
-function SignInGate({authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,onSendReset,theme}){
-  const locked=e('div',{style:{fontSize:34,textAlign:'center',marginBottom:10}},'🔒');
-  return e('div',{style:{maxWidth:420,margin:'0 auto',padding:'2.5rem 1.25rem'}},
-    e('div',{style:{background:'#fff',border:'1px solid #e5e7eb',borderRadius:16,overflow:'hidden'}},
-      e('div',{style:{background:theme.primary,padding:'1.25rem 1.25rem 1.5rem'}},
-        locked,
-        e('div',{style:{color:'#fff',fontSize:19,fontWeight:600,textAlign:'center'}},
-          authUser?'This account can’t see the band’s shows':'Sign in to keep using the Gig Dashboard'),
-        e('div',{style:{color:theme.headerSoft||theme.accent,fontSize:13,textAlign:'center',marginTop:8,lineHeight:1.5}},
-          authUser
-            ?`You’re signed in as ${authUser.email}, but this account hasn’t been given access to the band’s shows, setlists and charts yet.`
-            :'The band’s shows, setlists and charts now need an account. It takes a minute, and everything comes straight back.')
-      ),
-      authUser
-        ?e('div',{style:{padding:'14px'}},
-            e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:12,lineHeight:1.5}},
-              'Ask whoever runs the band’s dashboard to add this email, or sign out and use the account you set up before.'),
-            e('button',{onClick:onSignOut,style:{width:'100%',color:'#b91c1c',borderColor:'#fecaca'}},'Sign out'))
-        :e(AccountSection,{authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,onSendReset,theme,initialMode:'signup',hideBlurb:true})
-    ),
-    !authUser&&e('div',{style:{fontSize:12,color:'#9ca3af',textAlign:'center',marginTop:14,lineHeight:1.5}},
-      'Use the same email you gave the band. Nothing you’ve saved is gone — signing in brings it back.')
-  );
-}
-
 // The "Change password" flow for someone already signed in. Firebase
 // requires a fresh credential before it will accept a password change, so
 // this always re-authenticates with the current password first — a stale
@@ -2723,7 +2688,7 @@ function CustomColorSwatch({selected,customColor,onPick}){
   );
 }
 
-function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar,onAutoScrolled,syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,onSendReset,onChangePassword}){
+function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar,onAutoScrolled,syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,onSendReset,onChangePassword,canManage,bandPanelProps}){
   const googleCalendarRowRef=useRef(null);
   const [showBandStatsModal,setShowBandStatsModal]=useState(false);
   // Metronome: per-device, same reasoning as mileage/checklist — a saved
@@ -2776,8 +2741,6 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
     if(m>11){m=0;y2++;}
     setScheduleCalMonth(m);setScheduleCalYear(y2);
   };
-  const [editingBandName,setEditingBandName]=useState(false);
-  const [bandNameValue,setBandNameValue]=useState('');
   const [addingTrip,setAddingTrip]=useState(false);
   const [manualDate,setManualDate]=useState(todayStr);
   const [manualMiles,setManualMiles]=useState('');
@@ -2788,7 +2751,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
     const newTrip={id:'trip'+Date.now(),venue:manualLabel.trim()||'Manual entry',date:manualDate,miles:parseFloat(miles.toFixed(1)),manual:true};
     setMileageLog(prev=>[...prev,newTrip]);
     const{id,...tripBody}=newTrip;
-    db.collection('mileageTrips').doc(id).set({...tripBody,deviceId:getUserId()}).catch(()=>alert('Could not save — check your connection and try again.'));
+    bc('mileageTrips').doc(id).set({...tripBody,uid:getUserId()}).catch(()=>alert('Could not save — check your connection and try again.'));
     setManualDate(todayStr);setManualMiles('');setManualLabel('');
     setAddingTrip(false);
   };
@@ -2852,7 +2815,6 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
       }));
   },[mileageLog]);
   const setMileageUnit=unit=>setSettings(s=>({...s,mileageUnit:unit}));
-  const saveBandName=()=>{if(bandNameValue.trim())setSettings(s=>({...s,bandName:bandNameValue.trim()}));setEditingBandName(false);};
 
   // Groups upcoming gigs by month, preserving date order, for the schedule
   // preview/print/share feature.
@@ -2923,25 +2885,15 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
       )
     ),
     e('div',{style:{padding:'1rem',maxWidth:520,margin:'0 auto'}},
+      e(Section,{icon:'👥',iconBg:'#E0F2F1',title:'Band',summary:bandPanelProps.band.name+' · '+bandPanelProps.myRole,isOpen:openSections.has('band'),onToggle:()=>toggleSection('band')},
+        e(BandPanel,bandPanelProps)
+      ),
       e(Section,{icon:'🎨',iconBg:'#FEE9F0',title:'Appearance',summary:appearanceSummary,isOpen:openSections.has('appearance'),onToggle:()=>toggleSection('appearance')},
         e(Row,{label:'Default view',border:true,
           right:e('select',{value:settings.defaultTab,onChange:ev=>setSettings(s=>({...s,defaultTab:ev.target.value})),
             style:{padding:'5px 8px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'auto'}},
             e('option',{value:'calendar'},'Calendar'),e('option',{value:'list'},'Shows'),e('option',{value:'songs'},'Songs'),e('option',{value:'checklist'},'Lists')
           )
-        }),
-        e(Row,{label:'Band name',border:true,
-          right:editingBandName
-            ?e('div',{style:{display:'flex',alignItems:'center',gap:6}},
-                e('input',{autoFocus:true,value:bandNameValue,onChange:ev=>setBandNameValue(ev.target.value),
-                  onKeyDown:ev=>{if(ev.key==='Enter')saveBandName();if(ev.key==='Escape')setEditingBandName(false);},
-                  style:{padding:'4px 8px',border:'1px solid #d1d5db',borderRadius:6,fontSize:13,width:160}}),
-                e('button',{onClick:saveBandName,style:{fontSize:12,padding:'4px 10px',borderRadius:6,border:'none',background:theme.mid,color:'#fff',cursor:'pointer'}},'Save')
-              )
-            :e('div',{style:{display:'flex',alignItems:'center',gap:8}},
-                e('span',{style:{fontSize:12,color:'#6b7280'}},settings.bandName),
-                e('button',{onClick:()=>{setBandNameValue(settings.bandName);setEditingBandName(true);},style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'Edit')
-              )
         }),
         e(Row,{label:'Color scheme',border:false,
           right:e('div',{style:{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-end'}},
@@ -3100,7 +3052,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
                 e('div',{style:{fontSize:13,fontWeight:500,color:theme.primary}},toDisplayDistance(t.miles).toFixed(1)+' '+mileageUnit),
                 e('button',{onClick:()=>{
                     setMileageLog(prev=>prev.filter(x=>x!==t));
-                    if(t.id) db.collection('mileageTrips').doc(t.id).delete().catch(()=>alert('Could not delete — check your connection and try again.'));
+                    if(t.id) bc('mileageTrips').doc(t.id).delete().catch(()=>alert('Could not delete — check your connection and try again.'));
                   },
                   style:{border:'none',background:'none',color:'#d1d5db',fontSize:18,cursor:'pointer',padding:'0 4px',lineHeight:1}},'×')
               )
@@ -3110,7 +3062,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
             e('button',{onClick:()=>{
                 if(!window.confirm('Clear all mileage logs?'))return;
                 const batch=db.batch();
-                mileageLog.forEach(t=>{if(t.id)batch.delete(db.collection('mileageTrips').doc(t.id));});
+                mileageLog.forEach(t=>{if(t.id)batch.delete(bc('mileageTrips').doc(t.id));});
                 batch.commit().catch(()=>alert('Could not delete — check your connection and try again.'));
                 setMileageLog([]);
               },style:{fontSize:12,color:'#b91c1c',borderColor:'#fca5a5',width:'100%',padding:'7px 0'}},'Clear mileage log')
@@ -3118,7 +3070,11 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         )
       ),
       e(Section,{icon:'🎸',iconBg:'#FFEDD5',title:'Stage Plot',summary:stagePlotSummary,isOpen:openSections.has('stageplot'),onToggle:()=>toggleSection('stageplot')},
-        e(StagePlotSection,{settings,setSettings,theme})
+        canManage
+          ?e(StagePlotSection,{settings,setSettings,theme})
+          :e('div',{style:{padding:'12px 14px',fontSize:13,color:'#6b7280',lineHeight:1.5}},
+              settings.stagePlotUrl||settings.stagePlotFile?'The stage plot is set. Only owners and admins can change it.':'No stage plot yet. An owner or admin can add one.',
+              (settings.stagePlotUrl||settings.stagePlotFile)&&e('div',{style:{marginTop:8}},e('button',{onClick:()=>window.open(settings.stagePlotUrl||settings.stagePlotFile.content,'_blank'),style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'View stage plot')))
       ),
       e(Section,{icon:'📤',iconBg:'#F3F4F6',title:'Share Schedule',isOpen:openSections.has('data'),onToggle:()=>toggleSection('data')},
         e(Row,{label:'Share schedule',sub:'A clean, printable view of upcoming shows to send to friends, family, or fans',border:false,
@@ -3579,23 +3535,341 @@ function GigDayScreen({todaysGigs,theme,settings,unpaidGigIds,onToggleUnpaid,mil
   );
 }
 
-function App(){
+// ── Multi-band ──────────────────────────────────────────────────────────
+// Everything a band owns lives under bands/{bandId}. Root decides which band
+// is open and mounts App with key=bandId, so switching bands throws away all
+// of one band's state and listeners and starts the next from nothing — no
+// path for one band's data to leak into another's screen. ACTIVE_BAND_ID is
+// set by Root immediately before it renders App and never changes while that
+// App instance is alive.
+let ACTIVE_BAND_ID=null;
+const bandRef=()=>db.collection('bands').doc(ACTIVE_BAND_ID);
+const bc=name=>bandRef().collection(name);
+// Local (per-phone) cache keys are per band, so a phone that belongs to two
+// bands never shows one band's gigs in the other.
+const lsKey=k=>'pmtf_b_'+ACTIVE_BAND_ID+'_'+k;
+const callBand=(name,data)=>fns.httpsCallable(name)(data).then(r=>r.data);
+const callBandAlert=(name,data)=>callBand(name,data).catch(err=>{alert((err&&err.message)||'Something went wrong — try again.');});
+
+const PRELOGIN_THEME=(()=>{
+  const base=THEMES.teal;const dark=needsDarkText(base.primary);
+  return {...base,headerText:dark?'#1a1a2e':'#fff',headerSoft:dark?'rgba(26,26,46,0.65)':null,
+    headerBase:dark?'26,26,46':'255,255,255',midText:needsDarkText(base.mid)?'#1a1a2e':'#fff'};
+})();
+
+function CardScreen({theme,icon,title,sub,children}){
+  return e('div',{style:{maxWidth:440,margin:'0 auto',padding:'2.5rem 1.25rem'}},
+    e('div',{style:{background:'#fff',border:'1px solid #e5e7eb',borderRadius:16,overflow:'hidden'}},
+      e('div',{style:{background:theme.primary,padding:'1.25rem 1.25rem 1.5rem'}},
+        icon&&e('div',{style:{fontSize:34,textAlign:'center',marginBottom:10}},icon),
+        e('div',{style:{color:theme.headerText||'#fff',fontSize:19,fontWeight:600,textAlign:'center'}},title),
+        sub&&e('div',{style:{color:theme.headerSoft||theme.accent,fontSize:13,textAlign:'center',marginTop:8,lineHeight:1.5}},sub)
+      ),
+      e('div',{style:{padding:'14px'}},children)
+    )
+  );
+}
+
+function AuthScreen({authBusy,authError,onSignUp,onSignIn,onSendReset}){
+  const theme=PRELOGIN_THEME;
+  return e('div',{style:{maxWidth:440,margin:'0 auto',padding:'2.5rem 1.25rem'}},
+    e('div',{style:{background:'#fff',border:'1px solid #e5e7eb',borderRadius:16,overflow:'hidden'}},
+      e('div',{style:{background:theme.primary,padding:'1.25rem 1.25rem 1.5rem'}},
+        e('div',{style:{fontSize:34,textAlign:'center',marginBottom:10}},'🎸'),
+        e('div',{style:{color:theme.headerText||'#fff',fontSize:19,fontWeight:600,textAlign:'center'}},'Gig Dashboard'),
+        e('div',{style:{color:theme.headerSoft||theme.accent,fontSize:13,textAlign:'center',marginTop:8,lineHeight:1.5}},
+          'Shows, setlists, charts and mileage for your band. Sign in or make an account to start or join a band.')
+      ),
+      e(AccountSection,{authUser:null,authBusy,authError,onSignUp,onSignIn,onSignOut:()=>{},onSendReset,theme,initialMode:'signup',hideBlurb:true})
+    )
+  );
+}
+
+const COMMON_ZONES=['America/New_York','America/Chicago','America/Denver','America/Phoenix','America/Los_Angeles','America/Anchorage','Pacific/Honolulu','America/Toronto','Europe/London','Europe/Paris','Europe/Berlin','Australia/Sydney'];
+
+// Shown when someone has no band yet, or asks to switch. Starting a band and
+// joining one by code both go through server functions: the app can never
+// write a membership itself.
+function BandPickerScreen({authUser,memberships,names,onChoose,onCreated,onJoined,onSignOut,onCancel}){
+  const theme=PRELOGIN_THEME;
+  const detected=(()=>{try{return Intl.DateTimeFormat().resolvedOptions().timeZone;}catch{return 'America/New_York';}})();
+  const zones=COMMON_ZONES.includes(detected)?COMMON_ZONES:[detected,...COMMON_ZONES];
+  const [mode,setMode]=useState(memberships.length?'list':'join');
+  const [name,setName]=useState('');
+  const [tz,setTz]=useState(detected);
+  const [code,setCode]=useState('');
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState('');
+  const run=(promise,done)=>{
+    setBusy(true);setError('');
+    promise.then(done).catch(err=>setError((err&&err.message)||'Something went wrong — try again.')).finally(()=>setBusy(false));
+  };
+  const create=()=>{if(busy||!name.trim())return;run(callBand('createBand',{name:name.trim(),timeZone:tz}),r=>onCreated(r.bandId));};
+  const join=()=>{if(busy||code.trim().length<6)return;run(callBand('redeemInvite',{code}),r=>onJoined(r.bandId));};
+  const tabBtn=(id,label)=>e('button',{onClick:()=>{setMode(id);setError('');},style:{flex:1,padding:'8px 0',fontSize:13,borderRadius:8,
+    border:'1px solid '+(mode===id?theme.primary:'#d1d5db'),background:mode===id?theme.primary:'#fff',color:mode===id?(theme.headerText||'#fff'):'#374151',cursor:'pointer'}},label);
+  return e(CardScreen,{theme,icon:'🎸',title:memberships.length?'Your bands':'Join or start a band',
+      sub:memberships.length?'Pick a band, or join or start another.':'Join your band with the code someone sent you, or start a new one.'},
+    memberships.length>0&&e('div',{style:{display:'flex',gap:8,marginBottom:12}},
+      tabBtn('list','My bands'),tabBtn('join','Join with code'),tabBtn('create','Start a band')),
+    memberships.length===0&&e('div',{style:{display:'flex',gap:8,marginBottom:12}},tabBtn('join','Join with code'),tabBtn('create','Start a band')),
+    mode==='list'&&e('div',{style:{display:'flex',flexDirection:'column',gap:8}},
+      memberships.map(m=>e('button',{key:m.bandId,onClick:()=>onChoose(m.bandId),
+        style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 14px',textAlign:'left',borderRadius:10,border:'1px solid #e5e7eb',background:'#fff',cursor:'pointer'}},
+        e('span',{style:{fontSize:15,fontWeight:500}},names[m.bandId]||'…'),
+        e('span',{style:{fontSize:11,color:'#6b7280',textTransform:'capitalize'}},m.role)))
+    ),
+    mode==='join'&&e('div',null,
+      e('label',null,'Invite code'),
+      e('input',{value:code,placeholder:'ABC123',autoCapitalize:'characters',autoComplete:'off',maxLength:12,'aria-label':'Invite code',
+        onChange:ev=>setCode(ev.target.value.toUpperCase()),onKeyDown:ev=>{if(ev.key==='Enter')join();},
+        style:{fontSize:22,letterSpacing:'0.2em',textAlign:'center',fontFamily:'ui-monospace,Menlo,monospace'}}),
+      e('div',{style:{fontSize:12,color:'#6b7280',margin:'6px 0 12px',lineHeight:1.5}},'Six letters and numbers from your band’s owner or an admin. You’ll be in right away.'),
+      e('button',{onClick:join,disabled:busy||code.trim().length<6,style:{background:theme.primary,color:theme.headerText||'#fff',borderColor:theme.primary,width:'100%'}},busy?'Joining…':'Join band')
+    ),
+    mode==='create'&&e('div',null,
+      e('label',null,'Band name'),
+      e('input',{value:name,placeholder:'Your band’s name',maxLength:80,'aria-label':'Band name',onChange:ev=>setName(ev.target.value),onKeyDown:ev=>{if(ev.key==='Enter')create();}}),
+      e('label',null,'Time zone'),
+      e('select',{value:tz,onChange:ev=>setTz(ev.target.value),'aria-label':'Time zone'},zones.map(z=>e('option',{key:z,value:z},z.replace(/_/g,' ')))),
+      e('div',{style:{fontSize:12,color:'#6b7280',margin:'8px 0 12px',lineHeight:1.5}},'You’ll be the band’s owner. Your whole band gets a 30-day free trial.'),
+      e('button',{onClick:create,disabled:busy||!name.trim(),style:{background:theme.primary,color:theme.headerText||'#fff',borderColor:theme.primary,width:'100%'}},busy?'Creating…':'Start band')
+    ),
+    error&&e('div',{role:'alert',style:{color:'#b91c1c',fontSize:13,marginTop:10}},error),
+    e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:16,fontSize:12,color:'#9ca3af'}},
+      e('span',null,authUser.email),
+      e('span',null,
+        onCancel&&e('a',{href:'#',onClick:ev=>{ev.preventDefault();onCancel();},style:{marginRight:12,color:'#6b7280'}},'‹ Back'),
+        e('a',{href:'#',onClick:ev=>{ev.preventDefault();onSignOut();},style:{color:'#6b7280'}},'Sign out'))
+    )
+  );
+}
+
+function Splash(){
+  return e('div',{style:{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'60vh',color:'#9ca3af',fontSize:14}},'Loading…');
+}
+
+function Root(){
+  const [authReady,setAuthReady]=useState(false);
+  const [authUser,setAuthUser]=useState(null);
+  const [authBusy,setAuthBusy]=useState(false);
+  const [authError,setAuthError]=useState('');
+  useEffect(()=>auth.onAuthStateChanged(u=>{setAuthUser(u);setAuthReady(true);}),[]);
+  const uid=authUser&&authUser.uid;
+
+  // The bands this person belongs to (undefined = still loading).
+  const [memberships,setMemberships]=useState(undefined);
+  useEffect(()=>{
+    setMemberships(undefined);
+    if(!uid)return;
+    return db.collection('users').doc(uid).collection('memberships').onSnapshot(
+      snap=>setMemberships(snap.docs.map(d=>({bandId:d.id,role:d.data().role}))),
+      err=>{console.warn('memberships',err&&err.code);setMemberships([]);});
+  },[uid]);
+  // Bands this person is known to be gone from. Their own membership record
+  // disappears the instant they are removed or leave, but the membership list
+  // can lag by a few seconds (a removed person's other listeners are all
+  // refused at once and the connection restarts), so trust the record.
+  const [gone,setGone]=useState({});
+  const rawMemberships=memberships;
+  const effMemberships=rawMemberships&&rawMemberships.filter(m=>!gone[m.bandId]);
+  useEffect(()=>{
+    if(!rawMemberships)return;
+    setGone(g=>{const ids=Object.keys(g).filter(id=>rawMemberships.some(m=>m.bandId===id));return ids.length===Object.keys(g).length?g:Object.fromEntries(ids.map(id=>[id,true]));});
+  },[rawMemberships]);
+  const [names,setNames]=useState({});
+  useEffect(()=>{
+    if(!memberships||!memberships.length)return;
+    let live=true;
+    Promise.all(memberships.map(m=>db.collection('bands').doc(m.bandId).get().then(d=>[m.bandId,d.exists?d.data().name:'(unavailable)']).catch(()=>[m.bandId,'(unavailable)'])))
+      .then(pairs=>{if(live)setNames(Object.fromEntries(pairs));});
+    return()=>{live=false;};
+  },[memberships&&memberships.map(m=>m.bandId).join(',')]);
+
+  const [activeBandId,setActiveBandId]=useState(()=>{try{return localStorage.getItem('pmtf_active_band');}catch{return null;}});
+  // A band someone just created or joined: the membership list catches up a
+  // moment later, so trust it until it does.
+  const [pendingBandId,setPendingBandId]=useState(null);
+  const [picking,setPicking]=useState(false);
+  // Signing out (from here or from Settings) forgets everything about the open
+  // band; and once the membership list has caught up, the "just joined" hint
+  // has done its job.
+  useEffect(()=>{if(!uid){setPendingBandId(null);setPicking(false);setRemoved(null);setGone({});}},[uid]);
+  useEffect(()=>{if(pendingBandId&&memberships&&memberships.some(m=>m.bandId===pendingBandId))setPendingBandId(null);},[memberships,pendingBandId]);
+  const chooseBand=id=>{setActiveBandId(id);setPicking(false);try{localStorage.setItem('pmtf_active_band',id);}catch{}};
+  const known=effMemberships&&effMemberships.some(m=>m.bandId===activeBandId);
+  const bandId=(known||(pendingBandId&&activeBandId===pendingBandId&&!gone[activeBandId]))?activeBandId
+    :(effMemberships&&effMemberships.length===1&&!pendingBandId?effMemberships[0].bandId:null);
+
+  // The open band and my own membership record in it, both live, so being
+  // removed or going unpaid changes the screen immediately.
+  const [bandDoc,setBandDoc]=useState(undefined);
+  const [myMember,setMyMember]=useState(undefined);
+  useEffect(()=>{
+    setBandDoc(undefined);setMyMember(undefined);
+    if(!uid||!bandId)return;
+    const bRef=db.collection('bands').doc(bandId);
+    const u1=bRef.onSnapshot(d=>setBandDoc({bandId,exists:d.exists,data:d.exists?{id:d.id,...d.data()}:null}),()=>setBandDoc({bandId,exists:false,data:null}));
+    const u2=bRef.collection('members').doc(uid).onSnapshot(d=>setMyMember({bandId,exists:d.exists,data:d.exists?d.data():null}),()=>setMyMember({bandId,exists:false,data:null}));
+    return()=>{u1();u2();};
+  },[uid,bandId]);
+
+  // My own membership record in the open band vanished: I was removed, or I
+  // left. A voluntary leave goes straight to the band list; a removal shows a
+  // one-time notice first.
+  const leavingRef=useRef(false);
+  const [removed,setRemoved]=useState(null);
+  useEffect(()=>{
+    if(!(myMember&&myMember.bandId===bandId&&!myMember.exists))return;
+    setGone(g=>g[bandId]?g:{...g,[bandId]:true});
+    if(leavingRef.current){
+      leavingRef.current=false;setActiveBandId(null);setPendingBandId(null);
+      try{localStorage.removeItem('pmtf_active_band');}catch{}
+      return;
+    }
+    setRemoved({bandId,name:(bandDoc&&bandDoc.data&&bandDoc.data.name)||names[bandId]||'this band'});
+  },[myMember,bandId]);
+  const dismissRemoved=()=>{setRemoved(null);setPendingBandId(null);setActiveBandId(null);try{localStorage.removeItem('pmtf_active_band');}catch{}};
+  const signUp=(email,password)=>{setAuthBusy(true);setAuthError('');auth.createUserWithEmailAndPassword(email,password).catch(err=>setAuthError(friendlyAuthError(err))).finally(()=>setAuthBusy(false));};
+  const signIn=(email,password)=>{setAuthBusy(true);setAuthError('');auth.signInWithEmailAndPassword(email,password).catch(err=>setAuthError(friendlyAuthError(err))).finally(()=>setAuthBusy(false));};
+  const signOut=()=>{try{localStorage.removeItem('pmtf_active_band');}catch{}setActiveBandId(null);setPendingBandId(null);setPicking(false);setRemoved(null);setGone({});auth.signOut().catch(()=>{});};
+  const sendReset=email=>auth.sendPasswordResetEmail(email);
+
+  if(!authReady)return e(Splash);
+  if(!authUser)return e(AuthScreen,{authBusy,authError,onSignUp:signUp,onSignIn:signIn,onSendReset:sendReset});
+  if(memberships===undefined)return e(Splash);
+  const enter=id=>{setGone(g=>{if(!g[id])return g;const n={...g};delete n[id];return n;});setRemoved(null);setPendingBandId(id);chooseBand(id);};
+  const pickerProps={authUser,memberships:effMemberships,names,onChoose:chooseBand,onSignOut:signOut,onCreated:enter,onJoined:enter};
+  if(removed){
+    return e(CardScreen,{theme:PRELOGIN_THEME,icon:'👋',title:'You’re no longer in this band',sub:'You were removed from '+removed.name+'.'},
+      e('button',{onClick:dismissRemoved,style:{width:'100%'}},'Choose another band'),
+      e('div',{style:{textAlign:'center',marginTop:12,fontSize:12}},e('a',{href:'#',onClick:ev=>{ev.preventDefault();signOut();},style:{color:'#9ca3af'}},'Sign out')));
+  }
+  if(picking)return e(BandPickerScreen,{...pickerProps,onCancel:bandId?()=>setPicking(false):null});
+  if(!bandId)return e(BandPickerScreen,pickerProps);
+  const bandReady=bandDoc&&bandDoc.bandId===bandId&&myMember&&myMember.bandId===bandId;
+  if(!bandReady)return e(Splash);
+  if(!bandDoc.exists||!myMember.exists)return e(Splash);   // the removal effect above takes over in a moment
+  if(myMember.data.covered===false){
+    return e(CardScreen,{theme:PRELOGIN_THEME,icon:'🔒',title:'Your access is paused',
+        sub:'Your subscription for '+bandDoc.data.name+' isn’t active, so its shows, setlists and charts are locked for you. Everyone else in the band is unaffected.'},
+      e('div',{style:{fontSize:13,color:'#6b7280',lineHeight:1.5,marginBottom:12}},'Resubscribe and everything comes straight back. Your own mileage history is still on this account.'),
+      e('button',{onClick:()=>setPicking(true),style:{width:'100%'}},'Switch band'),
+      e('div',{style:{textAlign:'center',marginTop:12,fontSize:12}},e('a',{href:'#',onClick:ev=>{ev.preventDefault();signOut();},style:{color:'#9ca3af'}},'Sign out')));
+  }
+  ACTIVE_BAND_ID=bandId;
+  return e(App,{key:bandId+':'+uid,band:bandDoc.data,myRole:myMember.data.role,onSwitchBand:()=>setPicking(true),
+    onLeavingBand:()=>{leavingRef.current=true;},onLeftBand:()=>{leavingRef.current=false;}});
+}
+
+// Everything about the band itself: name, calendar, who is in it, invite
+// codes, roles, leaving and handing the band over. Every change that touches
+// membership goes through a server function; only the name and calendar id
+// are written directly (the security rules allow owners and admins to).
+function BandPanel({theme,band,myRole,myUid,bandMembers,invites,onCall,onRename,onSetCalendarId,onSwitch,onLeaving,onLeft}){
+  const canManage=myRole==='owner'||myRole==='admin';
+  const isOwner=myRole==='owner';
+  const [busy,setBusy]=useState('');
+  const [inviteRole,setInviteRole]=useState('member');
+  const [copied,setCopied]=useState('');
+  const [nameVal,setNameVal]=useState(band.name||'');
+  const [calVal,setCalVal]=useState(band.calendarId||'');
+  useEffect(()=>setNameVal(band.name||''),[band.name]);
+  useEffect(()=>setCalVal(band.calendarId||''),[band.calendarId]);
+  const run=(key,name,data,confirmMsg)=>{
+    if(confirmMsg&&!window.confirm(confirmMsg))return Promise.resolve();
+    setBusy(key);
+    return onCall(name,data).finally(()=>setBusy(''));
+  };
+  const rank={owner:0,admin:1,member:2};
+  const sorted=[...bandMembers].sort((a,b)=>(rank[a.role]-rank[b.role])||String(a.name||a.email||a.id).localeCompare(String(b.name||b.email||b.id)));
+  const label=m=>m.name||m.email||'Band member';
+  const now=Date.now();
+  const liveInvites=invites.filter(i=>!i.revoked&&i.expiresAt>now&&i.uses<i.maxUses).sort((a,b)=>b.createdAt-a.createdAt);
+  const copy=(code)=>{
+    const text='Join '+band.name+' on the Gig Dashboard with code '+code;
+    const done=()=>{setCopied(code);setTimeout(()=>setCopied(''),2000);};
+    try{navigator.clipboard.writeText(text).then(done).catch(()=>alert(text));}catch{alert(text);}
+  };
+  const small={fontSize:12,padding:'5px 10px',borderRadius:8,border:'1px solid #d1d5db',background:'#fff',cursor:'pointer'};
+  const badge=(t,bg,fg)=>e('span',{style:{fontSize:10,padding:'2px 7px',borderRadius:10,background:bg,color:fg,textTransform:'uppercase',letterSpacing:'0.05em',fontWeight:600}},t);
+  return e('div',null,
+    e(Row,{label:'Band name',sub:canManage?null:'Only owners and admins can change this',border:true,right:canManage
+      ?e('div',{style:{display:'flex',gap:6,alignItems:'center'}},
+          e('input',{value:nameVal,maxLength:80,'aria-label':'Band name',onChange:ev=>setNameVal(ev.target.value),style:{padding:'4px 8px',border:'1px solid #d1d5db',borderRadius:6,fontSize:13,width:150}}),
+          nameVal.trim()&&nameVal.trim()!==band.name&&e('button',{style:small,onClick:()=>onRename(nameVal.trim())},'Save'))
+      :e('span',{style:{fontSize:13,color:'#6b7280'}},band.name)}),
+    e(Row,{label:'Your role',border:true,right:e('span',{style:{fontSize:13,color:'#6b7280',textTransform:'capitalize'}},myRole)}),
+    canManage&&e('div',{style:{padding:'12px 14px',borderBottom:'1px solid #e5e7eb'}},
+      e('div',{style:{fontSize:14,color:'#111827'}},'Google Calendar ID'),
+      e('div',{style:{fontSize:12,color:'#9ca3af',margin:'2px 0 8px',lineHeight:1.45}},'The calendar your band’s shows live on. In Google Calendar: Settings for that calendar › Integrate calendar › Calendar ID. It has to be a public calendar.'),
+      e('div',{style:{display:'flex',gap:6}},
+        e('input',{value:calVal,placeholder:'abc123…@group.calendar.google.com','aria-label':'Google Calendar ID',onChange:ev=>setCalVal(ev.target.value),style:{flex:1,minWidth:0,padding:'6px 8px',border:'1px solid #d1d5db',borderRadius:6,fontSize:12}}),
+        calVal.trim()!==(band.calendarId||'')&&e('button',{style:small,onClick:()=>onSetCalendarId(calVal.trim())},'Save'))),
+    e('div',{style:{padding:'12px 14px 4px',fontSize:12,color:'#6b7280',fontWeight:600,textTransform:'uppercase',letterSpacing:'0.06em'}},'Members ('+sorted.length+')'),
+    sorted.map(m=>{
+      const me=m.id===myUid;
+      const target=label(m);
+      const canRemove=!me&&m.role!=='owner'&&(isOwner||(canManage&&m.role==='member'));
+      return e('div',{key:m.id,'data-member':m.id,style:{padding:'10px 14px',borderBottom:'1px solid #f3f4f6'}},
+        e('div',{style:{display:'flex',alignItems:'center',gap:8,justifyContent:'space-between'}},
+          e('div',{style:{minWidth:0}},
+            e('div',{style:{fontSize:14,color:'#111827',overflow:'hidden',textOverflow:'ellipsis'}},target+(me?' (you)':'')),
+            m.name&&m.email&&e('div',{style:{fontSize:11,color:'#9ca3af',overflow:'hidden',textOverflow:'ellipsis'}},m.email)),
+          e('div',{style:{display:'flex',gap:6,alignItems:'center',flexShrink:0}},
+            m.covered===false&&badge('Unpaid','#FEE2E2','#991B1B'),
+            badge(m.role,m.role==='owner'?'#FEF3C7':m.role==='admin'?'#E0EFFE':'#F3F4F6',m.role==='owner'?'#92400E':m.role==='admin'?'#1E40AF':'#374151'))),
+        isOwner&&!me&&m.role!=='owner'&&e('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginTop:8}},
+          m.role==='member'&&e('button',{style:small,disabled:!!busy,onClick:()=>run('role'+m.id,'setMemberRole',{bandId:band.id,targetUid:m.id,role:'admin'})},'Make admin'),
+          m.role==='admin'&&e('button',{style:small,disabled:!!busy,onClick:()=>run('role'+m.id,'setMemberRole',{bandId:band.id,targetUid:m.id,role:'member'})},'Make member'),
+          m.covered!==false&&e('button',{style:small,disabled:!!busy,onClick:()=>run('own'+m.id,'transferOwnership',{bandId:band.id,targetUid:m.id},
+            'Hand '+band.name+' over to '+target+'? They become the owner and you become an admin. Only the owner can remove admins, hand the band on, or delete the band.')},'Make owner…'),
+          canRemove&&e('button',{style:{...small,color:'#b91c1c',borderColor:'#fecaca'},disabled:!!busy,onClick:()=>run('rm'+m.id,'removeMember',{bandId:band.id,targetUid:m.id},'Remove '+target+' from '+band.name+'?')},'Remove')),
+        !isOwner&&canRemove&&e('div',{style:{marginTop:8}},
+          e('button',{style:{...small,color:'#b91c1c',borderColor:'#fecaca'},disabled:!!busy,onClick:()=>run('rm'+m.id,'removeMember',{bandId:band.id,targetUid:m.id},'Remove '+target+' from '+band.name+'?')},'Remove'))
+      );
+    }),
+    canManage&&e('div',{style:{padding:'14px',borderTop:'1px solid #e5e7eb'}},
+      e('div',{style:{fontSize:14,color:'#111827',marginBottom:2}},'Invite someone'),
+      e('div',{style:{fontSize:12,color:'#9ca3af',marginBottom:8,lineHeight:1.45}},'Make a code and text it to them. They type it in under “Join with code” and they’re in right away.'),
+      e('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
+        isOwner&&e('select',{value:inviteRole,'aria-label':'Role for the invite',onChange:ev=>setInviteRole(ev.target.value),style:{width:'auto',padding:'5px 8px',fontSize:13}},
+          e('option',{value:'member'},'As a member'),e('option',{value:'admin'},'As an admin')),
+        e('button',{style:{...small,background:theme.primary,color:theme.headerText||'#fff',borderColor:theme.primary},disabled:!!busy,
+          onClick:()=>run('invite','createInvite',{bandId:band.id,role:isOwner?inviteRole:'member'})},busy==='invite'?'Making…':'New invite code')),
+      liveInvites.map(i=>e('div',{key:i.code,'data-invite':i.code,style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,marginTop:10,padding:'8px 10px',border:'1px solid #e5e7eb',borderRadius:10}},
+        e('div',null,
+          e('div',{style:{fontFamily:'ui-monospace,Menlo,monospace',fontSize:20,letterSpacing:'0.15em',color:'#111827'}},i.code),
+          e('div',{style:{fontSize:11,color:'#9ca3af'}},'Joins as '+i.role+' · '+(i.maxUses-i.uses)+' use'+((i.maxUses-i.uses)===1?'':'s')+' left · expires '+new Date(i.expiresAt).toLocaleDateString())),
+        e('div',{style:{display:'flex',gap:6}},
+          e('button',{style:small,onClick:()=>copy(i.code)},copied===i.code?'Copied':'Copy'),
+          e('button',{style:{...small,color:'#b91c1c',borderColor:'#fecaca'},disabled:!!busy,onClick:()=>run('rev'+i.code,'revokeInvite',{bandId:band.id,code:i.code})},'Revoke'))))
+    ),
+    e('div',{style:{padding:'14px',borderTop:'1px solid #e5e7eb',display:'flex',flexDirection:'column',gap:8}},
+      e('button',{style:{...small,width:'100%',padding:'8px 0'},onClick:onSwitch},'Switch band, or join or start another'),
+      !isOwner&&e('button',{style:{...small,width:'100%',padding:'8px 0',color:'#b91c1c',borderColor:'#fecaca'},disabled:!!busy,
+        onClick:()=>{if(!window.confirm('Leave '+band.name+'? You’ll lose access to its shows, setlists and charts until someone invites you back.'))return;onLeaving();run('leave','removeMember',{bandId:band.id,targetUid:myUid}).then(r=>{if(!(r&&r.ok))onLeft();});}},'Leave this band'),
+      isOwner&&e('div',{style:{fontSize:12,color:'#9ca3af',lineHeight:1.45}},'You’re the owner. To leave, hand the band to someone else first (“Make owner…” on their row).')
+    )
+  );
+}
+
+function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
+  const canManage=myRole==='owner'||myRole==='admin';
   const [settings,setSettings]=useState(()=>{
-    const defaults={bandName:'Peat Moss & The Fertilizers',theme:'teal',defaultTab:'calendar',showPast:false,showPastShows:false,homeAddress:'',stagePlotUrl:'',stagePlotFile:null,calendarId:'d1dbecfafbe7f667f304e39553b1d8deeaeb29d05caf884171cad149cc31ad1d@group.calendar.google.com',gigReminder1:'off',gigReminder2:'off',selfPaReminderEnabled:false,selfPaReminderTime:'4h',selfPaReminderTarget:'reminder2'};
+    const defaults={bandName:band.name,theme:'teal',defaultTab:'calendar',showPast:false,showPastShows:false,homeAddress:'',stagePlotUrl:'',stagePlotFile:null,calendarId:band.calendarId||'',gigReminder1:'off',gigReminder2:'off',selfPaReminderEnabled:false,selfPaReminderTime:'4h',selfPaReminderTarget:'reminder2'};
     try{
       const s=localStorage.getItem('pmtf_settings');
       if(!s) return defaults;
-      // Backfill calendarId for phones that saved settings before it existed —
-      // otherwise it's stuck permanently blank with no way to fix it in the UI,
-      // and gig writes to the shared calendar fail silently.
-      const parsed=JSON.parse(s);
-      return {...defaults,...parsed,calendarId:parsed.calendarId||defaults.calendarId};
+      // Personal preferences live on the phone; the band's name, calendar and
+      // stage plot always come from the band, never from a saved copy.
+      return {...defaults,...JSON.parse(s),bandName:band.name,calendarId:band.calendarId||'',stagePlotUrl:'',stagePlotFile:null};
     }catch{return defaults;}
   });
-  const [gigs,setGigs]=useState(()=>{try{const s=localStorage.getItem('pmtf_gigs');return s?JSON.parse(s):SAMPLE;}catch{return SAMPLE;}});
-  const [members,setMembers]=useState(()=>{try{const s=localStorage.getItem('pmtf_members');return s?JSON.parse(s):[];}catch{return [];}});
-  const [mileageLog,setMileageLog]=useState(()=>{try{const s=localStorage.getItem('pmtf_mileage');return s?JSON.parse(s):[];}catch{return [];}});
-  const [unpaidGigIds,setUnpaidGigIds]=useState(()=>{try{const s=localStorage.getItem('pmtf_unpaid_gigs');return s?JSON.parse(s):[];}catch{return [];}});
+  const [gigs,setGigs]=useState(()=>{try{const s=localStorage.getItem(lsKey('gigs'));return s?JSON.parse(s):[];}catch{return [];}});
+  const [members,setMembers]=useState(()=>{try{const s=localStorage.getItem(lsKey('members'));return s?JSON.parse(s):[];}catch{return [];}});
+  const [mileageLog,setMileageLog]=useState(()=>{try{const s=localStorage.getItem(lsKey('mileage'));return s?JSON.parse(s):[];}catch{return [];}});
+  const [unpaidGigIds,setUnpaidGigIds]=useState(()=>{try{const s=localStorage.getItem(lsKey('unpaid_gigs'));return s?JSON.parse(s):[];}catch{return [];}});
   const [unpaidMode,setUnpaidMode]=useState(false);
   // Separate storage key from members/checklists — a brand-new feature, so
   // there's nothing here to migrate and nothing existing to disturb.
@@ -3604,7 +3878,7 @@ function App(){
   // else's automatically. The localStorage read here is only a fallback for
   // instant first paint and to seed a one-time migration of anything saved
   // before this synced (see the onSnapshot effect below).
-  const [setlists,setSetlists]=useState(()=>{try{const s=localStorage.getItem('pmtf_setlists');return s?JSON.parse(s):[];}catch{return [];}});
+  const [setlists,setSetlists]=useState(()=>{try{const s=localStorage.getItem(lsKey('setlists'));return s?JSON.parse(s):[];}catch{return [];}});
   // Charts and Sets live in one tab now — this is the in-page switch between
   // them, replacing what used to be a jump to a separate Lists tab.
   const [songsSubView,setSongsSubView]=useState('charts');
@@ -3866,41 +4140,17 @@ function App(){
   const [authBusy,setAuthBusy]=useState(false);
   const [authError,setAuthError]=useState('');
   useEffect(()=>auth.onAuthStateChanged(u=>setAuthUser(u)),[]);
-  // Firestore rejected a read outright. That only happens when the security
-  // rules say this person isn't allowed the data — not when the phone is
-  // offline, which reports 'unavailable' and still serves the local cache.
-  // So this is the one error worth stopping the whole app for: every live
-  // listener has quietly died and nothing will ever update again.
-  const [accessDenied,setAccessDenied]=useState(false);
-  // Only a signed-out refusal is worth reloading on later: if someone was
-  // already signed in when the refusal came, signing in is not the fix and
-  // reloading would just hit the same wall forever.
-  const deniedWhileSignedOutRef=useRef(false);
-  const onDbError=err=>{
-    if(!err||err.code!=='permission-denied')return;
-    if(!auth.currentUser) deniedWhileSignedOutRef.current=true;
-    setAccessDenied(true);
-  };
-  // Shared landing spot for a write that failed silently before now. A
-  // permission-denied write gets the same full-screen sign-in gate as a
-  // dead listener (onDbError already covers that case) rather than a
-  // second, redundant message; anything else gets the plain "didn't save"
-  // alert this app already uses elsewhere, so the voice stays consistent.
+  // Who may see this band is decided by Root (it watches this person's
+  // membership live), so a refused read here needs no screen of its own: a
+  // removed or unpaid person is moved off this screen the moment that changes.
+  const onDbError=err=>{if(err&&err.code==='permission-denied')console.warn('permission-denied:',err.message);};
+  // Shared landing spot for a write that failed. Permission failures say so
+  // plainly; anything else gets the same "didn't save" alert as elsewhere.
   const reportWriteError=action=>err=>{
     onDbError(err);
-    if(err&&err.code==='permission-denied')return;
+    if(err&&err.code==='permission-denied'){alert("You don't have permission to do that in this band.");return;}
     alert('Could not '+action+' — check your connection and try again.');
   };
-  // Signing in re-subscribes only the listeners that depend on authUser;
-  // the rest were attached once with no dependencies and stay dead. Rather
-  // than thread a re-subscribe through eight effects for a path taken once
-  // in a member's life, reload and let everything attach fresh.
-  useEffect(()=>{
-    if(accessDenied&&authUser&&deniedWhileSignedOutRef.current){
-      deniedWhileSignedOutRef.current=false;
-      window.location.reload();
-    }
-  },[accessDenied,authUser]);
   const signUpWithEmail=(email,password)=>{
     setAuthBusy(true);setAuthError('');
     auth.createUserWithEmailAndPassword(email,password)
@@ -3928,52 +4178,6 @@ function App(){
     const credential=firebase.auth.EmailAuthProvider.credential(authedUser.email,currentPassword);
     return authedUser.reauthenticateWithCredential(credential).then(()=>authedUser.updatePassword(newPassword));
   };
-  // One-time, per sign-in: hand this device's existing personal data over to
-  // the account that just signed in, so a first login doesn't strand
-  // whatever was already here. Safe to re-run (idempotent) and never
-  // destructive — it only ever copies/reassigns onto the account id, nothing
-  // is deleted, so a failed or partial run just leaves data reachable under
-  // the old device id instead of losing it.
-  const identityMigratedRef=useRef(false);
-  useEffect(()=>{
-    if(!authUser||identityMigratedRef.current)return;
-    const uid=authUser.uid;
-    const legacyId=getDeviceId();
-    if(uid===legacyId)return;
-    identityMigratedRef.current=true;
-    // One alert for the whole migration, not one per collection — a failed
-    // run leaves data reachable under the old device id (see above), and
-    // this says so once instead of firing up to four near-identical alerts.
-    Promise.allSettled([
-      db.collection('mileageTrips').get().then(snap=>{
-        const mine=snap.docs.filter(d=>d.data().deviceId===legacyId);
-        return Promise.all(mine.map(d=>db.collection('mileageTrips').doc(d.id).update({deviceId:uid})));
-      }),
-      db.collection('songs').get().then(snap=>{
-        const mine=snap.docs.filter(d=>d.data().deviceId===legacyId);
-        return Promise.all(mine.map(d=>db.collection('songs').doc(d.id).update({deviceId:uid})));
-      }),
-      db.collection('checklists').doc(uid).get().then(uidDoc=>{
-        if(uidDoc.exists)return;
-        return db.collection('checklists').doc(legacyId).get().then(legacyDoc=>{
-          if(legacyDoc.exists)return db.collection('checklists').doc(uid).set(legacyDoc.data());
-        });
-      }),
-      db.collection('unpaidGigs').doc(uid).get().then(uidDoc=>{
-        if(uidDoc.exists)return;
-        return db.collection('unpaidGigs').doc(legacyId).get().then(legacyDoc=>{
-          if(legacyDoc.exists)return db.collection('unpaidGigs').doc(uid).set(legacyDoc.data());
-        });
-      })
-    ]).then(results=>{
-      if(results.some(r=>r.status==='rejected')){
-        onDbError(results.find(r=>r.status==='rejected').reason);
-        alert("Couldn't fully move your mileage/checklist history to this account. It's still there under this device — sign out and back in once you have a connection to finish moving it.");
-      }
-    });
-  },[authUser]);
-
-
   const theme=useMemo(()=>{
     const base=settings.theme==='custom'&&settings.customColor?buildTheme(settings.customColor,{preserveLightness:true}):(THEMES[settings.theme]||THEMES.teal);
     const dark=needsDarkText(base.primary);
@@ -3997,16 +4201,16 @@ function App(){
     }
   },[tab]);
 
-  useEffect(()=>{try{localStorage.setItem('pmtf_gigs',JSON.stringify(gigs));}catch{}},[gigs]);
-  useEffect(()=>{try{localStorage.setItem('pmtf_settings',JSON.stringify(settings));}catch{}},[settings]);
+  useEffect(()=>{try{localStorage.setItem(lsKey('gigs'),JSON.stringify(gigs));}catch{}},[gigs]);
+  useEffect(()=>{try{const{bandName,calendarId,stagePlotUrl,stagePlotFile,...personal}=settings;localStorage.setItem('pmtf_settings',JSON.stringify(personal));}catch{}},[settings]);
   useEffect(()=>{
-    try{localStorage.setItem('pmtf_members',JSON.stringify(members));}catch{}
-    if(checklistHydratedRef.current) db.collection('checklists').doc(getUserId()).set({members}).catch(reportWriteError('save your packing list'));
+    try{localStorage.setItem(lsKey('members'),JSON.stringify(members));}catch{}
+    if(checklistHydratedRef.current) bc('checklists').doc(getUserId()).set({members}).catch(reportWriteError('save your packing list'));
   },[members]);
-  useEffect(()=>{try{localStorage.setItem('pmtf_mileage',JSON.stringify(mileageLog));}catch{}},[mileageLog]);
+  useEffect(()=>{try{localStorage.setItem(lsKey('mileage'),JSON.stringify(mileageLog));}catch{}},[mileageLog]);
   useEffect(()=>{
-    try{localStorage.setItem('pmtf_unpaid_gigs',JSON.stringify(unpaidGigIds));}catch{}
-    if(unpaidHydratedRef.current) db.collection('unpaidGigs').doc(getUserId()).set({gigIds:unpaidGigIds}).catch(reportWriteError('save your unpaid-gig marks'));
+    try{localStorage.setItem(lsKey('unpaid_gigs'),JSON.stringify(unpaidGigIds));}catch{}
+    if(unpaidHydratedRef.current) bc('unpaidGigs').doc(getUserId()).set({gigIds:unpaidGigIds}).catch(reportWriteError('save your unpaid-gig marks'));
   },[unpaidGigIds]);
   useEffect(()=>{try{if(pushToken)localStorage.setItem('pmtf_push_token',pushToken);else localStorage.removeItem('pmtf_push_token');}catch{}},[pushToken]);
   // Register the service worker once so it's ready to receive background
@@ -4018,7 +4222,7 @@ function App(){
     navigator.serviceWorker.register('firebase-messaging-sw.js').then(registration=>{
       const messaging=firebase.messaging();
       messaging.onMessage(payload=>{
-        const title=(payload.notification&&payload.notification.title)||(payload.data&&payload.data.title)||'Peat Moss & The Fertilizers';
+        const title=(payload.notification&&payload.notification.title)||(payload.data&&payload.data.title)||'Gig Dashboard';
         const body=(payload.notification&&payload.notification.body)||(payload.data&&payload.data.body)||'';
         registration.showNotification(title,{body,data:payload.data||{}});
       });
@@ -4037,7 +4241,7 @@ function App(){
         firebase.messaging().getToken({vapidKey:FCM_VAPID_KEY,serviceWorkerRegistration:registration})
       ).then(token=>{
         if(!token) throw new Error('No token returned.');
-        return db.collection('fcmTokens').doc(token).set({token,createdAt:todayStr,ua:navigator.userAgent,reminder1:settings.gigReminder1,reminder2:settings.gigReminder2,selfPaReminderEnabled:settings.selfPaReminderEnabled,selfPaReminderTime:settings.selfPaReminderTime,selfPaReminderTarget:settings.selfPaReminderTarget}).then(()=>token);
+        return bc('fcmTokens').doc(token).set({token,uid:getUserId(),createdAt:todayStr,ua:navigator.userAgent,reminder1:settings.gigReminder1,reminder2:settings.gigReminder2,selfPaReminderEnabled:settings.selfPaReminderEnabled,selfPaReminderTime:settings.selfPaReminderTime,selfPaReminderTarget:settings.selfPaReminderTarget}).then(()=>token);
       }).then(token=>{
         setPushToken(token);setPushEnabling(false);
       }).catch(err=>{
@@ -4047,7 +4251,7 @@ function App(){
     });
   };
   const disablePushNotifications=()=>{
-    if(pushToken) db.collection('fcmTokens').doc(pushToken).delete().catch(reportWriteError('disable notifications'));
+    if(pushToken) bc('fcmTokens').doc(pushToken).delete().catch(reportWriteError('disable notifications'));
     setPushToken(null);
   };
   // Keep this device's reminder timing choices in sync with its Firestore
@@ -4055,62 +4259,48 @@ function App(){
   // when (and whether) to send this device a gig reminder.
   useEffect(()=>{
     if(!pushToken)return;
-    db.collection('fcmTokens').doc(pushToken).update({
+    // merge-set, not update: the same phone registers in each band it belongs
+    // to, and its token doc may not exist yet in this one.
+    bc('fcmTokens').doc(pushToken).set({
+      token:pushToken,uid:getUserId(),
       reminder1:settings.gigReminder1,reminder2:settings.gigReminder2,
       selfPaReminderEnabled:settings.selfPaReminderEnabled,selfPaReminderTime:settings.selfPaReminderTime,
       selfPaReminderTarget:settings.selfPaReminderTarget
-    }).catch(reportWriteError('save your notification settings'));
+    },{merge:true}).catch(err=>{onDbError(err);});
   },[pushToken,settings.gigReminder1,settings.gigReminder2,settings.selfPaReminderEnabled,settings.selfPaReminderTime,settings.selfPaReminderTarget]);
-  // The reminder Cloud Function can't read localStorage, so the calendar ID
-  // needs a shared copy it can actually reach.
+  // The band's name and calendar come from the band document. Owners and
+  // admins change them in Settings (written straight to the band, which the
+  // security rules allow for them and nobody else).
   useEffect(()=>{
-    if(!settings.calendarId)return;
-    db.collection('bandSettings').doc('global').set({calendarId:settings.calendarId},{merge:true}).catch(reportWriteError('save the calendar ID'));
-  },[settings.calendarId]);
-  // Live-sync the stage plot from Firestore, shared band-wide (unlike
-  // mileage/checklist/unpaid-gigs, this is one doc for the whole band, not
-  // per-device) — whoever uploads or links a stage plot, everyone should
-  // see it. Same one-time migration + hydration-guard pattern as those.
+    setSettings(s=>(s.bandName===band.name&&s.calendarId===(band.calendarId||''))?s:{...s,bandName:band.name,calendarId:band.calendarId||''});
+  },[band.name,band.calendarId]);
+  const renameBand=name=>bandRef().update({name}).catch(reportWriteError('rename the band'));
+  const setBandCalendarId=calendarId=>bandRef().update({calendarId}).catch(reportWriteError('save the calendar ID'));
+  // Who is in the band, and (for owners/admins) the live invite codes.
+  const [bandMembers,setBandMembers]=useState([]);
+  useEffect(()=>bc('members').onSnapshot(snap=>setBandMembers(snap.docs.map(d=>({id:d.id,...d.data()}))),onDbError),[]);
+  const [bandInvites,setBandInvites]=useState([]);
   useEffect(()=>{
-    let migrating=false;
-    const localUrl=settings.stagePlotUrl;
-    const localFile=settings.stagePlotFile;
-    const unsub=db.collection('bandSettings').doc('stagePlot').onSnapshot(doc=>{
-      if(!doc.exists&&!migrating&&(localUrl||localFile)&&!localStorage.getItem('pmtf_stageplot_migrated')){
-        migrating=true;
-        db.collection('bandSettings').doc('stagePlot').set({stagePlotUrl:localUrl||'',stagePlotFile:localFile||null}).then(()=>{
-          try{localStorage.setItem('pmtf_stageplot_migrated','1');}catch{}
-          stagePlotHydratedRef.current=true;
-        }).catch(()=>{migrating=false;});
-        return;
-      }
-      if(doc.exists){
-        const d=doc.data();
-        setSettings(s=>({...s,stagePlotUrl:d.stagePlotUrl||'',stagePlotFile:d.stagePlotFile||null}));
-      }
+    if(!canManage)return;
+    return bc('invites').onSnapshot(snap=>setBandInvites(snap.docs.map(d=>({code:d.id,...d.data()}))),onDbError);
+  },[canManage]);
+  // Live-sync the stage plot, shared band-wide (one doc inside the band).
+  // Everyone reads it; only owners and admins can change it.
+  useEffect(()=>{
+    const unsub=bc('settings').doc('stagePlot').onSnapshot(doc=>{
+      const d=doc.exists?doc.data():{};
+      setSettings(s=>({...s,stagePlotUrl:d.stagePlotUrl||'',stagePlotFile:d.stagePlotFile||null}));
       stagePlotHydratedRef.current=true;
     },err=>{stagePlotHydratedRef.current=true;onDbError(err);});
     return unsub;
   },[]);
   useEffect(()=>{
-    if(!stagePlotHydratedRef.current)return;
-    db.collection('bandSettings').doc('stagePlot').set({stagePlotUrl:settings.stagePlotUrl||'',stagePlotFile:settings.stagePlotFile||null}).catch(reportWriteError('save the stage plot'));
+    if(!stagePlotHydratedRef.current||!canManage)return;
+    bc('settings').doc('stagePlot').set({stagePlotUrl:settings.stagePlotUrl||'',stagePlotFile:settings.stagePlotFile||null}).catch(reportWriteError('save the stage plot'));
   },[settings.stagePlotUrl,settings.stagePlotFile]);
-  // Live-sync setlists from Firestore so every band member sees the same
-  // list. On first run, if Firestore is empty but this device already has
-  // setlists saved locally (from before sync existed), upload them once
-  // rather than letting them silently vanish.
+  // Live-sync setlists so every band member sees the same list.
   useEffect(()=>{
-    let migrating=false;
-    const unsub=db.collection('setlists').onSnapshot(snap=>{
-      if(snap.empty&&!migrating&&setlists.length>0&&!localStorage.getItem('pmtf_setlists_migrated')){
-        migrating=true;
-        const batch=db.batch();
-        setlists.forEach(s=>{const{id,...rest}=s;batch.set(db.collection('setlists').doc(id),rest);});
-        batch.commit().then(()=>{try{localStorage.setItem('pmtf_setlists_migrated','1');}catch{}})
-          .catch(()=>{migrating=false;});
-        return;
-      }
+    const unsub=bc('setlists').onSnapshot(snap=>{
       setSetlists(snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>a.id<b.id?-1:1));
     },onDbError);
     return unsub;
@@ -4119,24 +4309,26 @@ function App(){
   // migrate. One doc per person per date (keyed by date+uid) so re-marking
   // the same day just updates the name instead of piling up duplicates.
   useEffect(()=>{
-    const unsub=db.collection('unavailableDates').onSnapshot(snap=>{
+    const unsub=bc('unavailableDates').onSnapshot(snap=>{
       setUnavailable(snap.docs.map(d=>({id:d.id,...d.data()})));
     },onDbError);
     return unsub;
   },[]);
-  // Live-sync songs (chord charts) from Firestore — a fresh feature, no
-  // legacy local data to migrate. Shared songs show for everyone; private
-  // ones are still stored here (not local-only) but filtered to only show
-  // for the device that posted them, so they're not lost if that device's
-  // local storage ever gets cleared.
+  // Live-sync songs (chord charts). Shared charts show for everyone; a private
+  // chart is readable only by whoever made it, enforced by the security rules
+  // rather than by hiding it here. Rules are not filters, so this asks for the
+  // two sets separately: charts marked shared, and charts I made.
   useEffect(()=>{
-    const unsub=db.collection('songs').onSnapshot(snap=>{
-      const myId=getUserId();
-      setSongs(snap.docs.map(d=>({id:d.id,...d.data()}))
-        .filter(s=>s.shared||s.deviceId===myId)
-        .sort((a,b)=>a.name.localeCompare(b.name)));
-    },onDbError);
-    return unsub;
+    const myId=getUserId();
+    let shared=[],mine=[];
+    const publish=()=>{
+      const byId=new Map();
+      [...shared,...mine].forEach(sg=>byId.set(sg.id,sg));
+      setSongs(Array.from(byId.values()).sort((a,b)=>(a.name||'').localeCompare(b.name||'')));
+    };
+    const u1=bc('songs').where('shared','==',true).onSnapshot(snap=>{shared=snap.docs.map(d=>({id:d.id,...d.data()}));publish();},onDbError);
+    const u2=bc('songs').where('uid','==',myId).onSnapshot(snap=>{mine=snap.docs.map(d=>({id:d.id,...d.data()}));publish();},onDbError);
+    return()=>{u1();u2();};
   },[authUser]);
   // Live-sync gigs from Firestore so every device sees gigs added on any
   // other device instantly, whether or not that device is signed into
@@ -4146,7 +4338,7 @@ function App(){
   useEffect(()=>{
     const dedupeKey=g=>g.date+'|'+(g.venue||'').trim().toLowerCase();
     const prevRemoteIds=firestoreGigIdsRef.current;
-    const unsub=db.collection('gigs').onSnapshot(snap=>{
+    const unsub=bc('gigs').onSnapshot(snap=>{
       const remoteGigs=snap.docs.map(d=>({id:d.id,...d.data()}));
       const remoteIds=new Set(remoteGigs.map(g=>String(g.id)));
       const removedIds=new Set([...prevRemoteIds].filter(id=>!remoteIds.has(id)));
@@ -4186,69 +4378,27 @@ function App(){
     }catch{}
   },[googleAccessToken,googleTokenExpiresAt]);
 
-  // Back up this device's mileage log to Firestore so it survives local
-  // storage getting cleared (the same class of loss that hit gigs/setlists
-  // before they got synced). Mileage is personal — every trip carries this
-  // device's id and each client filters down to just its own, so nobody
-  // else's trips show up here even though the collection itself is shared.
+  // Mileage, the packing checklist and unpaid-gig marks are personal: each
+  // person's own, never visible to anyone else in the band (the security rules
+  // enforce that too). Mileage is read by asking only for my own trips.
   useEffect(()=>{
     const myId=getUserId();
-    let migrating=false;
-    const unsub=db.collection('mileageTrips').onSnapshot(snap=>{
-      const mine=snap.docs.filter(d=>d.data().deviceId===myId);
-      if(mine.length===0&&!migrating&&mileageLog.length>0&&!localStorage.getItem('pmtf_mileage_migrated')){
-        migrating=true;
-        const withIds=mileageLog.map(t=>t.id?t:{...t,id:'trip'+Date.now()+Math.random().toString(36).slice(2,8)});
-        const batch=db.batch();
-        withIds.forEach(t=>{const{id,...rest}=t;batch.set(db.collection('mileageTrips').doc(id),{...rest,deviceId:myId});});
-        batch.commit().then(()=>{
-          try{localStorage.setItem('pmtf_mileage_migrated','1');}catch{}
-          setMileageLog(withIds);
-        }).catch(()=>{migrating=false;});
-        return;
-      }
-      setMileageLog(mine.map(d=>{const{deviceId,...rest}=d.data();return{id:d.id,...rest};}));
+    const unsub=bc('mileageTrips').where('uid','==',myId).onSnapshot(snap=>{
+      setMileageLog(snap.docs.map(d=>{const{uid,deviceId,...rest}=d.data();return{id:d.id,...rest};}));
     },onDbError);
     return unsub;
   },[authUser]);
-
-  // Back up this device's checklist (members + their items) to Firestore,
-  // same reasoning and pattern as mileage above — personal, not shared
-  // band-wide, stored as one doc per device rather than per-item since the
-  // whole checklist is small and always written/read as a unit.
   useEffect(()=>{
     const myId=getUserId();
-    let migrating=false;
-    const unsub=db.collection('checklists').doc(myId).onSnapshot(doc=>{
-      if(!doc.exists&&!migrating&&members.length>0&&!localStorage.getItem('pmtf_members_migrated')){
-        migrating=true;
-        db.collection('checklists').doc(myId).set({members}).then(()=>{
-          try{localStorage.setItem('pmtf_members_migrated','1');}catch{}
-          checklistHydratedRef.current=true;
-        }).catch(()=>{migrating=false;});
-        return;
-      }
+    const unsub=bc('checklists').doc(myId).onSnapshot(doc=>{
       if(doc.exists) setMembers(doc.data().members||[]);
       checklistHydratedRef.current=true;
     },err=>{checklistHydratedRef.current=true;onDbError(err);});
     return unsub;
   },[authUser]);
-
-  // Back up this device's unpaid-gig marks to Firestore, same per-device
-  // pattern as the checklist above — which gigs you've flagged unpaid is
-  // personal bookkeeping, not something that should broadcast to the band.
   useEffect(()=>{
     const myId=getUserId();
-    let migrating=false;
-    const unsub=db.collection('unpaidGigs').doc(myId).onSnapshot(doc=>{
-      if(!doc.exists&&!migrating&&unpaidGigIds.length>0&&!localStorage.getItem('pmtf_unpaid_gigs_migrated')){
-        migrating=true;
-        db.collection('unpaidGigs').doc(myId).set({gigIds:unpaidGigIds}).then(()=>{
-          try{localStorage.setItem('pmtf_unpaid_gigs_migrated','1');}catch{}
-          unpaidHydratedRef.current=true;
-        }).catch(()=>{migrating=false;});
-        return;
-      }
+    const unsub=bc('unpaidGigs').doc(myId).onSnapshot(doc=>{
       if(doc.exists) setUnpaidGigIds(doc.data().gigIds||[]);
       unpaidHydratedRef.current=true;
     },err=>{unpaidHydratedRef.current=true;onDbError(err);});
@@ -4562,7 +4712,7 @@ function App(){
     // sign-in state — this is what makes a newly-added gig show up
     // everywhere instantly instead of waiting on the next calendar sync.
     const{id:_gid,...gigBody}=g;
-    db.collection('gigs').doc(String(g.id)).set(gigBody).catch(reportWriteError('save this gig'));
+    bc('gigs').doc(String(g.id)).set(gigBody).catch(reportWriteError('save this gig'));
     closeModal();
   };
   const deleteGig=async id=>{
@@ -4582,7 +4732,7 @@ function App(){
       }
     }
     setGigs(p=>p.filter(x=>x.id!==id));
-    db.collection('gigs').doc(String(id)).delete().catch(reportWriteError('delete this gig'));
+    bc('gigs').doc(String(id)).delete().catch(reportWriteError('delete this gig'));
     closeModal();
   };
 
@@ -4817,7 +4967,7 @@ function App(){
       };
       setMileageLog(prev=>[...prev,newTrip]);
       const{id,...tripBody}=newTrip;
-      db.collection('mileageTrips').doc(id).set({...tripBody,deviceId:getUserId()}).catch(reportWriteError('save this mileage trip'));
+      bc('mileageTrips').doc(id).set({...tripBody,uid:getUserId()}).catch(reportWriteError('save this mileage trip'));
     }
     setTrackingMiles(null);
     trackingRef.current=null;
@@ -4866,10 +5016,10 @@ function App(){
     const trimmed=(name||'').trim();
     if(!trimmed)return;
     try{localStorage.setItem('pmtf_unavail_name',trimmed);}catch{}
-    db.collection('unavailableDates').doc(unavailId(date)).set({date,name:trimmed,uid:getUserId(),updatedAt:Date.now()}).catch(reportWriteError('mark you unavailable'));
+    bc('unavailableDates').doc(unavailId(date)).set({date,name:trimmed,uid:getUserId(),updatedAt:Date.now()}).catch(reportWriteError('mark you unavailable'));
   };
   const unmarkUnavailable=date=>{
-    db.collection('unavailableDates').doc(unavailId(date)).delete().catch(reportWriteError('remove your unavailable mark'));
+    bc('unavailableDates').doc(unavailId(date)).delete().catch(reportWriteError('remove your unavailable mark'));
   };
 
   // "What's changed since you were last here" banner. There's no per-gig
@@ -4885,7 +5035,7 @@ function App(){
   const saveSeenGigsSnapshot=useCallback(()=>{
     try{
       const snap=gigs.map(g=>({id:g.id,date:g.date,time:g.time||'',venue:g.venue,status:g.status,notes:g.notes||''}));
-      localStorage.setItem('pmtf_last_seen_gigs',JSON.stringify(snap));
+      localStorage.setItem(lsKey('last_seen_gigs'),JSON.stringify(snap));
     }catch{}
   },[gigs]);
   useEffect(()=>{
@@ -4897,7 +5047,7 @@ function App(){
       if(changesComputedRef.current)return;
       changesComputedRef.current=true;
       let lastSeen=null;
-      try{lastSeen=JSON.parse(localStorage.getItem('pmtf_last_seen_gigs')||'null');}catch{}
+      try{lastSeen=JSON.parse(localStorage.getItem(lsKey('last_seen_gigs'))||'null');}catch{}
       if(!lastSeen){saveSeenGigsSnapshot();return;} // first-ever load — nothing to compare against yet
       const prevById=new Map(lastSeen.map(g=>[String(g.id),g]));
       const added=[],timeChanged=[],notesChanged=[];
@@ -4930,11 +5080,11 @@ function App(){
       // next time and puts the circle right back on a gig you already
       // looked at.
       try{
-        const lastSeen=JSON.parse(localStorage.getItem('pmtf_last_seen_gigs')||'[]');
+        const lastSeen=JSON.parse(localStorage.getItem(lsKey('last_seen_gigs'))||'[]');
         const idx=lastSeen.findIndex(x=>String(x.id)===String(g.id));
         const entry={id:g.id,date:g.date,time:g.time||'',venue:g.venue,status:g.status,notes:g.notes||''};
         if(idx>=0)lastSeen[idx]=entry;else lastSeen.push(entry);
-        localStorage.setItem('pmtf_last_seen_gigs',JSON.stringify(lastSeen));
+        localStorage.setItem(lsKey('last_seen_gigs'),JSON.stringify(lastSeen));
       }catch{}
     }
     setGigPopup(g);
@@ -4977,7 +5127,7 @@ function App(){
       ({type,content,fileName})=>{
         const updates={type,content,fileName,updatedAt:todayStr};
         if(editSetlistName.trim())updates.name=editSetlistName.trim();
-        db.collection('setlists').doc(replacingSetlistId).update(updates)
+        bc('setlists').doc(replacingSetlistId).update(updates)
           .catch(()=>alert('Could not save — check your connection and try again.'));
         setReplacingProcessing(false);
         setReplacingSetlistId(null);
@@ -5027,7 +5177,7 @@ function App(){
     if(!editSetlistName.trim()){setEditingSetlistId(null);return;}
     const updates={name:editSetlistName.trim(),updatedAt:todayStr};
     if(sl.type==='text'||sl.type==='link')updates.content=editSetlistContent;
-    db.collection('setlists').doc(sl.id).update(updates)
+    bc('setlists').doc(sl.id).update(updates)
       .catch(()=>alert('Could not save — check your connection and try again.'));
     setEditingSetlistId(null);
   };
@@ -5042,12 +5192,12 @@ function App(){
     const now=new Date();
     const name=newSetlistName.trim()||`${MONTHS[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
     const type=newSetlistMode==='link'?'link':newSetlistMode==='manual'?'text':newSetlistContentType;
-    db.collection('setlists').doc('sl'+Date.now()).set({name,type,content:newSetlistContent,fileName:newSetlistFileName||null,updatedAt:todayStr})
+    bc('setlists').doc('sl'+Date.now()).set({name,type,content:newSetlistContent,fileName:newSetlistFileName||null,updatedAt:todayStr})
       .catch(()=>alert('Could not save — check your connection and try again.'));
     resetSetlistForm();
   };
   const deleteSetlist=id=>{
-    db.collection('setlists').doc(id).delete().catch(()=>alert('Could not delete — check your connection and try again.'));
+    bc('setlists').doc(id).delete().catch(()=>alert('Could not delete — check your connection and try again.'));
     setViewingSetlist(null);setEditingSetlistId(null);setReplacingSetlistId(null);setViewingChartSetlist(null);
   };
   const openChartBuilderForEdit=sl=>{
@@ -5060,7 +5210,7 @@ function App(){
     const finalName=(name||'').trim()||`${MONTHS[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
     const id=isEdit?chartBuilder.id:'sl'+Date.now();
     const structureToSave=isEdit?chartBuilder.structure:chartSetStructure;
-    db.collection('setlists').doc(id).set({name:finalName,type:'charts',structure:structureToSave,sets:cleanedSets,updatedAt:todayStr},{merge:true})
+    bc('setlists').doc(id).set({name:finalName,type:'charts',structure:structureToSave,sets:cleanedSets,updatedAt:todayStr},{merge:true})
       .catch(()=>alert('Could not save — check your connection and try again.'));
     setChartBuilder(null);
     resetSetlistForm();
@@ -5090,7 +5240,7 @@ function App(){
         // Save button — otherwise picking a file mid-edit would silently
         // drop whatever name was typed.
         if(editSongName.trim())updates.name=editSongName.trim();
-        db.collection('songs').doc(replacingSongId).update(updates)
+        bc('songs').doc(replacingSongId).update(updates)
           .catch(()=>alert('Could not save — check your connection and try again.'));
         setReplacingSongProcessing(false);
         setReplacingSongId(null);
@@ -5136,7 +5286,7 @@ function App(){
     if(!editSongName.trim()){setEditingSongId(null);return;}
     const updates={name:editSongName.trim(),updatedAt:todayStr,shared:editSongShared};
     if(sg.type==='text'||sg.type==='link')updates.content=editSongContent;
-    db.collection('songs').doc(sg.id).update(updates)
+    bc('songs').doc(sg.id).update(updates)
       .catch(()=>alert('Could not save — check your connection and try again.'));
     setEditingSongId(null);
   };
@@ -5151,22 +5301,22 @@ function App(){
       return;
     }
     const type=newSongMode==='link'?'link':newSongMode==='manual'?'text':newSongContentType;
-    db.collection('songs').doc('sg'+Date.now()).set({
+    bc('songs').doc('sg'+Date.now()).set({
       name:newSongName.trim(),type,content:newSongContent,fileName:newSongFileName||null,
-      updatedAt:todayStr,shared:newSongShared,deviceId:getUserId(),
+      updatedAt:todayStr,shared:!!newSongShared,uid:getUserId(),
       key:newSongKey.trim()||null,tempo:newSongTempo.trim()||null,tag:newSongTag.trim()||null,rotated:false
     }).catch(()=>alert('Could not save — check your connection and try again.'));
     resetSongForm();
   };
   const deleteSong=id=>{
-    db.collection('songs').doc(id).delete().catch(()=>alert('Could not delete — check your connection and try again.'));
+    bc('songs').doc(id).delete().catch(()=>alert('Could not delete — check your connection and try again.'));
     setViewingSong(null);setEditingSongId(null);setReplacingSongId(null);
   };
   // Rotation is stored per-song (not per-device) since it's fixing an
   // inherent property of the uploaded photo — once someone straightens it,
   // everyone should see it right-side-up without re-doing the same fix.
   const toggleSongRotation=sg=>{
-    db.collection('songs').doc(sg.id).update({rotated:!sg.rotated})
+    bc('songs').doc(sg.id).update({rotated:!sg.rotated})
       .catch(()=>alert('Could not save — check your connection and try again.'));
   };
   // The transpose stepper only ever changes what's on screen right now —
@@ -5178,7 +5328,7 @@ function App(){
     if(liveViewingSong.key&&liveViewingSong.key.trim()){
       updates.key=transposeChordToken(liveViewingSong.key.trim(),transposeSteps);
     }
-    db.collection('songs').doc(liveViewingSong.id).update(updates)
+    bc('songs').doc(liveViewingSong.id).update(updates)
       .catch(()=>alert('Could not save — check your connection and try again.'));
     setTransposeSteps(0);
   };
@@ -5193,11 +5343,8 @@ function App(){
   const liveViewingSong=viewingSong&&(songs.find(s=>s.id===viewingSong.id)||viewingSong);
   const liveViewingChartSetlist=viewingChartSetlist&&(setlists.find(s=>s.id===viewingChartSetlist.id)||viewingChartSetlist);
 
-  // Takes precedence over every other screen, Settings included: if the data
-  // isn't coming, there is nothing useful behind this.
-  if(accessDenied)return e(SignInGate,{authUser,authBusy,authError,onSignUp:signUpWithEmail,onSignIn:signInWithEmail,onSignOut:signOutOfAccount,onSendReset:sendPasswordReset,theme});
 
-  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,authUser,authBusy,authError,onSignUp:signUpWithEmail,onSignIn:signInWithEmail,onSignOut:signOutOfAccount,onSendReset:sendPasswordReset,onChangePassword:changePassword});
+  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,authUser,authBusy,authError,onSignUp:signUpWithEmail,onSignIn:signInWithEmail,onSignOut:signOutOfAccount,onSendReset:sendPasswordReset,onChangePassword:changePassword,canManage,bandPanelProps:{theme,band,myRole,myUid:authUser&&authUser.uid,bandMembers,invites:bandInvites,onCall:callBandAlert,onRename:renameBand,onSetCalendarId:setBandCalendarId,onSwitch:onSwitchBand,onLeaving:onLeavingBand,onLeft:onLeftBand}});
 
   const travelModalsProps={askTrack,setAskTrack,goHome,openMapsChooser,startTracking,askHomeAddress,setAskHomeAddress,homeAddressDraft,setHomeAddressDraft,saveHomeAddressAndGo,mapsChoice,setMapsChoice,theme,trackingMiles,stopTracking,gpsStandaloneHelp,dismissGpsStandaloneHelp};
 
@@ -5527,8 +5674,8 @@ function App(){
             e('input',{value:newSongTag,onChange:ev=>setNewSongTag(ev.target.value),placeholder:'e.g. dance floor, first set opener'}),
             e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:10,padding:'10px 12px',background:'#f9fafb',borderRadius:9}},
               e('div',null,
-                e('div',{style:{fontSize:12.5,fontWeight:500,color:'#111827'}},newSongShared?'Share with the whole band':'Keep private (just this device)'),
-                e('div',{style:{fontSize:10.5,color:'#9ca3af'}},newSongShared?'Everyone in the band can see this chart':'Only visible on this device')
+                e('div',{style:{fontSize:12.5,fontWeight:500,color:'#111827'}},newSongShared?'Share with the whole band':'Keep private (just you)'),
+                e('div',{style:{fontSize:10.5,color:'#9ca3af'}},newSongShared?'Everyone in the band can see this chart':'Only you can see this chart, on any of your devices')
               ),
               e(Toggle,{on:newSongShared,onToggle:()=>setNewSongShared(v=>!v)})
             )
@@ -6106,7 +6253,7 @@ function App(){
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(e(App));
+ReactDOM.createRoot(document.getElementById('root')).render(e(Root));
 </script>
 </body>
 </html>

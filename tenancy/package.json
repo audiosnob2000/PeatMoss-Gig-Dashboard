@@ -3,7 +3,8 @@
   "private": true,
   "description": "Security-rule tests for the multi-band data model. Runs against the local Firestore emulator only.",
   "scripts": {
-    "test": "firebase emulators:exec --only firestore --project demo-peatmoss \"node --test --test-concurrency=1 test/rules.test.js test/band.test.js test/migrate.test.js\""
+    "test": "firebase emulators:exec --only firestore --project demo-peatmoss \"node --test --test-concurrency=1 test/rules.test.js test/band.test.js test/migrate.test.js\"",
+    "e2e": "firebase emulators:exec --only auth,firestore,functions --project demo-peatmoss \"node --test --test-concurrency=1 ${E2E_FILES:-e2e/e2e.test.js}\""
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.0",
