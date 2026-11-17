@@ -356,6 +356,28 @@ test('transferOwnership: the rules still hold after a handover (clients cannot t
   await assertSucceeds(updateDoc(doc(asClient('olive'), `bands/${id}`), { name: 'Still an admin' }));
 });
 
+test('member name and email are recorded from the account, and a missing profile is harmless', async () => {
+  const { bandId } = await B.createBand(db, 'olive', { name: 'Peat Moss' }, T0, { name: '', email: 'Olive.Oyl@Example.com' });
+  const owner = (await db.doc(`bands/${bandId}/members/olive`).get()).data();
+  assert.equal(owner.name, 'Olive Oyl');                         // derived from the email when there is no display name
+  assert.equal(owner.email, 'olive.oyl@example.com');
+  const { code } = await B.createInvite(db, 'olive', { bandId }, T0);
+  await B.redeemInvite(db, 'mia', { code }, T0, { name: 'Mia Farrow', email: 'mia@x.com' });
+  assert.equal((await db.doc(`bands/${bandId}/members/mia`).get()).data().name, 'Mia Farrow');
+  const { code: c2 } = await B.createInvite(db, 'olive', { bandId }, T0);
+  await B.redeemInvite(db, 'noprofile', { code: c2 }, T0, null);
+  const np = (await db.doc(`bands/${bandId}/members/noprofile`).get()).data();
+  assert.equal(np.role, 'member');
+  assert.equal(np.name, undefined);
+  // a client cannot choose its own label: the request body is ignored, only the server-supplied profile counts
+  const { code: c3 } = await B.createInvite(db, 'olive', { bandId }, T0);
+  await B.redeemInvite(db, 'sneaky', { code: c3, name: 'The Owner', email: 'olive@x.com' }, T0, { name: 'Sneaky', email: 'sneaky@x.com' });
+  assert.equal((await db.doc(`bands/${bandId}/members/sneaky`).get()).data().name, 'Sneaky');
+  // members can read each other's labels (same band), a stranger cannot
+  await assertSucceeds(getDoc(doc(asClient('mia'), `bands/${bandId}/members/olive`)));
+  await assertFails(getDoc(doc(asClient('stan'), `bands/${bandId}/members/olive`)));
+});
+
 test('callable wrappers load and export every function', () => {
   const m = require('../functions/index.js');
   for (const n of ['createBand', 'createInvite', 'revokeInvite', 'redeemInvite', 'removeMember', 'setMemberRole', 'transferOwnership']) assert.ok(m[n], n);

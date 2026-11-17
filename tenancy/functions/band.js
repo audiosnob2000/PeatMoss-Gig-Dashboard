@@ -53,9 +53,24 @@ function newCode() {
 }
 const isActive = m => m && m.covered !== false;
 
+// Name and email shown in the Members list. They come from the sign-in account on the
+// server (never from the request body), so nobody can pose as someone else in a band.
+function profileFields(profile) {
+  const email = profile && typeof profile.email === 'string' ? profile.email.trim().toLowerCase() : '';
+  let name = profile && typeof profile.name === 'string' ? profile.name.trim() : '';
+  if (!name && email) {
+    const local = email.split('@')[0].replace(/[._-]+/g, ' ').trim();
+    name = local.replace(/\b\w/g, c => c.toUpperCase());
+  }
+  const out = {};
+  if (name) out.name = name.slice(0, 80);
+  if (email) out.email = email.slice(0, 120);
+  return out;
+}
+
 // A signed-in person starts a band. They become its owner. The whole band is covered by a
 // free trial from this moment; after it ends each person's own subscription decides.
-async function createBand(db, uid, { name, timeZone } = {}, now = Date.now()) {
+async function createBand(db, uid, { name, timeZone } = {}, now = Date.now(), profile = null) {
   requireUid(uid);
   const bandName = cleanString(name, 80, 'Band name');
   const tz = timeZone || 'America/New_York';
@@ -75,7 +90,7 @@ async function createBand(db, uid, { name, timeZone } = {}, now = Date.now()) {
     createdAt: now,
     billing: { trialEndsAt: now + TRIAL_DAYS * DAY },
   });
-  batch.set(memberRef(db, ref.id, uid), { role: 'owner', joinedAt: now });
+  batch.set(memberRef(db, ref.id, uid), { role: 'owner', joinedAt: now, ...profileFields(profile) });
   batch.set(membershipRef(db, uid, ref.id), { role: 'owner', joinedAt: now });
   await batch.commit();
   return { bandId: ref.id };
@@ -141,7 +156,7 @@ const BAD_CODE = "That code isn't valid or has expired.";
 
 // Someone types a code. Wrong guesses are counted per person so a six-character code can't
 // be brute-forced. Joining is instant: no approval step.
-async function redeemInvite(db, uid, { code } = {}, now = Date.now()) {
+async function redeemInvite(db, uid, { code } = {}, now = Date.now(), profile = null) {
   requireUid(uid);
   const c = normalizeCode(code);
   if (c.length !== CODE_LENGTH) throw new BandError('invalid-argument', BAD_CODE);
@@ -178,7 +193,7 @@ async function redeemInvite(db, uid, { code } = {}, now = Date.now()) {
       const trialEndsAt = (band.data().billing || {}).trialEndsAt || 0;
       // Joining after the trial: not covered until this person subscribes. Joining during
       // it: covered, like everyone else. (Missing flag = covered, see the rules.)
-      const member = { role: i.role, joinedAt: now, invitedBy: i.createdBy };
+      const member = { role: i.role, joinedAt: now, invitedBy: i.createdBy, ...profileFields(profile) };
       if (now > trialEndsAt) member.covered = false;
 
       tx.set(memberRef(db, bandId, uid), member);
@@ -270,5 +285,5 @@ async function transferOwnership(db, uid, { bandId, targetUid } = {}, now = Date
 
 module.exports = {
   BandError, createBand, createInvite, revokeInvite, redeemInvite, removeMember, setMemberRole, transferOwnership,
-  normalizeCode, TRIAL_DAYS, DAY, CODE_ALPHABET, REDEEM_MAX_FAILURES,
+  normalizeCode, profileFields, TRIAL_DAYS, DAY, CODE_ALPHABET, REDEEM_MAX_FAILURES,
 };

@@ -16,6 +16,7 @@
 // everyone until the band doc and member docs exist), so re-running is safe.
 
 const admin = require('firebase-admin');
+const { profileFields } = require('../functions/band');
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -101,7 +102,7 @@ const deepEqual = (a, b) => JSON.stringify(stable(a)) === JSON.stringify(stable(
 async function migrate(db, o) {
   const opts = {
     bandId: 'peatmoss', timeZone: 'America/New_York', adminUids: [], memberUids: [],
-    dryRun: false, allowOrphans: false, trialDays: 30, now: Date.now(), ...o,
+    dryRun: false, allowOrphans: false, trialDays: 30, now: Date.now(), profiles: {}, ...o,
   };
   if (!opts.ownerUid) throw new Error('--owner <uid> is required.');
   if (!opts.bandName) throw new Error('--band-name is required.');
@@ -138,7 +139,7 @@ async function migrate(db, o) {
   const roles = [[opts.ownerUid, 'owner'], ...opts.adminUids.map(u => [u, 'admin']), ...opts.memberUids.map(u => [u, 'member'])];
   const people = [];
   for (const [uid, role] of roles) {
-    people.push([base('members').doc(uid), { role, joinedAt: opts.now }]);
+    people.push([base('members').doc(uid), { role, joinedAt: opts.now, ...profileFields(opts.profiles[uid]) }]);
     people.push([db.collection('users').doc(uid).collection('memberships').doc(opts.bandId), { role, joinedAt: opts.now }]);
   }
   await writeChunked(db, people);
@@ -177,7 +178,14 @@ async function main() {
       'Rehearse on the emulator or a scratch project. Add --live only on cutover day.');
   }
   admin.initializeApp({ projectId: a.project });
+  // Names and emails for the Members list come from each person's sign-in account.
+  const profiles = {};
+  for (const uid of [a.owner, ...list(a.admins), ...list(a.members)]) {
+    try { const u = await admin.auth().getUser(uid); profiles[uid] = { name: u.displayName || '', email: u.email || '' }; }
+    catch (e) { console.warn('No sign-in account found for', uid, '(name will be blank)'); }
+  }
   const report = await migrate(admin.firestore(), {
+    profiles,
     bandId: a['band-id'], bandName: a['band-name'], timeZone: a['time-zone'],
     ownerUid: a.owner, adminUids: list(a.admins), memberUids: list(a.members),
     dryRun: !!a['dry-run'], allowOrphans: !!a['allow-orphans'],

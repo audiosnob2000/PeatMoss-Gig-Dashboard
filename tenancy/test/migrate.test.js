@@ -120,6 +120,14 @@ test('with the new rules, each person sees exactly what they should after migrat
   await assertFails(getDoc(doc(as('olive'), 'gigs/g1')));                                      // the old flat path is closed to all
 });
 
+test('member names and emails from the sign-in accounts are stored on the member docs', async () => {
+  await migrate(db, { ...base, profiles: { olive: { name: 'Olive Oyl', email: 'o@x.com' }, mia: { name: '', email: 'mia.m@x.com' } } });
+  const m = async u => (await db.doc(`bands/peatmoss/members/${u}`).get()).data();
+  assert.equal((await m('olive')).name, 'Olive Oyl');
+  assert.equal((await m('mia')).name, 'Mia M');
+  assert.equal((await m('max')).name, undefined);        // no profile supplied: blank, not an error
+});
+
 test('refuses to run twice', async () => {
   await migrate(db, base);
   await assert.rejects(migrate(db, base), /already exists/);
