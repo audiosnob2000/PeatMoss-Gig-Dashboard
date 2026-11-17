@@ -4,7 +4,7 @@ const path = require('path');
 const { initializeTestEnvironment, assertSucceeds, assertFails } = require('@firebase/rules-unit-testing');
 const { doc, getDoc, getDocs, collection, query, where, setDoc, updateDoc, deleteDoc } = require('firebase/firestore');
 
-const A = 'bandA', B = 'bandB', LAPSED = 'bandLapsed';
+const A = 'bandA', B = 'bandB';
 let env;
 
 before(async () => {
@@ -21,14 +21,15 @@ beforeEach(async () => {
   await env.withSecurityRulesDisabled(async ctx => {
     const db = ctx.firestore();
     const put = (p, d) => setDoc(doc(db, p), d);
-    for (const [id, name] of [[A, 'Band A'], [B, 'Band B'], [LAPSED, 'Lapsed']]) {
-      await put(`bands/${id}`, { name, ownerUid: 'olive', timeZone: 'America/New_York', billing: id === LAPSED ? { writable: false, status: 'past_due' } : { status: 'trialing' } });
+    for (const [id, name] of [[A, 'Band A'], [B, 'Band B']]) {
+      await put(`bands/${id}`, { name, ownerUid: 'olive', timeZone: 'America/New_York', billing: { trialEndsAt: 1 } });
     }
     const roles = { olive: 'owner', adam: 'admin', mia: 'member', max: 'member', sam: 'sub' };
     for (const [uid, role] of Object.entries(roles)) await put(`bands/${A}/members/${uid}`, { role });
+    await put(`bands/${A}/members/ursula`, { role: 'member', covered: false });   // their own subscription lapsed
+    await put(`bands/${A}/members/carl`, { role: 'admin', covered: false });
     await put(`bands/${B}/members/bob`, { role: 'owner' });
-    await put(`bands/${LAPSED}/members/lou`, { role: 'member' });
-    for (const b of [A, B, LAPSED]) {
+    for (const b of [A, B]) {
       await put(`bands/${b}/gigs/g1`, { venue: 'Rusty Anchor', date: '2027-01-01' });
       await put(`bands/${b}/setlists/s1`, { name: 'Saturday' });
       await put(`bands/${b}/songs/shared1`, { name: 'Brown Eyed Girl', shared: true, uid: 'mia' });
@@ -210,23 +211,29 @@ test('stage plot and settings: managers write, everyone in the band reads', asyn
   await ok(g(as('sam'), `bands/${A}/settings/stagePlot`));
 });
 
-test("a lapsed band is fully readable, personal data still works, and only shared writes are blocked", async () => {
-  const lou = as('lou');
-  await ok(g(lou, `bands/${LAPSED}`));
-  await ok(g(lou, `bands/${LAPSED}/gigs/g1`));
-  await ok(getDocs(collection(lou, `bands/${LAPSED}/gigs`)));
-  await ok(g(lou, `bands/${LAPSED}/songs/shared1`));
-  await ok(s(lou, `bands/${LAPSED}/mileageTrips/t1`, { uid: 'lou', miles: 3 }));   // personal bookkeeping is never paywalled
-  await ok(s(lou, `bands/${LAPSED}/checklists/lou`, { members: [] }));
-  await no(s(lou, `bands/${LAPSED}/gigs/new`, { venue: 'x' }));
-  await no(updateDoc(doc(lou, `bands/${LAPSED}/gigs/g1`), { notes: 'x' }));
-  await no(s(lou, `bands/${LAPSED}/setlists/new`, { name: 'x' }));
-  await no(s(lou, `bands/${LAPSED}/songs/new`, { name: 'x', shared: true, uid: 'lou' }));
-  // a paying band is unaffected, and a band with no billing field at all (trial, migrated) can write
+test("an uncovered person (own subscription lapsed) can read everything and keep personal records, but cannot change shared content", async () => {
+  const u = as('ursula');
+  await ok(g(u, `bands/${A}`));
+  await ok(g(u, `bands/${A}/gigs/g1`));
+  await ok(getDocs(collection(u, `bands/${A}/gigs`)));
+  await ok(g(u, `bands/${A}/setlists/s1`));
+  await ok(g(u, `bands/${A}/songs/shared1`));
+  await ok(g(u, `bands/${A}/members/mia`));
+  await ok(s(u, `bands/${A}/mileageTrips/u1`, { uid: 'ursula', miles: 3 }));      // personal bookkeeping is never paywalled
+  await ok(s(u, `bands/${A}/checklists/ursula`, { members: [] }));
+  await no(s(u, `bands/${A}/gigs/new`, { venue: 'x' }));
+  await no(updateDoc(doc(u, `bands/${A}/gigs/g1`), { notes: 'x' }));
+  await no(deleteDoc(doc(u, `bands/${A}/gigs/g1`)));
+  await no(s(u, `bands/${A}/setlists/new`, { name: 'x' }));
+  await no(s(u, `bands/${A}/songs/new`, { name: 'x', shared: true, uid: 'ursula' }));
+  await no(s(u, `bands/${A}/unavailableDates/2027-04-01__ursula`, { date: '2027-04-01', name: 'U', uid: 'ursula' }));
+  // an uncovered admin can still run the band's people settings, but not change shared content
+  await ok(updateDoc(doc(as('carl'), `bands/${A}`), { name: 'Renamed by Carl' }));
+  await no(s(as('carl'), `bands/${A}/settings/stagePlot`, { stagePlotUrl: 'https://x' }));
+  await no(s(as('carl'), `bands/${A}/gigs/new`, { venue: 'x' }));
+  // covered people, and people with no flag at all (trial, newly joined), are unaffected
   await ok(s(as('mia'), `bands/${A}/gigs/ok`, { venue: 'x' }));
-  await env.withSecurityRulesDisabled(ctx => setDoc(doc(ctx.firestore(), 'bands/noBilling'), { name: 'nb' }));
-  await env.withSecurityRulesDisabled(ctx => setDoc(doc(ctx.firestore(), 'bands/noBilling/members/nina'), { role: 'member' }));
-  await ok(s(as('nina'), 'bands/noBilling/gigs/g', { venue: 'x' }));
+  await ok(s(as('olive'), `bands/${A}/gigs/ok2`, { venue: 'x' }));
 });
 
 test('availability marks: players only, and only your own', async () => {
