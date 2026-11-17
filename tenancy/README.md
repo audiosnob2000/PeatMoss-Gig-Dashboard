@@ -48,5 +48,5 @@ the app makes is allowed for that role.
 
 ## Not built yet
 
-Stripe per-person subscriptions, trash and the delete-band function (owner only), server-side calendar sync, a
-"download my mileage" step when leaving a band, the shared public schedule page.
+Stripe per-person subscriptions, trash and the delete-band function (owner only), server-side calendar sync, the
+shared public schedule page. A person's private charts stay inside the band when they leave it (undecided).
