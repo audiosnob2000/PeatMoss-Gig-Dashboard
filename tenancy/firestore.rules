@@ -13,8 +13,8 @@ rules_version = '2';
 // Billing is per person. The server marks a member "covered: false" when their own
 // subscription lapses. That person is locked out of the band's content entirely: no gigs,
 // charts, sets, or member list. They can still see the band's name, their own membership
-// record (so the app can say "subscribe to continue"), and their own mileage history (their
-// own records, needed for taxes). A missing field means covered (trial, new member). Where
+// record (so the app can say "subscribe to continue"). Mileage is not part of a band at all:
+// it lives under the person (users/{uid}/mileageTrips). A missing field means covered (trial, new member). Where
 // coverage comes from (own plan today, a group seat later) is invisible to these rules.
 
 service cloud.firestore {
@@ -98,13 +98,6 @@ service cloud.firestore {
       match /unpaidGigs/{uid} {
         allow read, write: if isPlayer(bandId) && request.auth.uid == uid;
       }
-      match /mileageTrips/{tripId} {
-        // Reading your own history stays open even when uncovered (your records, for taxes).
-        allow read: if isMember(bandId) && mine(resource.data);
-        allow create: if isPlayer(bandId) && mine(request.resource.data);
-        allow update: if isPlayer(bandId) && mine(resource.data) && uidUnchanged();
-        allow delete: if isPlayer(bandId) && mine(resource.data);
-      }
 
       // A phone registers its own push token. Nobody can read tokens back; only the
       // reminder functions (Admin SDK) do. An uncovered person can remove theirs, not add one.
@@ -122,6 +115,13 @@ service cloud.firestore {
       match /memberships/{bandId} {
         allow read: if signedIn() && request.auth.uid == uid;
         allow write: if false;
+      }
+      // Mileage belongs to the person, not to any band: one year total for taxes however many
+      // bands you play in, and nothing is lost when you leave one. No band can reach it, because
+      // it is not in a band's area at all. Deliberately not tied to a subscription: it is the
+      // person's own record (the app does not offer it behind the locked-out screen).
+      match /mileageTrips/{tripId} {
+        allow read, write: if signedIn() && request.auth.uid == uid;
       }
       // Google refresh tokens and similar. Server only.
       match /private/{doc=**} {

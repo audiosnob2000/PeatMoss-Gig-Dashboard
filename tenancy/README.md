@@ -8,17 +8,17 @@ branch only.
 
 | Piece | Where | What it does |
 |---|---|---|
-| Security rules | `firestore.rules` | Everything a band owns lives under `bands/{id}`. Roles: owner, admin, member. A person whose own subscription lapses (`covered:false`) is locked out of all band content. Private charts and mileage are enforced by the rules, not by hiding them. |
+| Security rules | `firestore.rules` | Everything a band owns lives under `bands/{id}`. Roles: owner, admin, member. A person whose own subscription lapses (`covered:false`) is locked out of all band content. Private charts are enforced by the rules, not by hiding them. Mileage is not part of any band: it lives under the person (`users/{uid}/mileageTrips`), so it follows them between bands and survives leaving one. |
 | Band functions | `functions/band.js`, `functions/index.js` | `createBand`, `createInvite`, `revokeInvite`, `redeemInvite`, `removeMember`, `setMemberRole`, `transferOwnership`. Membership is only ever written here (Admin SDK); clients cannot write it. |
-| Migration | `migrate/migrate.js` | Copies today's flat collections under `bands/{id}`, translating `deviceId` to `uid` and a missing `shared` flag to `shared:true`. Never changes the originals. Refuses a real project without `--live`. |
+| Migration | `migrate/migrate.js` | Copies today's flat collections under `bands/{id}` (mileage goes to each person's own area), translating `deviceId` to `uid` and a missing `shared` flag to `shared:true`. Never changes the originals. Refuses a real project without `--live`. |
 | App | `../index.html` | New `Root` (sign-in, band picker, start/join, removed and locked-out screens), band-scoped data layer, Band section in Settings (members, invite codes, roles, hand over, leave). |
 
 ## Tests
 
 ```
 npm install
-npm test        # 61: rules, band functions, migration (Firestore emulator)
-npm run e2e     # 16: the real index.html in a phone-sized browser against the real rules and functions
+npm test        # 62: rules, band functions, migration (Firestore emulator)
+npm run e2e     # 18: the real index.html in a phone-sized browser against the real rules and functions
 ```
 
 `npm run e2e` needs Playwright available (`require('playwright')`). Set `E2E_SHOTS=/some/dir` to save screenshots,

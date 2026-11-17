@@ -60,7 +60,7 @@ test('copies every collection under the band, with ids and content intact', asyn
   const r = await migrate(db, base);
   assert.equal(r.done, true);
   assert.deepEqual(r.orphans, []);
-  assert.deepEqual(r.copied, { gigs: 2, setlists: 1, unavailableDates: 1, songs: 3, mileageTrips: 2, checklists: 1, unpaidGigs: 1, settings: 2 });
+  assert.deepEqual(r.copied, { gigs: 2, setlists: 1, unavailableDates: 1, songs: 3, checklists: 1, unpaidGigs: 1, settings: 2, mileageTrips: 2 });
   const g = (await db.doc('bands/peatmoss/gigs/g1').get()).data();
   assert.deepEqual(g, { venue: 'Rusty Anchor', date: '2027-01-01', source: 'app' });
   assert.deepEqual((await db.doc('bands/peatmoss/setlists/s1').get()).data(), { name: 'Saturday', songs: ['a', 'b'] });
@@ -87,8 +87,12 @@ test('translates the old data shape: deviceId becomes uid, a missing shared flag
   assert.equal(old.uid, 'olive');
   assert.equal(old.shared, true);                         // live app treated "no flag" as shared
   assert.equal((await db.doc('bands/peatmoss/songs/private-mia').get()).data().shared, false);
-  assert.equal((await db.doc('bands/peatmoss/mileageTrips/t1').get()).data().uid, 'mia');
-  assert.equal((await db.doc('bands/peatmoss/mileageTrips/t1').get()).data().deviceId, 'mia');   // original field kept
+  // mileage goes under the person, not the band
+  assert.equal((await db.doc('users/mia/mileageTrips/t1').get()).data().uid, 'mia');
+  assert.equal((await db.doc('users/mia/mileageTrips/t1').get()).data().deviceId, 'mia');         // original field kept
+  assert.equal((await db.doc('users/max/mileageTrips/t2').get()).data().miles, 25);
+  assert.equal((await db.doc('bands/peatmoss/mileageTrips/t1').get()).exists, false);
+  assert.equal((await db.collection('bands/peatmoss/mileageTrips').get()).size, 0);
 });
 
 test('never changes or deletes anything it read', async () => {
@@ -111,9 +115,9 @@ test('with the new rules, each person sees exactly what they should after migrat
   await assertFails(getDoc(doc(as('max'), 'bands/peatmoss/songs/private-mia')));
   await assertSucceeds(getDoc(doc(as('mia'), 'bands/peatmoss/songs/private-mia')));
   await assertSucceeds(getDocs(query(collection(as('max'), 'bands/peatmoss/songs'), where('shared', '==', true))));
-  await assertSucceeds(getDoc(doc(as('mia'), 'bands/peatmoss/mileageTrips/t1')));
-  await assertFails(getDoc(doc(as('max'), 'bands/peatmoss/mileageTrips/t1')));
-  await assertFails(getDoc(doc(as('olive'), 'bands/peatmoss/mileageTrips/t1')));
+  await assertSucceeds(getDoc(doc(as('mia'), 'users/mia/mileageTrips/t1')));
+  await assertFails(getDoc(doc(as('max'), 'users/mia/mileageTrips/t1')));
+  await assertFails(getDoc(doc(as('olive'), 'users/mia/mileageTrips/t1')));          // not even the band owner
   await assertSucceeds(getDoc(doc(as('mia'), 'bands/peatmoss/checklists/mia')));
   await assertFails(getDoc(doc(as('max'), 'bands/peatmoss/checklists/mia')));
   await assertFails(getDoc(doc(as('stan'), 'bands/peatmoss/gigs/g1')));                       // a stranger gets nothing
@@ -163,7 +167,7 @@ test('--allow-orphans copies them anyway and still lists them', async () => {
   const r = await migrate(db, { ...base, allowOrphans: true });
   assert.equal(r.done, true);
   assert.equal(r.orphans.length, 1);
-  assert.equal((await db.doc('bands/peatmoss/mileageTrips/stray').get()).exists, true);
+  assert.equal((await db.doc('users/device-abc123/mileageTrips/stray').get()).exists, true);   // kept, under the id it was filed under
 });
 
 test('bad inputs are rejected before anything is read or written', async () => {

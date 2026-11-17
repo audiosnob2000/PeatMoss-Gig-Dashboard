@@ -33,6 +33,7 @@ function ownerOf(d) { return d.uid || d.deviceId || ''; }
 function plan(source, opts) {
   const members = new Set([opts.ownerUid, ...opts.adminUids, ...opts.memberUids]);
   const out = {};          // collection path (under the band) -> Map(id -> data)
+  const personal = {};     // uid -> Map(id -> data): copied under users/{uid}/mileageTrips, not the band
   const orphans = [];      // things nobody in the member list owns
   const skipped = {};      // collections deliberately not copied
   const add = (col, id, data) => { (out[col] = out[col] || new Map()).set(id, data); };
@@ -52,8 +53,9 @@ function plan(source, opts) {
   }
   for (const [id, d] of source.mileageTrips || []) {
     const uid = ownerOf(d);
-    if (!members.has(uid)) orphans.push(`mileageTrips/${id} (owner "${uid}")`);
-    add('mileageTrips', id, { ...d, uid });
+    if (!uid) orphans.push(`mileageTrips/${id} (no owner at all: will NOT be copied)`);
+    else if (!members.has(uid)) orphans.push(`mileageTrips/${id} (owner "${uid}")`);
+    if (uid) (personal[uid] = personal[uid] || new Map()).set(id, { ...d, uid });
   }
   for (const col of KEYED_BY_UID) {
     for (const [id, d] of source[col] || []) {
@@ -71,7 +73,7 @@ function plan(source, opts) {
   skipped.fcmTokens = (source.fcmTokens || new Map()).size;
   skipped.googleAuthTokens = (source.googleAuthTokens || new Map()).size;
   skipped.sentReminders = (source.sentReminders || new Map()).size;
-  return { out, orphans, skipped, calendarId };
+  return { out, personal, orphans, skipped, calendarId };
 }
 
 async function readAll(db) {
@@ -113,9 +115,10 @@ async function migrate(db, o) {
   if ((await bandRef.get()).exists) throw new Error(`bands/${opts.bandId} already exists. This migration has already finished; refusing to run again.`);
 
   const source = await readAll(db);
-  const { out, orphans, skipped, calendarId } = plan(source, opts);
+  const { out, personal, orphans, skipped, calendarId } = plan(source, opts);
   const report = { dryRun: opts.dryRun, bandId: opts.bandId, copied: {}, orphans, skipped, members: everyone.length };
   for (const [col, m] of Object.entries(out)) report.copied[col] = m.size;
+  report.copied.mileageTrips = Object.values(personal).reduce((n, m) => n + m.size, 0);   // under each person, not the band
 
   if (orphans.length && !opts.allowOrphans) {
     report.blocked = `${orphans.length} document(s) belong to someone who is not in the member list. ` +
@@ -127,6 +130,8 @@ async function migrate(db, o) {
   const base = bandRef.collection.bind(bandRef);
   const writes = [];
   for (const [col, m] of Object.entries(out)) for (const [id, d] of m) writes.push([base(col).doc(id), d]);
+  // Mileage is the person's own: users/{uid}/mileageTrips, never inside the band.
+  for (const [uid, m] of Object.entries(personal)) for (const [id, d] of m) writes.push([db.collection('users').doc(uid).collection('mileageTrips').doc(id), d]);
   await writeChunked(db, writes);
 
   // Read every copied document back and compare it with what we meant to write.
@@ -134,6 +139,11 @@ async function migrate(db, o) {
     const snap = await base(col).get();
     if (snap.size !== m.size) throw new Error(`Verify failed: ${col} has ${snap.size} documents, expected ${m.size}.`);
     for (const d of snap.docs) if (!deepEqual(d.data(), m.get(d.id))) throw new Error(`Verify failed: ${col}/${d.id} differs from its source.`);
+  }
+
+  for (const [uid, m] of Object.entries(personal)) {
+    const snap = await db.collection('users').doc(uid).collection('mileageTrips').get();
+    for (const [id, d] of m) { const got = snap.docs.find(x => x.id === id); if (!got || !deepEqual(got.data(), d)) throw new Error(`Verify failed: users/${uid}/mileageTrips/${id} differs from its source.`); }
   }
 
   const roles = [[opts.ownerUid, 'owner'], ...opts.adminUids.map(u => [u, 'admin']), ...opts.memberUids.map(u => [u, 'member'])];

@@ -37,9 +37,9 @@ beforeEach(async () => {
       await put(`bands/${b}/songs/shared1`, { name: 'Brown Eyed Girl', shared: true, uid: 'mia' });
     }
     await put(`bands/${A}/songs/private1`, { name: 'My practice chart', shared: false, uid: 'mia' });
-    await put(`bands/${A}/mileageTrips/mia1`, { uid: 'mia', miles: 40 });
-    await put(`bands/${A}/mileageTrips/max1`, { uid: 'max', miles: 25 });
-    await put(`bands/${A}/mileageTrips/ursula1`, { uid: 'ursula', miles: 12 });
+    await put(`users/mia/mileageTrips/mia1`, { miles: 40 });
+    await put(`users/max/mileageTrips/max1`, { miles: 25 });
+    await put(`users/ursula/mileageTrips/ursula1`, { miles: 12 });
     await put(`bands/${A}/checklists/mia`, { members: [] });
     await put(`bands/${A}/checklists/ursula`, { members: [] });
     await put(`bands/${A}/unpaidGigs/mia`, { gigIds: [] });
@@ -139,24 +139,17 @@ test('LOCKOUT: a person whose own subscription lapsed gets no band content at al
     await no(s(u, `bands/${A}/checklists/${uid}`, { members: [] }));
     await no(g(u, `bands/${A}/invites/ABC123`));
     await no(s(u, `bands/${A}/fcmTokens/new-${uid}`, { uid, token: 'x' }));   // lapsed people stop getting reminders
-    await no(s(u, `bands/${A}/mileageTrips/new-${uid}`, { uid, miles: 3 }));
   }
   // an uncovered admin has no admin powers either
   await no(updateDoc(doc(as('carl'), `bands/${A}`), { name: 'Renamed by Carl' }));
 });
 
-test('LOCKOUT leaves exactly what the app needs to say "subscribe to continue", plus your own mileage history', async () => {
+test('LOCKOUT leaves exactly what the app needs to say "subscribe to continue"', async () => {
   const u = as('ursula');
   await ok(g(u, `bands/${A}`));                                      // band name and trial info
   await ok(g(u, `bands/${A}/members/ursula`));                       // your own membership record
   await no(g(u, `bands/${A}/members/mia`));
   await ok(g(u, `users/ursula/memberships/${A}`));
-  await ok(g(u, `bands/${A}/mileageTrips/ursula1`));                 // your own records, for taxes
-  await ok(getDocs(query(collection(u, `bands/${A}/mileageTrips`), where('uid', '==', 'ursula'))));
-  await no(g(u, `bands/${A}/mileageTrips/mia1`));
-  await ok(deleteDoc(doc(u, `bands/${A}/fcmTokens/tok-ursula`)));   // you can stop your own reminders
-  await no(deleteDoc(doc(u, `bands/${A}/mileageTrips/ursula1`)));   // but not edit or delete mileage while lapsed
-  await no(updateDoc(doc(u, `bands/${A}/mileageTrips/ursula1`), { miles: 1 }));
 });
 
 test('resubscribing is instant: flipping the server flag restores everything', async () => {
@@ -169,20 +162,34 @@ test('resubscribing is instant: flipping the server flag restores everything', a
   await ok(g(as('newbie'), `bands/${A}/gigs/g1`));
 });
 
-test("mileage is private: you read, write and delete only your own, not even the owner can read it", async () => {
+test("mileage belongs to the person, not the band: only you can read or write it, even the band owner cannot", async () => {
   const mia = as('mia');
-  await ok(g(mia, `bands/${A}/mileageTrips/mia1`));
-  await no(g(mia, `bands/${A}/mileageTrips/max1`));
-  await ok(getDocs(query(collection(mia, `bands/${A}/mileageTrips`), where('uid', '==', 'mia'))));
-  await no(getDocs(collection(mia, `bands/${A}/mileageTrips`)));           // an unfiltered list would include others'
-  await no(getDocs(query(collection(mia, `bands/${A}/mileageTrips`), where('uid', '==', 'max'))));
-  await ok(s(mia, `bands/${A}/mileageTrips/new`, { uid: 'mia', miles: 10 }));
-  await no(s(mia, `bands/${A}/mileageTrips/forged`, { uid: 'max', miles: 10 }));
-  await no(updateDoc(doc(mia, `bands/${A}/mileageTrips/mia1`), { uid: 'max' }));  // cannot hand a trip to someone else
-  await ok(updateDoc(doc(mia, `bands/${A}/mileageTrips/mia1`), { miles: 41 }));
-  await no(deleteDoc(doc(mia, `bands/${A}/mileageTrips/max1`)));
-  await ok(deleteDoc(doc(mia, `bands/${A}/mileageTrips/mia1`)));
-  await no(g(as('olive'), `bands/${A}/mileageTrips/mia1`));
+  await ok(g(mia, `users/mia/mileageTrips/mia1`));
+  await ok(getDocs(collection(mia, `users/mia/mileageTrips`)));
+  await ok(s(mia, `users/mia/mileageTrips/new`, { miles: 10, date: '2027-01-01' }));
+  await ok(updateDoc(doc(mia, `users/mia/mileageTrips/mia1`), { miles: 41 }));
+  await ok(deleteDoc(doc(mia, `users/mia/mileageTrips/mia1`)));
+  for (const other of ['max', 'olive', 'adam', 'stan', 'bob']) {            // teammates, band owner, admin, strangers, another band's owner
+    const db = as(other);
+    await no(g(db, `users/mia/mileageTrips/new`));
+    await no(getDocs(collection(db, `users/mia/mileageTrips`)));
+    await no(s(db, `users/mia/mileageTrips/forged`, { miles: 1 }));
+    await no(updateDoc(doc(db, `users/mia/mileageTrips/new`), { miles: 1 }));
+    await no(deleteDoc(doc(db, `users/mia/mileageTrips/new`)));
+  }
+  await no(g(as(null), `users/mia/mileageTrips/new`));
+  // and no band holds mileage any more
+  await no(s(mia, `bands/${A}/mileageTrips/x`, { uid: 'mia', miles: 1 }));
+  await no(g(mia, `bands/${A}/mileageTrips/anything`));
+});
+
+test('mileage does not depend on any band: it is unaffected by lockout, removal, or leaving', async () => {
+  // a lapsed member still owns their records; a person in no band at all can still reach theirs
+  await ok(g(as('ursula'), `users/ursula/mileageTrips/ursula1`));
+  await env.withSecurityRulesDisabled(ctx => deleteDoc(doc(ctx.firestore(), `bands/${A}/members/mia`)));   // mia is removed from the band
+  await ok(g(as('mia'), `users/mia/mileageTrips/mia1`));
+  await no(g(as('mia'), `bands/${A}/gigs/g1`));                                                            // band content is gone, her mileage is not
+  await ok(g(as("stan"), `users/stan/mileageTrips/none`));                                              // someone in no band reads their own (empty) area without error
 });
 
 test('checklists and unpaid marks belong to one person', async () => {

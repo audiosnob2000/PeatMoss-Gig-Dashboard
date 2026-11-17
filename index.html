@@ -2751,7 +2751,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
     const newTrip={id:'trip'+Date.now(),venue:manualLabel.trim()||'Manual entry',date:manualDate,miles:parseFloat(miles.toFixed(1)),manual:true};
     setMileageLog(prev=>[...prev,newTrip]);
     const{id,...tripBody}=newTrip;
-    bc('mileageTrips').doc(id).set({...tripBody,uid:getUserId()}).catch(()=>alert('Could not save — check your connection and try again.'));
+    mileageCol().doc(id).set(tripBody).catch(()=>alert('Could not save — check your connection and try again.'));
     setManualDate(todayStr);setManualMiles('');setManualLabel('');
     setAddingTrip(false);
   };
@@ -3052,7 +3052,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
                 e('div',{style:{fontSize:13,fontWeight:500,color:theme.primary}},toDisplayDistance(t.miles).toFixed(1)+' '+mileageUnit),
                 e('button',{onClick:()=>{
                     setMileageLog(prev=>prev.filter(x=>x!==t));
-                    if(t.id) bc('mileageTrips').doc(t.id).delete().catch(()=>alert('Could not delete — check your connection and try again.'));
+                    if(t.id) mileageCol().doc(t.id).delete().catch(()=>alert('Could not delete — check your connection and try again.'));
                   },
                   style:{border:'none',background:'none',color:'#d1d5db',fontSize:18,cursor:'pointer',padding:'0 4px',lineHeight:1}},'×')
               )
@@ -3062,7 +3062,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
             e('button',{onClick:()=>{
                 if(!window.confirm('Clear all mileage logs?'))return;
                 const batch=db.batch();
-                mileageLog.forEach(t=>{if(t.id)batch.delete(bc('mileageTrips').doc(t.id));});
+                mileageLog.forEach(t=>{if(t.id)batch.delete(mileageCol().doc(t.id));});
                 batch.commit().catch(()=>alert('Could not delete — check your connection and try again.'));
                 setMileageLog([]);
               },style:{fontSize:12,color:'#b91c1c',borderColor:'#fca5a5',width:'100%',padding:'7px 0'}},'Clear mileage log')
@@ -3548,6 +3548,11 @@ const bc=name=>bandRef().collection(name);
 // Local (per-phone) cache keys are per band, so a phone that belongs to two
 // bands never shows one band's gigs in the other.
 const lsKey=k=>'pmtf_b_'+ACTIVE_BAND_ID+'_'+k;
+// Mileage belongs to the person, not the band: it lives under the account, so a
+// year's total is one number however many bands you play in, and leaving a band
+// never touches it. Its local cache is keyed by person for the same reason.
+const mileageCol=()=>db.collection('users').doc(getUserId()).collection('mileageTrips');
+const lsUserKey=k=>'pmtf_u_'+getUserId()+'_'+k;
 const callBand=(name,data)=>fns.httpsCallable(name)(data).then(r=>r.data);
 const callBandAlert=(name,data)=>callBand(name,data).catch(err=>{alert((err&&err.message)||'Something went wrong — try again.');});
 
@@ -3868,7 +3873,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
   });
   const [gigs,setGigs]=useState(()=>{try{const s=localStorage.getItem(lsKey('gigs'));return s?JSON.parse(s):[];}catch{return [];}});
   const [members,setMembers]=useState(()=>{try{const s=localStorage.getItem(lsKey('members'));return s?JSON.parse(s):[];}catch{return [];}});
-  const [mileageLog,setMileageLog]=useState(()=>{try{const s=localStorage.getItem(lsKey('mileage'));return s?JSON.parse(s):[];}catch{return [];}});
+  const [mileageLog,setMileageLog]=useState(()=>{try{const s=localStorage.getItem(lsUserKey('mileage'));return s?JSON.parse(s):[];}catch{return [];}});
   const [unpaidGigIds,setUnpaidGigIds]=useState(()=>{try{const s=localStorage.getItem(lsKey('unpaid_gigs'));return s?JSON.parse(s):[];}catch{return [];}});
   const [unpaidMode,setUnpaidMode]=useState(false);
   // Separate storage key from members/checklists — a brand-new feature, so
@@ -4207,7 +4212,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
     try{localStorage.setItem(lsKey('members'),JSON.stringify(members));}catch{}
     if(checklistHydratedRef.current) bc('checklists').doc(getUserId()).set({members}).catch(reportWriteError('save your packing list'));
   },[members]);
-  useEffect(()=>{try{localStorage.setItem(lsKey('mileage'),JSON.stringify(mileageLog));}catch{}},[mileageLog]);
+  useEffect(()=>{try{localStorage.setItem(lsUserKey('mileage'),JSON.stringify(mileageLog));}catch{}},[mileageLog]);
   useEffect(()=>{
     try{localStorage.setItem(lsKey('unpaid_gigs'),JSON.stringify(unpaidGigIds));}catch{}
     if(unpaidHydratedRef.current) bc('unpaidGigs').doc(getUserId()).set({gigIds:unpaidGigIds}).catch(reportWriteError('save your unpaid-gig marks'));
@@ -4380,10 +4385,12 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
 
   // Mileage, the packing checklist and unpaid-gig marks are personal: each
   // person's own, never visible to anyone else in the band (the security rules
-  // enforce that too). Mileage is read by asking only for my own trips.
+  // enforce that too). Mileage lives under the account, not the band, so it
+  // follows the person from band to band; the checklist and unpaid marks refer
+  // to one band's gigs, so they stay inside that band.
   useEffect(()=>{
     const myId=getUserId();
-    const unsub=bc('mileageTrips').where('uid','==',myId).onSnapshot(snap=>{
+    const unsub=mileageCol().onSnapshot(snap=>{
       setMileageLog(snap.docs.map(d=>{const{uid,deviceId,...rest}=d.data();return{id:d.id,...rest};}));
     },onDbError);
     return unsub;
@@ -4967,7 +4974,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
       };
       setMileageLog(prev=>[...prev,newTrip]);
       const{id,...tripBody}=newTrip;
-      bc('mileageTrips').doc(id).set({...tripBody,uid:getUserId()}).catch(reportWriteError('save this mileage trip'));
+      mileageCol().doc(id).set(tripBody).catch(reportWriteError('save this mileage trip'));
     }
     setTrackingMiles(null);
     trackingRef.current=null;

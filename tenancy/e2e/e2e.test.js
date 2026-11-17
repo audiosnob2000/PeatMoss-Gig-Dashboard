@@ -408,10 +408,62 @@ test('writes a member makes in the app are all accepted by the rules: shared cha
   await mia.page.getByRole('button', { name: /^Save/ }).first().click();
   await mia.page.getByText('24.5 mi', { exact: false }).first().waitFor();
   let trips;
-  for (let i = 0; i < 20; i++) { trips = await db.collection(`bands/${id}/mileageTrips`).get(); if (trips.size) break; await new Promise(r => setTimeout(r, 250)); }
+  for (let i = 0; i < 20; i++) { trips = await db.collection(`users/${miaUid}/mileageTrips`).get(); if (trips.size) break; await new Promise(r => setTimeout(r, 250)); }
   assert.deepEqual(mia.dialogs, [], 'the app showed an alert');
   assert.equal(trips.size, 1);
-  assert.equal(trips.docs[0].data().uid, miaUid);
-  assert.equal(trips.docs[0].data().deviceId, undefined);
+  assert.equal(trips.docs[0].data().miles, 24.5);
+  assert.equal((await db.collection(`bands/${id}/mileageTrips`).get()).size, 0);       // nothing about mileage inside the band
+  noProblems();
+});
+
+async function addTrip(p, miles) {
+  await p.page.getByText('⚙️', { exact: true }).click();
+  await p.page.getByText('Mileage', { exact: true }).first().click();
+  await p.page.getByText('＋ Add trip manually').click();
+  await p.page.locator('input[type=number]').first().fill(String(miles));
+  await p.page.getByRole('button', { name: /^Save/ }).first().click();
+}
+async function mileageShows(p, text) {
+  await p.page.getByText('⚙️', { exact: true }).click();
+  await p.page.getByText('Mileage', { exact: true }).first().click();
+  await p.page.getByText(text, { exact: false }).first().waitFor();
+}
+
+test('mileage follows the person: one total across two bands', async () => {
+  const olive = await person('olive@example.com');
+  await signUp(olive); await startBand(olive, 'Band One');
+  await addTrip(olive, 30);
+  await olive.page.getByText('30.0 mi', { exact: false }).first().waitFor();
+  await olive.page.getByRole('button', { name: /Back/ }).click(); await inApp(olive);
+
+  await olive.page.getByText('⚙️', { exact: true }).click();
+  await olive.page.getByText('Band', { exact: true }).first().click();
+  await olive.page.getByRole('button', { name: /Switch band/ }).click();
+  await olive.page.getByRole('button', { name: 'Start a band' }).click();
+  await olive.page.getByLabel('Band name').fill('Band Two');
+  await olive.page.getByRole('button', { name: 'Start band' }).click();
+  await inApp(olive);
+  await mileageShows(olive, '30.0 mi');                     // the second band sees the same year total
+  await olive.page.getByRole('button', { name: /Back/ }).click(); await inApp(olive);
+  await addTrip(olive, 12);
+  await olive.page.getByText('42.0 mi', { exact: false }).first().waitFor();   // and they add up
+  const uid = await uidOf('olive@example.com');
+  let n = 0;
+  for (let i = 0; i < 20 && n < 2; i++) { n = (await db.collection(`users/${uid}/mileageTrips`).get()).size; if (n < 2) await new Promise(r => setTimeout(r, 250)); }
+  assert.equal(n, 2);
+  noProblems();
+});
+
+test('mileage survives leaving a band, and the band never had it', async () => {
+  const { mia, id, miaUid } = await twoPeople();
+  await addTrip(mia, 18);
+  await mia.page.getByText('18.0 mi', { exact: false }).first().waitFor();
+  assert.equal((await db.collection(`bands/${id}/mileageTrips`).get()).size, 0);
+  await mia.page.getByText('Band', { exact: true }).first().click();
+  await mia.page.getByRole('button', { name: 'Leave this band' }).click();
+  await mia.page.getByText('Join or start a band').waitFor();
+  assert.equal((await db.collection(`users/${miaUid}/mileageTrips`).get()).size, 1);   // still hers
+  await startBand(mia, 'Mia Solo Band');
+  await mileageShows(mia, '18.0 mi');
   noProblems();
 });
