@@ -100,7 +100,13 @@ Built to the plan above. Choices made along the way:
    `customer.subscription.created|updated|deleted`, `invoice.payment_failed`. Copy that endpoint's signing secret into step 2.
 4. Before going live, re-run `node scripts/setup-stripe.js --live` with the live key to create the live prices, and
    decide sales tax, refunds, terms, and the local rules on auto-charging after a free trial (see above).
-5. Add your real site address to `allowedOrigins` in `functions/index.js` if it is not the Firebase one.
+5. **Before going live with real customers, talk to an accountant or bookkeeper** (a short session is enough). Ask: "I'm
+   selling a $6.99/month app subscription to US customers. Do I need to collect sales tax anywhere?" Sales tax stays
+   **off** until then. If the answer is yes, turn on Stripe Tax in the Dashboard (business address, default product tax
+   category) and ask for the small code change: set `automaticTax: true` in `functions/index.js` and add
+   `customer_update: { address: 'auto' }` to the Checkout request in `billing.js`, since checkout reuses an existing
+   Stripe customer. Stripe Tax only calculates tax; registering with states and remitting it is still on you.
+6. Add your real site address to `allowedOrigins` in `functions/index.js` if it is not the Firebase one.
 
 ### Known limits
 - Webhook de-duplication is check-then-write: two simultaneous deliveries of one event could both run. Every handler is
