@@ -45,3 +45,24 @@ Agreed in conversation. This is the design Stripe billing will be built to.
 - Decisions on sales tax, refunds and terms of service (Stripe Tax can handle tax collection).
 - Check the local rules on charging automatically after a free trial (clear disclosure, easy cancellation, and a
   reminder before the first charge in some places). Stripe can send the reminder email.
+
+## Build plan (for the session that has the Stripe test key)
+Work on branch `claude/peatmoss-tenancy`, in `tenancy/`. Run `npm install` there first. Tests: `npm test` (emulator) and
+`env -u https_proxy -u HTTPS_PROXY npm run e2e`. Do not deploy anything and do not merge to main.
+
+1. **Check the key works and is test mode:** call the Stripe API for the account and confirm `livemode` is false. Never
+   print the key. Stop if it is a live key.
+2. **Create the product and prices in test mode** through the API: one product, a $6.99/month price and a yearly price
+   (about $69). Keep the price ids in a small config file (not secret).
+3. **Server functions** (in `tenancy/functions/`): start checkout, open the billing portal, and a signature-verified
+   webhook that is the only writer of subscription state, idempotent per event. A person's status sets `covered` on their
+   membership in every band; a `complimentary` flag keeps chosen bands free; a daily job locks members when a band's
+   30 days end and they have no active subscription; trials are once per person and tied to the card fingerprint.
+4. **App:** the subscribe screen (replacing the placeholder text on the "access paused" screen), a trial-ending banner,
+   and a Manage billing button.
+5. **Tests:** unit tests with a stand-in Stripe for the logic, plus real test-mode API calls for the request shapes. The
+   webhook is tested with events signed locally with a test signing secret (no public URL is available in the sandbox).
+
+What the owner must do later, in their own accounts: turn on the Customer Portal in Stripe (Settings › Billing ›
+Customer portal), set the two Firebase secrets (secret key, webhook signing secret), and add the deployed webhook URL in
+Stripe. The sandbox cannot do these, and the owner never pastes secrets into a chat.
