@@ -4,8 +4,10 @@
 // its tests are in band.js.
 
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
 const admin = require('firebase-admin');
 const band = require('./band');
+const trash = require('./trash');
 
 if (!admin.apps.length) admin.initializeApp();
 const db = () => admin.firestore();
@@ -41,3 +43,9 @@ exports.redeemInvite = wrap(band.redeemInvite, { withProfile: true });
 exports.removeMember = wrap(band.removeMember);
 exports.setMemberRole = wrap(band.setMemberRole);
 exports.transferOwnership = wrap(band.transferOwnership);
+
+// Once a day: erase anything that has sat in Recently deleted for 30 days.
+exports.purgeTrash = onSchedule({ schedule: 'every day 04:00', timeZone: 'America/New_York' }, async () => {
+  const counts = await trash.purgeTrash(db());
+  console.log('purgeTrash', JSON.stringify(counts));
+});

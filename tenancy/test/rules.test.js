@@ -36,7 +36,8 @@ beforeEach(async () => {
       await put(`bands/${b}/setlists/s1`, { name: 'Saturday' });
       await put(`bands/${b}/songs/shared1`, { name: 'Brown Eyed Girl', shared: true, uid: 'mia' });
     }
-    await put(`bands/${A}/songs/private1`, { name: 'My practice chart', shared: false, uid: 'mia' });
+    await put(`users/mia/charts/lib1`, { name: 'My practice chart', type: 'text', content: 'x' });
+    await put(`bands/${A}/gigs/trashed1`, { venue: 'Old Venue', deletedAt: 1, deletedBy: 'mia' });
     await put(`users/mia/mileageTrips/mia1`, { miles: 40 });
     await put(`users/max/mileageTrips/max1`, { miles: 25 });
     await put(`users/ursula/mileageTrips/ursula1`, { miles: 12 });
@@ -107,14 +108,14 @@ test('every paid-up role can read the band, its members, gigs, setlists, shared 
   }
 });
 
-test('owner, admin and member can all add, edit and delete gigs, setlists and shared charts', async () => {
+test('owner, admin and member can all add, edit and trash gigs, setlists and charts', async () => {
   for (const uid of ['olive', 'adam', 'mia']) {
     const db = as(uid);
     await ok(s(db, `bands/${A}/gigs/new-${uid}`, { venue: 'x', date: '2027-03-01' }));
     await ok(updateDoc(doc(db, `bands/${A}/gigs/g1`), { notes: 'hi' }));
     await ok(s(db, `bands/${A}/setlists/new-${uid}`, { name: 'x' }));
-    await ok(s(db, `bands/${A}/songs/new-${uid}`, { name: 'x', shared: true, uid }));
-    await ok(deleteDoc(doc(db, `bands/${A}/gigs/new-${uid}`)));
+    await ok(s(db, `bands/${A}/songs/new-${uid}`, { name: 'x', uid }));
+    await ok(updateDoc(doc(db, `bands/${A}/gigs/new-${uid}`), { deletedAt: Date.now(), deletedBy: uid }));   // "delete" = move to the trash
   }
 });
 
@@ -125,7 +126,7 @@ test('LOCKOUT: a person whose own subscription lapsed gets no band content at al
     await no(getDocs(collection(u, `bands/${A}/gigs`)));
     await no(g(u, `bands/${A}/setlists/s1`));
     await no(g(u, `bands/${A}/songs/shared1`));
-    await no(getDocs(query(collection(u, `bands/${A}/songs`), where('shared', '==', true))));
+    await no(getDocs(collection(u, `bands/${A}/songs`)));
     await no(g(u, `bands/${A}/settings/stagePlot`));
     await no(g(u, `bands/${A}/members/mia`));                       // not even the member list
     await no(g(u, `bands/${A}/unavailableDates/2027-02-01__mia`));
@@ -202,23 +203,58 @@ test('checklists and unpaid marks belong to one person', async () => {
   await no(g(as('max'), `bands/${A}/unpaidGigs/mia`));
 });
 
-test('private charts are readable and editable only by their owner; shared ones by any paid-up member', async () => {
-  const mia = as('mia'), max = as('max'), olive = as('olive');
-  await ok(g(mia, `bands/${A}/songs/private1`));
-  await no(g(max, `bands/${A}/songs/private1`));
-  await no(g(olive, `bands/${A}/songs/private1`));
-  await no(updateDoc(doc(max, `bands/${A}/songs/private1`), { name: 'stolen' }));
-  await no(deleteDoc(doc(max, `bands/${A}/songs/private1`)));
-  await ok(updateDoc(doc(mia, `bands/${A}/songs/private1`), { name: 'renamed' }));
-  // the two queries a client has to run
-  await ok(getDocs(query(collection(max, `bands/${A}/songs`), where('shared', '==', true))));
-  await ok(getDocs(query(collection(mia, `bands/${A}/songs`), where('uid', '==', 'mia'))));
-  await no(getDocs(collection(max, `bands/${A}/songs`)));
-  // any member can fix a shared chart, but nobody can reassign who made it
-  await ok(updateDoc(doc(max, `bands/${A}/songs/shared1`), { key: 'A' }));
-  await no(updateDoc(doc(max, `bands/${A}/songs/shared1`), { uid: 'max' }));
-  // a chart must be created in your own name
-  await no(s(max, `bands/${A}/songs/forged`, { name: 'x', shared: true, uid: 'mia' }));
+test("band charts belong to the band: every paid-up member can read and fix them, nobody can reassign the author", async () => {
+  for (const uid of ['olive', 'adam', 'mia', 'max']) await ok(g(as(uid), `bands/${A}/songs/shared1`));
+  await ok(getDocs(collection(as('max'), `bands/${A}/songs`)));                         // a plain list works: everything in here is the band's
+  await ok(updateDoc(doc(as('max'), `bands/${A}/songs/shared1`), { key: 'A' }));
+  await no(updateDoc(doc(as('max'), `bands/${A}/songs/shared1`), { uid: 'max' }));
+  await no(s(as('max'), `bands/${A}/songs/forged`, { name: 'x', uid: 'mia' }));         // a chart is created in your own name
+  await ok(s(as('max'), `bands/${A}/songs/mine`, { name: 'x', uid: 'max' }));
+  await no(g(as('stan'), `bands/${A}/songs/shared1`));
+  await no(g(as('bob'), `bands/${A}/songs/shared1`));                                   // another band
+});
+
+test('the chart library belongs to the person: only they can touch it, no band can reach it', async () => {
+  const mia = as('mia');
+  await ok(g(mia, 'users/mia/charts/lib1'));
+  await ok(getDocs(collection(mia, 'users/mia/charts')));
+  await ok(s(mia, 'users/mia/charts/new', { name: 'x', type: 'text', content: 'y' }));
+  await ok(updateDoc(doc(mia, 'users/mia/charts/lib1'), { name: 'renamed' }));
+  await ok(deleteDoc(doc(mia, 'users/mia/charts/new')));
+  for (const other of ['max', 'olive', 'adam', 'stan', 'bob']) {
+    const db = as(other);
+    await no(g(db, 'users/mia/charts/lib1'));
+    await no(getDocs(collection(db, 'users/mia/charts')));
+    await no(s(db, 'users/mia/charts/forged', { name: 'x' }));
+    await no(updateDoc(doc(db, 'users/mia/charts/lib1'), { name: 'stolen' }));
+    await no(deleteDoc(doc(db, 'users/mia/charts/lib1')));
+  }
+  await no(g(as(null), 'users/mia/charts/lib1'));
+  // it does not depend on any band: lapsed or removed people keep their own library
+  await ok(g(as('ursula'), 'users/ursula/charts/none'));
+  await env.withSecurityRulesDisabled(ctx => deleteDoc(doc(ctx.firestore(), `bands/${A}/members/mia`)));
+  await ok(g(as('mia'), 'users/mia/charts/lib1'));
+});
+
+test('trash: members cannot erase shared content, only move it to Recently deleted; owners and admins erase from there', async () => {
+  const stamp = { deletedAt: 5, deletedBy: 'mia' };
+  for (const [col, id] of [['gigs', 'g1'], ['setlists', 's1'], ['songs', 'shared1']]) {
+    const path = `bands/${A}/${col}/${id}`;
+    await no(deleteDoc(doc(as('mia'), path)));                       // a member cannot hard-delete
+    await no(deleteDoc(doc(as('adam'), path)));                      // not even an admin, until it is in the trash
+    await no(deleteDoc(doc(as('olive'), path)));
+    await ok(updateDoc(doc(as('mia'), path), stamp));                // but any member can move it to the trash
+    await no(deleteDoc(doc(as('mia'), path)));                       // still cannot erase it
+    await ok(updateDoc(doc(as('max'), path), { deletedAt: null, deletedBy: null }));      // and any member can restore it
+    await ok(updateDoc(doc(as('max'), path), stamp));
+    await ok(deleteDoc(doc(as(col === 'gigs' ? 'adam' : 'olive'), path)));                // owner or admin erases from the trash
+  }
+  await ok(getDocs(collection(as('mia'), `bands/${A}/gigs`)));       // trashed items are still listable (the Recently deleted screen reads them)
+  await no(deleteDoc(doc(as('stan'), `bands/${A}/gigs/trashed1`)));
+  await no(deleteDoc(doc(as('ursula'), `bands/${A}/gigs/trashed1`)));   // a locked-out admin-less member has no power either
+  await no(deleteDoc(doc(as('carl'), `bands/${A}/gigs/trashed1`)));     // nor a lapsed admin
+  await no(deleteDoc(doc(as('bob'), `bands/${A}/gigs/trashed1`)));      // nor another band's owner
+  await ok(deleteDoc(doc(as('olive'), `bands/${A}/gigs/trashed1`)));
 });
 
 test('membership and roles can only be changed by the server, never from the app', async () => {

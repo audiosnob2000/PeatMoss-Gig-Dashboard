@@ -8,17 +8,17 @@ branch only.
 
 | Piece | Where | What it does |
 |---|---|---|
-| Security rules | `firestore.rules` | Everything a band owns lives under `bands/{id}`. Roles: owner, admin, member. A person whose own subscription lapses (`covered:false`) is locked out of all band content. Private charts are enforced by the rules, not by hiding them. Mileage is not part of any band: it lives under the person (`users/{uid}/mileageTrips`), so it follows them between bands and survives leaving one. |
-| Band functions | `functions/band.js`, `functions/index.js` | `createBand`, `createInvite`, `revokeInvite`, `redeemInvite`, `removeMember`, `setMemberRole`, `transferOwnership`. Membership is only ever written here (Admin SDK); clients cannot write it. |
-| Migration | `migrate/migrate.js` | Copies today's flat collections under `bands/{id}` (mileage goes to each person's own area), translating `deviceId` to `uid` and a missing `shared` flag to `shared:true`. Never changes the originals. Refuses a real project without `--live`. |
-| App | `../index.html` | New `Root` (sign-in, band picker, start/join, removed and locked-out screens), band-scoped data layer, Band section in Settings (members, invite codes, roles, hand over, leave). |
+| Security rules | `firestore.rules` | Everything a band owns lives under `bands/{id}`. Roles: owner, admin, member. A person whose own subscription lapses (`covered:false`) is locked out of all band content. Charts in a band are the band's (they stay when the person who added them leaves); private charts live in the person's own library (`users/{uid}/charts`). Band gigs, sets and charts are never erased directly: a member "deletes" by stamping `deletedAt` (Recently deleted, 30 days), and only an owner or admin can erase something already in the trash. Mileage is not part of any band: it lives under the person (`users/{uid}/mileageTrips`), so it follows them between bands and survives leaving one. |
+| Band functions | `functions/band.js`, `functions/trash.js`, `functions/index.js` | `createBand`, `createInvite`, `revokeInvite`, `redeemInvite`, `removeMember`, `setMemberRole`, `transferOwnership`, plus the daily `purgeTrash` job that erases what has been in Recently deleted for 30 days. Membership is only ever written here (Admin SDK); clients cannot write it. |
+| Migration | `migrate/migrate.js` | Copies today's flat collections under `bands/{id}` (mileage goes to each person's own area), translating `deviceId` to `uid`; a chart the live app calls shared (a missing flag counts as shared) becomes the band's, a private one goes to its owner's library. Never changes the originals. Refuses a real project without `--live`. |
+| App | `../index.html` | New `Root` (sign-in, band picker, start/join, removed and locked-out screens), band-scoped data layer, Band section in Settings (members, invite codes, roles, hand over, leave), "My charts" library with Share with band, and Settings > Recently deleted. |
 
 ## Tests
 
 ```
 npm install
-npm test        # 62: rules, band functions, migration (Firestore emulator)
-npm run e2e     # 18: the real index.html in a phone-sized browser against the real rules and functions
+npm test        # 69: rules, band functions, migration (Firestore emulator)
+npm run e2e     # 22: the real index.html in a phone-sized browser against the real rules and functions
 ```
 
 `npm run e2e` needs Playwright available (`require('playwright')`). Set `E2E_SHOTS=/some/dir` to save screenshots,
@@ -34,7 +34,7 @@ the app makes is allowed for that role.
 3. Take a Firestore export (the rollback).
 4. Pick a weekday morning, never the week of a gig.
 5. Run the migration with `--live`, then deploy `firestore.rules` (replacing the root file), then the band functions
-   (merged into `functions/index.js`), then merge the app change.
+   (merged into `functions/index.js`, including `purgeTrash`), then merge the app change.
 6. Verify as a plain member on a phone, not as an admin.
 7. Leave the old collections alone for 30 days.
 
@@ -48,5 +48,5 @@ the app makes is allowed for that role.
 
 ## Not built yet
 
-Stripe per-person subscriptions, trash and the delete-band function (owner only), server-side calendar sync, the
-shared public schedule page. A person's private charts stay inside the band when they leave it (undecided).
+Stripe per-person subscriptions, the delete-band function (owner only, would reuse the trash idea), server-side
+calendar sync, the shared public schedule page.

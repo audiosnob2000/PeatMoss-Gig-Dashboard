@@ -817,7 +817,7 @@ function SwipeableGigRow({g,bg,border,tc,onOpen,onDelete,onMap,pastUnpaid}){
     onOpen();
   };
   return e('div',{style:{position:'relative',overflow:'hidden',borderBottom:border}},
-    e('div',{onClick:()=>{if(window.confirm('Delete "'+g.venue+'"?'))onDelete(g.id);},
+    e('div',{onClick:()=>{if(window.confirm('Delete "'+g.venue+'"? You can restore it from Settings › Recently deleted for 30 days.'))onDelete(g.id);},
       style:{position:'absolute',top:0,right:0,bottom:0,width:SWIPE_DELETE_WIDTH,background:'#DC2626',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:600,cursor:'pointer'}},'Delete'),
     e('div',{
       onPointerDown,onPointerMove,onPointerUp,onPointerCancel:onPointerUp,onClick:onRowClick,
@@ -2688,7 +2688,7 @@ function CustomColorSwatch({selected,customColor,onPick}){
   );
 }
 
-function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar,onAutoScrolled,syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,onSendReset,onChangePassword,canManage,bandPanelProps}){
+function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar,onAutoScrolled,syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,onSendReset,onChangePassword,canManage,bandPanelProps,trashProps}){
   const googleCalendarRowRef=useRef(null);
   const [showBandStatsModal,setShowBandStatsModal]=useState(false);
   // Metronome: per-device, same reasoning as mileage/checklist — a saved
@@ -2887,6 +2887,9 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
     e('div',{style:{padding:'1rem',maxWidth:520,margin:'0 auto'}},
       e(Section,{icon:'👥',iconBg:'#E0F2F1',title:'Band',summary:bandPanelProps.band.name+' · '+bandPanelProps.myRole,isOpen:openSections.has('band'),onToggle:()=>toggleSection('band')},
         e(BandPanel,bandPanelProps)
+      ),
+      e(Section,{icon:'🗑️',iconBg:'#F3F4F6',title:'Recently deleted',summary:'Restore shows, sets and charts for 30 days',isOpen:openSections.has('trash'),onToggle:()=>toggleSection('trash')},
+        e(TrashPanel,trashProps)
       ),
       e(Section,{icon:'🎨',iconBg:'#FEE9F0',title:'Appearance',summary:appearanceSummary,isOpen:openSections.has('appearance'),onToggle:()=>toggleSection('appearance')},
         e(Row,{label:'Default view',border:true,
@@ -3552,6 +3555,14 @@ const lsKey=k=>'pmtf_b_'+ACTIVE_BAND_ID+'_'+k;
 // year's total is one number however many bands you play in, and leaving a band
 // never touches it. Its local cache is keyed by person for the same reason.
 const mileageCol=()=>db.collection('users').doc(getUserId()).collection('mileageTrips');
+// Private charts live in the person's own library, not in any band: they follow
+// you between bands and survive leaving one. Sharing a chart with a band puts a
+// copy in that band, which then belongs to the band.
+const libCol=()=>db.collection('users').doc(getUserId()).collection('charts');
+// Shared band content (gigs, charts, sets) is never erased directly: "delete"
+// stamps it, and it waits in Recently deleted for 30 days (a daily server job
+// then erases it). Anyone in the band can restore it meanwhile.
+const trashStamp=()=>({deletedAt:Date.now(),deletedBy:getUserId()});
 const lsUserKey=k=>'pmtf_u_'+getUserId()+'_'+k;
 const callBand=(name,data)=>fns.httpsCallable(name)(data).then(r=>r.data);
 const callBandAlert=(name,data)=>callBand(name,data).catch(err=>{alert((err&&err.message)||'Something went wrong — try again.');});
@@ -3767,6 +3778,46 @@ function Root(){
     onLeavingBand:()=>{leavingRef.current=true;},onLeftBand:()=>{leavingRef.current=false;}});
 }
 
+// Recently deleted: shows, sets and charts that someone in the band removed. Anyone
+// can restore them for 30 days; owners and admins can erase one early. (A daily
+// server job erases the rest after 30 days.)
+function TrashPanel({theme,canManage,bandMembers}){
+  const [items,setItems]=useState({gigs:[],songs:[],setlists:[]});
+  const [busy,setBusy]=useState('');
+  useEffect(()=>{
+    const unsubs=['gigs','songs','setlists'].map(col=>bc(col).where('deletedAt','>',0).onSnapshot(
+      snap=>setItems(p=>({...p,[col]:snap.docs.map(d=>({id:d.id,...d.data()}))})),
+      err=>console.warn('trash',col,err&&err.code)));
+    return()=>unsubs.forEach(u=>u());
+  },[]);
+  const DAY=86400000;
+  const kinds={gigs:'Show',songs:'Chart',setlists:'Set'};
+  const rows=Object.entries(items).flatMap(([col,list])=>list.map(it=>({col,it}))).sort((a,b)=>b.it.deletedAt-a.it.deletedAt);
+  const titleOf=(col,it)=>col==='gigs'?(it.venue||'Show')+(it.date?' · '+it.date:''):(it.name||'Untitled');
+  const who=uid=>{const m=bandMembers.find(x=>x.id===uid);return m?(m.name||m.email):'someone';};
+  const run=(key,promise)=>{setBusy(key);promise.catch(()=>alert('That did not work — check your connection and try again.')).finally(()=>setBusy(''));};
+  const small={fontSize:12,padding:'5px 10px',borderRadius:8,border:'1px solid #d1d5db',background:'#fff',cursor:'pointer'};
+  const FV=firebase.firestore.FieldValue;
+  if(!rows.length)return e('div',{style:{padding:'14px',fontSize:13,color:'#6b7280',lineHeight:1.5}},'Nothing here. Shows, sets and charts that get deleted wait here for 30 days, so a mistake can be undone.');
+  return e('div',null,
+    rows.map(({col,it})=>{
+      const left=Math.max(0,30-Math.floor((Date.now()-it.deletedAt)/DAY));
+      const key=col+it.id;
+      return e('div',{key,'data-trash':col+':'+it.id,style:{padding:'10px 14px',borderBottom:'1px solid #f3f4f6'}},
+        e('div',{style:{display:'flex',justifyContent:'space-between',gap:8,alignItems:'center'}},
+          e('div',{style:{minWidth:0}},
+            e('div',{style:{fontSize:14,color:'#111827',overflow:'hidden',textOverflow:'ellipsis'}},titleOf(col,it)),
+            e('div',{style:{fontSize:11,color:'#9ca3af'}},kinds[col]+' · deleted by '+who(it.deletedBy)+' · '+left+' day'+(left===1?'':'s')+' left')),
+          e('div',{style:{display:'flex',gap:6,flexShrink:0}},
+            e('button',{style:{...small,background:theme.primary,color:theme.headerText||'#fff',borderColor:theme.primary},disabled:!!busy,
+              onClick:()=>run(key,bc(col).doc(it.id).update({deletedAt:FV.delete(),deletedBy:FV.delete(),...(col==='gigs'&&it.fromCalendar?{fromCalendar:false}:{})}))},'Restore'),
+            canManage&&e('button',{style:{...small,color:'#b91c1c',borderColor:'#fecaca'},disabled:!!busy,
+              onClick:()=>{if(window.confirm('Erase "'+titleOf(col,it)+'" for good? This can\'t be undone.'))run(key,bc(col).doc(it.id).delete());}},'Erase'))),
+        col==='gigs'&&it.fromCalendar&&e('div',{style:{fontSize:11,color:'#9ca3af',marginTop:4}},'This show was on Google Calendar. Restoring it brings it back in the app, but not onto the calendar.'));
+    })
+  );
+}
+
 // Everything about the band itself: name, calendar, who is in it, invite
 // codes, roles, leaving and handing the band over. Every change that touches
 // membership goes through a server function; only the name and calendar id
@@ -3940,7 +3991,6 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
   const [editingSongId,setEditingSongId]=useState(null);
   const [editSongName,setEditSongName]=useState('');
   const [editSongContent,setEditSongContent]=useState('');
-  const [editSongShared,setEditSongShared]=useState(true);
   const [replacingSongId,setReplacingSongId]=useState(null);
   const [replacingSongProcessing,setReplacingSongProcessing]=useState(false);
   const [songPrintStandaloneHelp,setSongPrintStandaloneHelp]=useState(false);
@@ -4306,7 +4356,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
   // Live-sync setlists so every band member sees the same list.
   useEffect(()=>{
     const unsub=bc('setlists').onSnapshot(snap=>{
-      setSetlists(snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>a.id<b.id?-1:1));
+      setSetlists(snap.docs.map(d=>({id:d.id,...d.data()})).filter(sl=>!sl.deletedAt).sort((a,b)=>a.id<b.id?-1:1));
     },onDbError);
     return unsub;
   },[]);
@@ -4319,20 +4369,17 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
     },onDbError);
     return unsub;
   },[]);
-  // Live-sync songs (chord charts). Shared charts show for everyone; a private
-  // chart is readable only by whoever made it, enforced by the security rules
-  // rather than by hiding it here. Rules are not filters, so this asks for the
-  // two sets separately: charts marked shared, and charts I made.
+  // Live-sync charts: the band's charts (everyone in the band sees them) plus
+  // my own library (just me, in whichever band I have open). Each carries a
+  // `scope` so edits and deletes go to the right place.
   useEffect(()=>{
-    const myId=getUserId();
-    let shared=[],mine=[];
+    let band=[],lib=[];
     const publish=()=>{
-      const byId=new Map();
-      [...shared,...mine].forEach(sg=>byId.set(sg.id,sg));
-      setSongs(Array.from(byId.values()).sort((a,b)=>(a.name||'').localeCompare(b.name||'')));
+      const all=[...band.filter(sg=>!sg.deletedAt).map(sg=>({...sg,scope:'band',shared:true})),...lib.map(sg=>({...sg,scope:'mine',shared:false}))];
+      setSongs(all.sort((a,b)=>(a.name||'').localeCompare(b.name||'')));
     };
-    const u1=bc('songs').where('shared','==',true).onSnapshot(snap=>{shared=snap.docs.map(d=>({id:d.id,...d.data()}));publish();},onDbError);
-    const u2=bc('songs').where('uid','==',myId).onSnapshot(snap=>{mine=snap.docs.map(d=>({id:d.id,...d.data()}));publish();},onDbError);
+    const u1=bc('songs').onSnapshot(snap=>{band=snap.docs.map(d=>({id:d.id,...d.data()}));publish();},onDbError);
+    const u2=libCol().onSnapshot(snap=>{lib=snap.docs.map(d=>({id:d.id,...d.data()}));publish();},onDbError);
     return()=>{u1();u2();};
   },[authUser]);
   // Live-sync gigs from Firestore so every device sees gigs added on any
@@ -4344,7 +4391,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
     const dedupeKey=g=>g.date+'|'+(g.venue||'').trim().toLowerCase();
     const prevRemoteIds=firestoreGigIdsRef.current;
     const unsub=bc('gigs').onSnapshot(snap=>{
-      const remoteGigs=snap.docs.map(d=>({id:d.id,...d.data()}));
+      const remoteGigs=snap.docs.map(d=>({id:d.id,...d.data()})).filter(g=>!g.deletedAt);   // trashed gigs count as removed
       const remoteIds=new Set(remoteGigs.map(g=>String(g.id)));
       const removedIds=new Set([...prevRemoteIds].filter(id=>!remoteIds.has(id)));
       prevRemoteIds.clear();
@@ -4739,7 +4786,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
       }
     }
     setGigs(p=>p.filter(x=>x.id!==id));
-    bc('gigs').doc(String(id)).delete().catch(reportWriteError('delete this gig'));
+    {const{id:_i,...body}=target||{};bc('gigs').doc(String(id)).set({...body,...trashStamp()},{merge:true}).catch(reportWriteError('delete this gig'));}
     closeModal();
   };
 
@@ -5204,7 +5251,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
     resetSetlistForm();
   };
   const deleteSetlist=id=>{
-    bc('setlists').doc(id).delete().catch(()=>alert('Could not delete — check your connection and try again.'));
+    bc('setlists').doc(id).update(trashStamp()).catch(()=>alert('Could not delete — check your connection and try again.'));
     setViewingSetlist(null);setEditingSetlistId(null);setReplacingSetlistId(null);setViewingChartSetlist(null);
   };
   const openChartBuilderForEdit=sl=>{
@@ -5247,7 +5294,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
         // Save button — otherwise picking a file mid-edit would silently
         // drop whatever name was typed.
         if(editSongName.trim())updates.name=editSongName.trim();
-        bc('songs').doc(replacingSongId).update(updates)
+        songRefOf(songs.find(x=>x.id===replacingSongId)||{id:replacingSongId}).update(updates)
           .catch(()=>alert('Could not save — check your connection and try again.'));
         setReplacingSongProcessing(false);
         setReplacingSongId(null);
@@ -5261,7 +5308,6 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
     setEditingSongId(sg.id);
     setEditSongName(sg.name);
     setEditSongContent(sg.type==='text'||sg.type==='link'?sg.content:'');
-    setEditSongShared(sg.shared!==false);
   };
   const shareSong=async sg=>{
     try{
@@ -5289,11 +5335,24 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
       if(err.name!=='AbortError') alert('Could not share this chart.');
     }
   };
+  // Which collection a chart lives in: my library, or the band's.
+  const songRefOf=sg=>(sg&&sg.scope==='mine'?libCol():bc('songs')).doc(sg.id);
+  // Share a library chart with this band: a copy goes into the band (and stays
+  // there if I leave); my original stays mine. Returns the band copy's id.
+  const copyChartToBand=sg=>{
+    const existing=sg.sharedWith&&sg.sharedWith[band.id];
+    if(existing&&songs.some(x=>x.id===existing&&x.scope!=='mine'))return existing;
+    const id='sg'+Date.now()+Math.random().toString(36).slice(2,6);
+    const{id:_i,scope:_sc,shared:_sh,sharedWith:_sw,deletedAt:_da,deletedBy:_db,uid:_u,...fields}=sg;
+    bc('songs').doc(id).set({...fields,uid:getUserId(),shared:true,fromLibrary:sg.id,updatedAt:todayStr}).catch(reportWriteError('share this chart'));
+    libCol().doc(sg.id).set({sharedWith:{[band.id]:id}},{merge:true}).catch(()=>{});
+    return id;
+  };
   const saveSongEdit=sg=>{
     if(!editSongName.trim()){setEditingSongId(null);return;}
-    const updates={name:editSongName.trim(),updatedAt:todayStr,shared:editSongShared};
+    const updates={name:editSongName.trim(),updatedAt:todayStr};
     if(sg.type==='text'||sg.type==='link')updates.content=editSongContent;
-    bc('songs').doc(sg.id).update(updates)
+    songRefOf(sg).update(updates)
       .catch(()=>alert('Could not save — check your connection and try again.'));
     setEditingSongId(null);
   };
@@ -5308,22 +5367,29 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
       return;
     }
     const type=newSongMode==='link'?'link':newSongMode==='manual'?'text':newSongContentType;
-    bc('songs').doc('sg'+Date.now()).set({
+    // Off (the default): my own library. On: the band's charts.
+    const fields={
       name:newSongName.trim(),type,content:newSongContent,fileName:newSongFileName||null,
-      updatedAt:todayStr,shared:!!newSongShared,uid:getUserId(),
+      updatedAt:todayStr,uid:getUserId(),
       key:newSongKey.trim()||null,tempo:newSongTempo.trim()||null,tag:newSongTag.trim()||null,rotated:false
-    }).catch(()=>alert('Could not save — check your connection and try again.'));
+    };
+    const newId='sg'+Date.now();
+    (newSongShared?bc('songs').doc(newId).set({...fields,shared:true}):libCol().doc(newId).set(fields))
+      .catch(()=>alert('Could not save — check your connection and try again.'));
     resetSongForm();
   };
   const deleteSong=id=>{
-    bc('songs').doc(id).delete().catch(()=>alert('Could not delete — check your connection and try again.'));
+    const sg=songs.find(x=>x.id===id);
+    // My own library charts are erased outright; the band's go to Recently deleted.
+    (sg&&sg.scope==='mine'?libCol().doc(id).delete():bc('songs').doc(id).update(trashStamp()))
+      .catch(()=>alert('Could not delete — check your connection and try again.'));
     setViewingSong(null);setEditingSongId(null);setReplacingSongId(null);
   };
   // Rotation is stored per-song (not per-device) since it's fixing an
   // inherent property of the uploaded photo — once someone straightens it,
   // everyone should see it right-side-up without re-doing the same fix.
   const toggleSongRotation=sg=>{
-    bc('songs').doc(sg.id).update({rotated:!sg.rotated})
+    songRefOf(sg).update({rotated:!sg.rotated})
       .catch(()=>alert('Could not save — check your connection and try again.'));
   };
   // The transpose stepper only ever changes what's on screen right now —
@@ -5335,7 +5401,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
     if(liveViewingSong.key&&liveViewingSong.key.trim()){
       updates.key=transposeChordToken(liveViewingSong.key.trim(),transposeSteps);
     }
-    bc('songs').doc(liveViewingSong.id).update(updates)
+    songRefOf(liveViewingSong).update(updates)
       .catch(()=>alert('Could not save — check your connection and try again.'));
     setTransposeSteps(0);
   };
@@ -5351,7 +5417,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
   const liveViewingChartSetlist=viewingChartSetlist&&(setlists.find(s=>s.id===viewingChartSetlist.id)||viewingChartSetlist);
 
 
-  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,authUser,authBusy,authError,onSignUp:signUpWithEmail,onSignIn:signInWithEmail,onSignOut:signOutOfAccount,onSendReset:sendPasswordReset,onChangePassword:changePassword,canManage,bandPanelProps:{theme,band,myRole,myUid:authUser&&authUser.uid,bandMembers,invites:bandInvites,onCall:callBandAlert,onRename:renameBand,onSetCalendarId:setBandCalendarId,onSwitch:onSwitchBand,onLeaving:onLeavingBand,onLeft:onLeftBand}});
+  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,authUser,authBusy,authError,onSignUp:signUpWithEmail,onSignIn:signInWithEmail,onSignOut:signOutOfAccount,onSendReset:sendPasswordReset,onChangePassword:changePassword,canManage,trashProps:{theme,canManage,bandMembers},bandPanelProps:{theme,band,myRole,myUid:authUser&&authUser.uid,bandMembers,invites:bandInvites,onCall:callBandAlert,onRename:renameBand,onSetCalendarId:setBandCalendarId,onSwitch:onSwitchBand,onLeaving:onLeavingBand,onLeft:onLeftBand}});
 
   const travelModalsProps={askTrack,setAskTrack,goHome,openMapsChooser,startTracking,askHomeAddress,setAskHomeAddress,homeAddressDraft,setHomeAddressDraft,saveHomeAddressAndGo,mapsChoice,setMapsChoice,theme,trackingMiles,stopTracking,gpsStandaloneHelp,dismissGpsStandaloneHelp};
 
@@ -5572,13 +5638,6 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
                         style:{width:'100%',padding:'11px 0',borderRadius:10,border:'none',background:theme.mid,color:'#fff',fontWeight:600,cursor:'pointer',fontSize:13.5}},
                         '📤 Replace Photo or File')
                 ),
-                e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:12,padding:'10px 12px',background:'#f9fafb',borderRadius:9}},
-                  e('div',null,
-                    e('div',{style:{fontSize:12.5,fontWeight:500,color:'#111827'}},editSongShared?'Share with the whole band':'Keep private (just this device)'),
-                    e('div',{style:{fontSize:10.5,color:'#9ca3af'}},editSongShared?'Everyone in the band can see this chart':'Only visible on this device')
-                  ),
-                  e(Toggle,{on:editSongShared,onToggle:()=>setEditSongShared(v=>!v)})
-                ),
                 e('div',{style:{display:'flex',gap:8,marginTop:12}},
                   e('button',{onClick:()=>saveSongEdit(sg),style:{background:theme.mid,color:'#fff',border:'none',fontWeight:500,flex:1}},'Save'),
                   e('button',{onClick:()=>setEditingSongId(null),style:{flexShrink:0}},'Cancel')
@@ -5597,18 +5656,24 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
                 e('div',{style:{fontSize:13.5,fontWeight:500,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},sg.name),
                 e('div',{style:{fontSize:11,color:'#9ca3af'}},
                   sg.key&&e('span',{style:{color:theme.primary,fontWeight:600}},sg.key+' · '),
-                  [sg.tempo?sg.tempo+' bpm':null,sg.tag,({image:'Photo',html:'HTML file',link:'Link',file:'File',text:'Text'}[sg.type]||'Text'),'updated '+formatSetlistDate(sg.updatedAt),sg.shared===false?'🔒 Private':null].filter(Boolean).join(' · ')
+                  [sg.tempo?sg.tempo+' bpm':null,sg.tag,({image:'Photo',html:'HTML file',link:'Link',file:'File',text:'Text'}[sg.type]||'Text'),'updated '+formatSetlistDate(sg.updatedAt),sg.scope==='mine'?'🔒 My charts':null].filter(Boolean).join(' · ')
                 )
               ),
+              !songSelectMode&&sg.scope==='mine'&&(()=>{
+                const bid=sg.sharedWith&&sg.sharedWith[band.id];
+                return bid&&songs.some(x=>x.id===bid&&x.scope!=='mine')
+                  ?e('span',{style:{fontSize:11,color:'#059669',flexShrink:0}},'✓ In band')
+                  :e('button',{onClick:()=>copyChartToBand(sg),style:{fontSize:12,padding:'5px 10px',flexShrink:0}},'Share with band');
+              })(),
               !songSelectMode&&e('button',{onClick:()=>startEditSong(sg),style:{fontSize:12,padding:'5px 12px',flexShrink:0}},'Edit'),
-              !songSelectMode&&e('button',{onClick:()=>{if(window.confirm('Remove "'+sg.name+'"?'))deleteSong(sg.id);},style:{border:'none',background:'none',color:'#d1d5db',fontSize:16,cursor:'pointer',padding:'0 4px',flexShrink:0}},'×')
+              !songSelectMode&&e('button',{onClick:()=>{if(window.confirm(sg.scope==='mine'?'Delete "'+sg.name+'" from your charts? This can\'t be undone.':'Remove "'+sg.name+'" from the band? You can restore it from Settings › Recently deleted for 30 days.'))deleteSong(sg.id);},style:{border:'none',background:'none',color:'#d1d5db',fontSize:16,cursor:'pointer',padding:'0 4px',flexShrink:0}},'×')
             );
           })
         ),
         songSelectMode&&songSelectedIds.length>0&&e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',border:'1px solid #e5e7eb',borderRadius:10,marginBottom:14,background:'#fff'}},
-          e('span',{style:{fontSize:12.5,color:'#6b7280'}},e('b',{style:{color:'#111827'}},songSelectedIds.length),' selected'),
+          e('span',{style:{fontSize:12.5,color:'#6b7280'}},e('b',{style:{color:'#111827'}},songSelectedIds.length),' selected',songSelectedIds.some(id=>(songs.find(x=>x.id===id)||{}).scope==='mine')&&e('div',{style:{fontSize:11,color:'#9ca3af'}},'Charts from your library get shared with the band')),
           e('button',{onClick:()=>{
-              setChartBuilder({mode:'new',name:'',structure:'sets',sets:[{songs:[...songSelectedIds]}]});
+              setChartBuilder({mode:'new',name:'',structure:'sets',sets:[{songs:songSelectedIds.map(id=>{const sg=songs.find(x=>x.id===id);return sg&&sg.scope==='mine'?copyChartToBand(sg):id;})}]});
               setSongSelectMode(false);setSongSelectedIds([]);
             },style:{fontSize:12.5,padding:'7px 12px',borderRadius:9,border:'none',background:theme.mid,color:'#fff',fontWeight:600,cursor:'pointer'}},
             'Add to Set →')
@@ -5681,8 +5746,8 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
             e('input',{value:newSongTag,onChange:ev=>setNewSongTag(ev.target.value),placeholder:'e.g. dance floor, first set opener'}),
             e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:10,padding:'10px 12px',background:'#f9fafb',borderRadius:9}},
               e('div',null,
-                e('div',{style:{fontSize:12.5,fontWeight:500,color:'#111827'}},newSongShared?'Share with the whole band':'Keep private (just you)'),
-                e('div',{style:{fontSize:10.5,color:'#9ca3af'}},newSongShared?'Everyone in the band can see this chart':'Only you can see this chart, on any of your devices')
+                e('div',{style:{fontSize:12.5,fontWeight:500,color:'#111827'}},newSongShared?'Share with the whole band':'Keep in my charts (just you)'),
+                e('div',{style:{fontSize:10.5,color:'#9ca3af'}},newSongShared?'Everyone in this band can see it, and it stays with the band':'Only you see it, in any band you play in. You can share it with a band later.')
               ),
               e(Toggle,{on:newSongShared,onToggle:()=>setNewSongShared(v=>!v)})
             )
@@ -5722,7 +5787,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
                     e('div',{style:{fontSize:11,color:'#9ca3af'}},chartsSetlistSummary(sl))
                   ),
                   e('button',{onClick:()=>openChartBuilderForEdit(sl),style:{fontSize:12,padding:'5px 12px',flexShrink:0}},'Edit'),
-                  e('button',{onClick:()=>{if(window.confirm('Remove "'+sl.name+'"?'))deleteSetlist(sl.id);},style:{border:'none',background:'none',color:'#d1d5db',fontSize:16,cursor:'pointer',padding:'0 4px',flexShrink:0}},'×')
+                  e('button',{onClick:()=>{if(window.confirm('Remove "'+sl.name+'"? You can restore it from Settings › Recently deleted for 30 days.'))deleteSetlist(sl.id);},style:{border:'none',background:'none',color:'#d1d5db',fontSize:16,cursor:'pointer',padding:'0 4px',flexShrink:0}},'×')
                 );
               }
               if(editingSetlistId===sl.id){
@@ -5764,7 +5829,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
                   e('div',{style:{fontSize:11,color:'#9ca3af'}},({image:'Photo',html:'HTML file',link:'Link',file:'File',text:'Text'}[sl.type]||'Text')+' · updated '+formatSetlistDate(sl.updatedAt))
                 ),
                 e('button',{onClick:()=>startEditSetlist(sl),style:{fontSize:12,padding:'5px 12px',flexShrink:0}},'Edit'),
-                e('button',{onClick:()=>{if(window.confirm('Remove "'+sl.name+'"?'))deleteSetlist(sl.id);},style:{border:'none',background:'none',color:'#d1d5db',fontSize:16,cursor:'pointer',padding:'0 4px',flexShrink:0}},'×')
+                e('button',{onClick:()=>{if(window.confirm('Remove "'+sl.name+'"? You can restore it from Settings › Recently deleted for 30 days.'))deleteSetlist(sl.id);},style:{border:'none',background:'none',color:'#d1d5db',fontSize:16,cursor:'pointer',padding:'0 4px',flexShrink:0}},'×')
               );
             })
           ),
@@ -5979,7 +6044,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
         )
       )
     ),
-    chartBuilder&&e(ChartSetBuilderModal,{songs,initial:chartBuilder,theme,onClose:()=>setChartBuilder(null),onSave:saveChartsSetlist}),
+    chartBuilder&&e(ChartSetBuilderModal,{songs:songs.filter(sg=>sg.scope!=='mine'),initial:chartBuilder,theme,onClose:()=>setChartBuilder(null),onSave:saveChartsSetlist}),
     // Songs viewer runs "stage mode" — dark background, amber accent —
     // unlike every other modal in the app, which follows the band's chosen
     // theme. This is the one screen actually read off a stand in a dark

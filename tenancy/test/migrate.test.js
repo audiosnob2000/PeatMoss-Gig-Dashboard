@@ -60,7 +60,7 @@ test('copies every collection under the band, with ids and content intact', asyn
   const r = await migrate(db, base);
   assert.equal(r.done, true);
   assert.deepEqual(r.orphans, []);
-  assert.deepEqual(r.copied, { gigs: 2, setlists: 1, unavailableDates: 1, songs: 3, checklists: 1, unpaidGigs: 1, settings: 2, mileageTrips: 2 });
+  assert.deepEqual(r.copied, { gigs: 2, setlists: 1, unavailableDates: 1, songs: 2, checklists: 1, unpaidGigs: 1, settings: 2, libraryCharts: 1, mileageTrips: 2 });
   const g = (await db.doc('bands/peatmoss/gigs/g1').get()).data();
   assert.deepEqual(g, { venue: 'Rusty Anchor', date: '2027-01-01', source: 'app' });
   assert.deepEqual((await db.doc('bands/peatmoss/setlists/s1').get()).data(), { name: 'Saturday', songs: ['a', 'b'] });
@@ -86,7 +86,12 @@ test('translates the old data shape: deviceId becomes uid, a missing shared flag
   const old = (await db.doc('bands/peatmoss/songs/shared-old').get()).data();
   assert.equal(old.uid, 'olive');
   assert.equal(old.shared, true);                         // live app treated "no flag" as shared
-  assert.equal((await db.doc('bands/peatmoss/songs/private-mia').get()).data().shared, false);
+  // a private chart leaves the band and goes into its owner's own library
+  assert.equal((await db.doc('bands/peatmoss/songs/private-mia').get()).exists, false);
+  const lib = (await db.doc('users/mia/charts/private-mia').get()).data();
+  assert.equal(lib.name, 'My chart');
+  assert.equal(lib.uid, 'mia');
+  assert.equal((await db.collection('bands/peatmoss/songs').get()).size, 2);
   // mileage goes under the person, not the band
   assert.equal((await db.doc('users/mia/mileageTrips/t1').get()).data().uid, 'mia');
   assert.equal((await db.doc('users/mia/mileageTrips/t1').get()).data().deviceId, 'mia');         // original field kept
@@ -112,9 +117,10 @@ test('with the new rules, each person sees exactly what they should after migrat
   // a band member reads band data; private chart only for its owner; mileage only your own
   await assertSucceeds(getDoc(doc(as('max'), 'bands/peatmoss/gigs/g1')));
   await assertSucceeds(getDoc(doc(as('max'), 'bands/peatmoss/songs/shared-old')));
-  await assertFails(getDoc(doc(as('max'), 'bands/peatmoss/songs/private-mia')));
-  await assertSucceeds(getDoc(doc(as('mia'), 'bands/peatmoss/songs/private-mia')));
-  await assertSucceeds(getDocs(query(collection(as('max'), 'bands/peatmoss/songs'), where('shared', '==', true))));
+  await assertFails(getDoc(doc(as('max'), 'users/mia/charts/private-mia')));          // a private chart is only its owner's
+  await assertFails(getDoc(doc(as('olive'), 'users/mia/charts/private-mia')));
+  await assertSucceeds(getDoc(doc(as('mia'), 'users/mia/charts/private-mia')));
+  await assertSucceeds(getDocs(collection(as('max'), 'bands/peatmoss/songs')));       // everything left in the band's charts is the band's
   await assertSucceeds(getDoc(doc(as('mia'), 'users/mia/mileageTrips/t1')));
   await assertFails(getDoc(doc(as('max'), 'users/mia/mileageTrips/t1')));
   await assertFails(getDoc(doc(as('olive'), 'users/mia/mileageTrips/t1')));          // not even the band owner
@@ -140,7 +146,7 @@ test('refuses to run twice', async () => {
 test('a dry run writes nothing at all and reports what it would do', async () => {
   const r = await migrate(db, { ...base, dryRun: true });
   assert.equal(r.dryRun, true);
-  assert.equal(r.copied.songs, 3);
+  assert.equal(r.copied.songs, 2);
   assert.equal((await db.doc('bands/peatmoss').get()).exists, false);
   assert.equal((await db.collection('bands/peatmoss/gigs').get()).size, 0);
   assert.equal((await db.collection('users').get()).size, 0);
@@ -160,6 +166,15 @@ test('data stranded under someone who is not in the member list blocks the run u
   await db.doc('songs/stray-private').delete();
   const r2 = await migrate(db, { ...base, memberUids: ['mia', 'max', 'device-abc123'] });
   assert.equal(r2.done, true);
+});
+
+test('a private chart with no owner is reported and never copied, even with --allow-orphans', async () => {
+  await db.doc('songs/stray-private').set({ name: 'orphan', shared: false });
+  const r = await migrate(db, { ...base, allowOrphans: true });
+  assert.equal(r.done, true);
+  assert.ok(r.orphans.some(o => o.includes('songs/stray-private') && o.includes('will NOT be copied')));
+  assert.equal((await db.doc('bands/peatmoss/songs/stray-private').get()).exists, false);
+  assert.equal((await db.collection('users').get()).docs.some(d => d.id === ''), false);
 });
 
 test('--allow-orphans copies them anyway and still lists them', async () => {

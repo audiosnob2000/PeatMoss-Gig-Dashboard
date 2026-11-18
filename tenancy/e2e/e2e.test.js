@@ -172,8 +172,7 @@ test('a member adds a gig in the app; it lands in the band and the owner sees it
   await mia.page.locator('input[type=date]').fill(inDays(12));
   await mia.page.locator('label:has-text("Venue name") + input').fill('Rusty Anchor');
   await mia.page.getByRole('button', { name: 'Add gig', exact: true }).click();
-  await mia.page.waitForTimeout(800);
-  const gigs = await db.collection(`bands/${id}/gigs`).get();
+  const gigs = await poll(async () => { const g = await db.collection(`bands/${id}/gigs`).get(); return g.size ? g : null; });
   assert.equal(gigs.size, 1);
   assert.equal(gigs.docs[0].data().venue, 'Rusty Anchor');
   await tab(olive, 'Shows');
@@ -182,12 +181,12 @@ test('a member adds a gig in the app; it lands in the band and the owner sees it
   noProblems();
 });
 
-test('charts: everyone sees shared ones; a private chart shows only for the person who made it', async () => {
+test('charts: everyone sees the band\'s; a private chart (in your library) shows only for you', async () => {
   const { olive, mia, id, oliveUid, miaUid } = await twoPeople();
-  const put = (n, name, shared, uid) => db.doc(`bands/${id}/songs/${n}`).set({ name, shared, uid, updatedAt: '2026-11-01', type: 'text', content: 'x' });
-  await put('a', 'Shared Anthem', true, oliveUid);
-  await put('b', 'Olive Private Tune', false, oliveUid);
-  await put('c', 'Mia Private Tune', false, miaUid);
+  const chart = name => ({ name, updatedAt: '2026-11-01', type: 'text', content: 'x' });
+  await db.doc(`bands/${id}/songs/a`).set({ ...chart('Shared Anthem'), shared: true, uid: oliveUid });
+  await db.doc(`users/${oliveUid}/charts/b`).set(chart('Olive Private Tune'));
+  await db.doc(`users/${miaUid}/charts/c`).set(chart('Mia Private Tune'));
   await tab(mia, 'Charts/Sets');
   await mia.page.getByText('Shared Anthem').first().waitFor();
   await mia.page.getByText('Mia Private Tune').first().waitFor();
@@ -268,8 +267,7 @@ test('promoting a member to admin gives them invite codes, the calendar id and b
   await mia.page.getByRole('button', { name: 'New invite code' }).waitFor();
   await mia.page.getByLabel('Google Calendar ID').fill('band-cal@group.calendar.google.com');
   await mia.page.getByRole('button', { name: 'Save' }).first().click();
-  await mia.page.waitForTimeout(700);
-  assert.equal((await db.doc(`bands/${id}`).get()).data().calendarId, 'band-cal@group.calendar.google.com');
+  assert.equal(await poll(async () => (await db.doc(`bands/${id}`).get()).data().calendarId === 'band-cal@group.calendar.google.com'), true);
   assert.equal((await db.doc(`bands/${id}/members/${miaUid}`).get()).data().role, 'admin');
   assert.equal(await mia.page.getByRole('combobox', { name: 'Role for the invite' }).count(), 0);   // admins invite members only
   assert.equal(await mia.page.getByRole('button', { name: /Make owner/ }).count(), 0);
@@ -290,8 +288,8 @@ test('handing the band over: the new owner has the powers, the old owner is an a
   const { olive, mia, id, oliveUid, miaUid } = await twoPeople();
   await openBandSettings(olive);
   await rowOf(olive, miaUid).getByRole('button', { name: 'Make owner…' }).click();
-  await mia.page.waitForTimeout(1200);
-  const band = (await db.doc(`bands/${id}`).get()).data();
+  const band = await poll(async () => { const d = (await db.doc(`bands/${id}`).get()).data(); return d.ownerUid === miaUid ? d : null; });
+  assert.ok(band, 'ownership should have moved to Mia');
   assert.equal(band.ownerUid, miaUid);
   assert.equal((await db.doc(`bands/${id}/members/${oliveUid}`).get()).data().role, 'admin');
   await openBandSettings(mia);
@@ -394,11 +392,11 @@ test('writes a member makes in the app are all accepted by the rules: shared cha
   };
   await addSong('Wagon Wheel', true);
   await addSong('Secret Tune', false);
-  const songs = Object.fromEntries((await db.collection(`bands/${id}/songs`).get()).docs.map(d => [d.data().name, d.data()]));
-  assert.equal(songs['Wagon Wheel'].shared, true);
-  assert.equal(songs['Wagon Wheel'].uid, miaUid);
-  assert.equal(songs['Secret Tune'].shared, false);
-  assert.equal(songs['Secret Tune'].uid, miaUid);
+  const bandSongs = (await db.collection(`bands/${id}/songs`).get()).docs.map(d => d.data());
+  assert.deepEqual(bandSongs.map(x => x.name), ['Wagon Wheel']);                      // shared: in the band
+  assert.equal(bandSongs[0].uid, miaUid);
+  const lib = (await db.collection(`users/${miaUid}/charts`).get()).docs.map(d => d.data());
+  assert.deepEqual(lib.map(x => x.name), ['Secret Tune']);                            // private: in her own library, nowhere in the band
   await shot(mia, '12_private_chart_added');
 
   await mia.page.getByText('⚙️', { exact: true }).click();
@@ -467,3 +465,112 @@ test('mileage survives leaving a band, and the band never had it', async () => {
   await mileageShows(mia, '18.0 mi');
   noProblems();
 });
+
+
+const rowFor = (p, name) => p.page.locator('div').filter({ hasText: name }).filter({ has: p.page.getByRole('button', { name: 'Edit' }) }).last();
+async function addChart(p, name, share) {
+  await tab(p, 'Charts/Sets');
+  await p.page.getByRole('button', { name: '+ Add song' }).click();
+  await p.page.getByPlaceholder('e.g. Mustang Sally').fill(name);
+  await p.page.getByRole('button', { name: /Type/ }).click();
+  await p.page.locator('textarea').fill('G  D  Em  C');
+  if (share) { await p.page.getByText('+ Add key, tempo, tag & sharing').click(); await p.page.getByRole('switch').click(); }
+  await p.page.getByRole('button', { name: 'Add song', exact: true }).click();
+  await p.page.getByText(name).first().waitFor();
+}
+async function poll(fn, tries = 24) { for (let i = 0; i < tries; i++) { const v = await fn(); if (v) return v; await new Promise(r => setTimeout(r, 250)); } return fn(); }
+
+test('library: a private chart follows you into another band and survives leaving; sharing puts a copy in the band that stays', async () => {
+  const { olive, mia, id, miaUid } = await twoPeople();
+  await addChart(mia, 'Hit Song', false);
+  await mia.page.getByText('🔒 My charts', { exact: false }).first().waitFor();
+  assert.equal((await db.collection(`bands/${id}/songs`).get()).size, 0);               // private: not in the band
+  assert.equal(await olive.page.getByText('Hit Song').count(), 0);
+
+  await mia.page.getByRole('button', { name: 'Share with band' }).click();                // share with this band
+  await mia.page.getByText('✓ In band').waitFor();
+  const copy = await poll(async () => (await db.collection(`bands/${id}/songs`).get()).docs[0]);
+  assert.equal(copy.data().name, 'Hit Song');
+  assert.equal(copy.data().uid, miaUid);
+  await tab(olive, 'Charts/Sets');
+  await olive.page.getByText('Hit Song').first().waitFor();                               // the band sees the shared copy live
+  assert.equal(await olive.page.getByText('🔒 My charts').count(), 0);
+
+  // Mia leaves; the band keeps its copy, Mia keeps her original and finds it in her next band
+  await mia.page.getByText('⚙️', { exact: true }).click();
+  await mia.page.getByText('Band', { exact: true }).first().click();
+  await mia.page.getByRole('button', { name: 'Leave this band' }).click();
+  await mia.page.getByText('Join or start a band').waitFor();
+  await startBand(mia, 'Mia Solo Band');
+  await tab(mia, 'Charts/Sets');
+  await mia.page.getByText('Hit Song').first().waitFor();
+  await mia.page.getByRole('button', { name: 'Share with band' }).waitFor();             // not yet in this band
+  assert.equal((await db.collection(`bands/${id}/songs`).get()).size, 1);                // the first band still has its copy
+  await olive.page.getByText('Hit Song').first().waitFor();
+  noProblems();
+});
+
+test('library: adding a library chart to a set shares it with the band first', async () => {
+  const { mia, id } = await twoPeople();
+  await addChart(mia, 'Opener', false);
+  await mia.page.getByRole('button', { name: 'Select' }).click();
+  await mia.page.getByText('Opener').first().click();
+  await mia.page.getByText('Charts from your library get shared with the band').waitFor();
+  await mia.page.getByRole('button', { name: /Add to Set/ }).click();
+  const copy = await poll(async () => (await db.collection(`bands/${id}/songs`).get()).docs[0]);
+  assert.equal(copy.data().name, 'Opener');
+  noProblems();
+});
+
+test('trash: a deleted chart moves to Recently deleted and can be restored by anyone', async () => {
+  const { olive, mia, id, oliveUid } = await twoPeople();
+  await db.doc(`bands/${id}/songs/trashme`).set({ name: 'Trash Me', type: 'text', content: 'x', updatedAt: '2026-11-01', uid: oliveUid });
+  await tab(mia, 'Charts/Sets');
+  await mia.page.getByText('Trash Me').first().waitFor();
+  await mia.page.getByRole('button', { name: '×' }).click();                              // confirm is auto-accepted
+  await mia.page.getByText('Trash Me').first().waitFor({ state: 'detached' });
+  assert.match(mia.dialogs.join('|'), /Recently deleted/);
+  const trashed = await poll(async () => { const d = (await db.doc(`bands/${id}/songs/trashme`).get()).data(); return d && d.deletedAt ? d : null; });
+  assert.ok(trashed.deletedAt > 0); assert.ok(trashed.deletedBy);                         // still there, just stamped
+  await tab(olive, 'Charts/Sets');
+  assert.equal(await olive.page.getByText('Trash Me').count(), 0);                        // hidden from everyone else live too
+
+  await mia.page.getByText('⚙️', { exact: true }).click();
+  await mia.page.getByText('Recently deleted', { exact: true }).click();
+  const row = mia.page.locator(`[data-trash="songs:trashme"]`);
+  await row.getByText(/Chart · deleted by Mia · 30 days left/).waitFor();
+  assert.equal(await row.getByRole('button', { name: 'Erase' }).count(), 0);              // a member cannot erase for good
+  await shot(mia, '13_recently_deleted');
+  await row.getByRole('button', { name: 'Restore' }).click();
+  await row.waitFor({ state: 'detached' });
+  const back = await poll(async () => { const d = (await db.doc(`bands/${id}/songs/trashme`).get()).data(); return d && d.deletedAt === undefined ? d : null; });
+  assert.ok(back, 'restored chart should have no deletedAt');
+  await mia.page.getByRole('button', { name: /Back/ }).click(); await inApp(mia);
+  await tab(mia, 'Charts/Sets');
+  await mia.page.getByText('Trash Me').first().waitFor();                                 // and it is back for her
+  noProblems();
+});
+
+test('trash: gigs and sets go to Recently deleted; only an owner or admin can erase for good', async () => {
+  try { await trashGigsAndSets(); } catch (e) { await failShots(); throw e; }
+});
+async function trashGigsAndSets() {
+  const { olive, mia, id, oliveUid } = await twoPeople();
+  await db.doc(`bands/${id}/gigs/g1`).set({ venue: 'Gone Venue', date: inDays(9), type: 'gig', status: 'confirmed' });
+  await db.doc(`bands/${id}/setlists/s1`).set({ name: 'Gone Set', type: 'text', content: 'x', updatedAt: '2026-11-01' });
+  await tab(mia, 'Shows'); await mia.page.getByText('Gone Venue').first().waitFor();
+  const stamp = { deletedAt: Date.now(), deletedBy: oliveUid };
+  await db.doc(`bands/${id}/gigs/g1`).update(stamp);
+  await db.doc(`bands/${id}/setlists/s1`).update(stamp);
+  await mia.page.getByText('Gone Venue').first().waitFor({ state: 'detached' });                  // the live list drops it at once
+
+  await openBandSettings(olive);
+  await olive.page.getByText('Recently deleted', { exact: true }).click();
+  await olive.page.locator('[data-trash="gigs:g1"]').getByText(/Show · deleted by Olive/).waitFor();
+  await olive.page.locator('[data-trash="setlists:s1"]').waitFor();
+  await olive.page.locator('[data-trash="gigs:g1"]').getByRole('button', { name: 'Erase' }).click();   // owner erases for good
+  await olive.page.locator('[data-trash="gigs:g1"]').waitFor({ state: 'detached' });
+  assert.equal(await poll(async () => !(await db.doc(`bands/${id}/gigs/g1`).get()).exists), true);   // erased for good
+  assert.equal((await db.doc(`bands/${id}/setlists/s1`).get()).exists, true);             // the set is still recoverable
+  noProblems();
+}

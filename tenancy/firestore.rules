@@ -33,6 +33,11 @@ service cloud.firestore {
     function isManager(bandId) { return hasRole(bandId, ['owner', 'admin']); }
     function isPlayer(bandId) { return hasRole(bandId, ['owner', 'admin', 'member']); }
 
+    // Shared band content (gigs, charts, sets) is never erased directly. A member "deletes" by
+    // stamping it with deletedAt (an ordinary update), which moves it to Recently deleted for 30
+    // days. Only an owner or admin can erase something already in that trash; a daily server job
+    // (Admin SDK) clears out whatever has been there 30 days.
+    function inTrash() { return resource.data.get('deletedAt', null) != null; }
     function mine(data) { return data.get('uid', '') == request.auth.uid; }
     function uidUnchanged() { return request.resource.data.get('uid', '') == resource.data.get('uid', ''); }
 
@@ -57,11 +62,13 @@ service cloud.firestore {
       }
 
       match /gigs/{id} {
-        allow read, create, update, delete: if isPlayer(bandId);
+        allow read, create, update: if isPlayer(bandId);
+        allow delete: if isManager(bandId) && inTrash();
       }
 
       match /setlists/{id} {
-        allow read, create, update, delete: if isPlayer(bandId);
+        allow read, create, update: if isPlayer(bandId);
+        allow delete: if isManager(bandId) && inTrash();
       }
 
       match /unavailableDates/{id} {
@@ -70,19 +77,14 @@ service cloud.firestore {
         allow update, delete: if isPlayer(bandId) && mine(resource.data);
       }
 
-      // Charts. A private chart is readable and editable only by whoever made it, enforced
-      // here rather than by hiding it on the phone. A client must ask for shared charts and
-      // its own separately (two queries), because rules are not filters. A chart counts as
-      // shared only if it says so explicitly: defaulting a missing field to "shared" makes
-      // the engine accept an unfiltered list that includes private charts (tested).
+      // The band's charts. Everything here is the band's: any member can read and fix it, and it
+      // stays when the person who added it leaves. Private charts are not here at all: they live
+      // in the person's own library (users/{uid}/charts), which no band can reach.
       match /songs/{id} {
-        allow read: if isPlayer(bandId)
-          && (resource.data.get('shared', false) == true || mine(resource.data));
+        allow read: if isPlayer(bandId);
+        allow update: if isPlayer(bandId) && uidUnchanged();
         allow create: if isPlayer(bandId) && mine(request.resource.data);
-        allow update: if isPlayer(bandId) && uidUnchanged()
-          && (resource.data.get('shared', false) == true || mine(resource.data));
-        allow delete: if isPlayer(bandId)
-          && (resource.data.get('shared', false) == true || mine(resource.data));
+        allow delete: if isManager(bandId) && inTrash();
       }
 
       // Band-wide settings such as the stage plot.
@@ -121,6 +123,11 @@ service cloud.firestore {
       // it is not in a band's area at all. Deliberately not tied to a subscription: it is the
       // person's own record (the app does not offer it behind the locked-out screen).
       match /mileageTrips/{tripId} {
+        allow read, write: if signedIn() && request.auth.uid == uid;
+      }
+      // The person's own chart library: private charts that follow them from band to band and
+      // survive leaving one. Sharing a chart with a band copies it into that band.
+      match /charts/{chartId} {
         allow read, write: if signedIn() && request.auth.uid == uid;
       }
       // Google refresh tokens and similar. Server only.

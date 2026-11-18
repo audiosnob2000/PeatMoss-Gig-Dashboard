@@ -44,12 +44,22 @@ function plan(source, opts) {
       add(col, id, d);
     }
   }
+  // Charts: one the live app calls shared (a missing flag means shared) becomes the band's.
+  // A private one goes to its owner's own library (users/{uid}/charts), so it follows them
+  // from band to band. A private chart with no owner has nowhere to go and is not copied.
+  const library = {};      // uid -> Map(id -> data)
   for (const [id, d] of source.songs || []) {
     const uid = ownerOf(d);
     const shared = d.shared !== false;
-    if (uid && !members.has(uid)) orphans.push(`songs/${id} (owner "${uid}")`);
-    if (!shared && !uid) orphans.push(`songs/${id} (private with no owner)`);
-    add('songs', id, { ...d, uid, shared });
+    if (shared) {
+      if (uid && !members.has(uid)) orphans.push(`songs/${id} (owner "${uid}")`);
+      add('songs', id, { ...d, uid, shared: true });
+    } else if (!uid) {
+      orphans.push(`songs/${id} (private with no owner: will NOT be copied)`);
+    } else {
+      if (!members.has(uid)) orphans.push(`songs/${id} (owner "${uid}")`);
+      (library[uid] = library[uid] || new Map()).set(id, { ...d, uid, shared: false });
+    }
   }
   for (const [id, d] of source.mileageTrips || []) {
     const uid = ownerOf(d);
@@ -73,7 +83,7 @@ function plan(source, opts) {
   skipped.fcmTokens = (source.fcmTokens || new Map()).size;
   skipped.googleAuthTokens = (source.googleAuthTokens || new Map()).size;
   skipped.sentReminders = (source.sentReminders || new Map()).size;
-  return { out, personal, orphans, skipped, calendarId };
+  return { out, personal, library, orphans, skipped, calendarId };
 }
 
 async function readAll(db) {
@@ -115,9 +125,10 @@ async function migrate(db, o) {
   if ((await bandRef.get()).exists) throw new Error(`bands/${opts.bandId} already exists. This migration has already finished; refusing to run again.`);
 
   const source = await readAll(db);
-  const { out, personal, orphans, skipped, calendarId } = plan(source, opts);
+  const { out, personal, library, orphans, skipped, calendarId } = plan(source, opts);
   const report = { dryRun: opts.dryRun, bandId: opts.bandId, copied: {}, orphans, skipped, members: everyone.length };
   for (const [col, m] of Object.entries(out)) report.copied[col] = m.size;
+  report.copied.libraryCharts = Object.values(library).reduce((n, m) => n + m.size, 0);   // under each person, not the band
   report.copied.mileageTrips = Object.values(personal).reduce((n, m) => n + m.size, 0);   // under each person, not the band
 
   if (orphans.length && !opts.allowOrphans) {
@@ -132,6 +143,7 @@ async function migrate(db, o) {
   for (const [col, m] of Object.entries(out)) for (const [id, d] of m) writes.push([base(col).doc(id), d]);
   // Mileage is the person's own: users/{uid}/mileageTrips, never inside the band.
   for (const [uid, m] of Object.entries(personal)) for (const [id, d] of m) writes.push([db.collection('users').doc(uid).collection('mileageTrips').doc(id), d]);
+  for (const [uid, m] of Object.entries(library)) for (const [id, d] of m) writes.push([db.collection('users').doc(uid).collection('charts').doc(id), d]);
   await writeChunked(db, writes);
 
   // Read every copied document back and compare it with what we meant to write.
@@ -141,9 +153,11 @@ async function migrate(db, o) {
     for (const d of snap.docs) if (!deepEqual(d.data(), m.get(d.id))) throw new Error(`Verify failed: ${col}/${d.id} differs from its source.`);
   }
 
-  for (const [uid, m] of Object.entries(personal)) {
-    const snap = await db.collection('users').doc(uid).collection('mileageTrips').get();
-    for (const [id, d] of m) { const got = snap.docs.find(x => x.id === id); if (!got || !deepEqual(got.data(), d)) throw new Error(`Verify failed: users/${uid}/mileageTrips/${id} differs from its source.`); }
+  for (const [sub, groups] of [['mileageTrips', personal], ['charts', library]]) {
+    for (const [uid, m] of Object.entries(groups)) {
+      const snap = await db.collection('users').doc(uid).collection(sub).get();
+      for (const [id, d] of m) { const got = snap.docs.find(x => x.id === id); if (!got || !deepEqual(got.data(), d)) throw new Error(`Verify failed: users/${uid}/${sub}/${id} differs from its source.`); }
+    }
   }
 
   const roles = [[opts.ownerUid, 'owner'], ...opts.adminUids.map(u => [u, 'admin']), ...opts.memberUids.map(u => [u, 'member'])];
