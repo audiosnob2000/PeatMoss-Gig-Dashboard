@@ -47,7 +47,7 @@ function fakeStripe({ fingerprints = {} } = {}) {
 }
 
 // By default the band behaves as if its owner added a card (the full 30 days); {extended:false} keeps the 7-day no-card start.
-const mkBand = async (owner = 'olive', now = T0, name = 'Peat Moss', { extended = true } = {}) => {
+const mkBand = async (owner = 'olive', now = T0, name = 'Test Band', { extended = true } = {}) => {
   const id = (await B.createBand(db, owner, { name, timeZone: 'America/New_York' }, now)).bandId;
   const b = (await db.doc(`bands/${id}`).get()).data().billing;
   if (extended && b.fullTrialEndsAt) await db.doc(`bands/${id}`).update({ 'billing.trialEndsAt': b.fullTrialEndsAt });
@@ -149,7 +149,7 @@ test('checkout and portal refuse bad input', async () => {
 
 async function setup() {
   const stripe = fakeStripe({ fingerprints: { pm_a: 'fp_A', pm_b: 'fp_A', pm_c: 'fp_C' } });
-  const b1 = await mkBand('olive', T0, 'Peat Moss');
+  const b1 = await mkBand('olive', T0, 'Test Band');
   const b2 = await mkBand('zed', T0, 'Side Project');      // zed's first band; olive and ben play in it too
   await join(b2, 'zed', 'olive');
   await join(b2, 'zed', 'ben');
@@ -354,7 +354,7 @@ test('the extension is only for the band\'s owner, never for a refused repeat ca
 
 test('checkout requires explicit consent, and its text states price, renewal, trial date and how to cancel', async () => {
   const stripe = fakeStripe();
-  const bandId = await mkBand('olive', T0, 'Peat Moss', { extended: false });
+  const bandId = await mkBand('olive', T0, 'Test Band', { extended: false });
   for (const consent of [undefined, false, 'yes']) {
     await assert.rejects(BL.startCheckout(db, stripe, CFG, 'olive', { interval: 'monthly', trial: true, consent, bandId, returnUrl: RETURN }, T0), e => e.code === 'invalid-argument', 'consent ' + consent);
   }

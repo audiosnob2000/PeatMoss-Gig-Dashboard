@@ -14,7 +14,7 @@ firebase.initializeApp({
 const messaging = firebase.messaging();
 
 messaging.onBackgroundMessage(payload => {
-  const title = (payload.notification && payload.notification.title) || (payload.data && payload.data.title) || 'Peat Moss & The Fertilizers';
+  const title = (payload.notification && payload.notification.title) || (payload.data && payload.data.title) || 'Gig Dashboard';
   const body = (payload.notification && payload.notification.body) || (payload.data && payload.data.body) || '';
   self.registration.showNotification(title, { body, data: payload.data || {} });
 });

@@ -475,7 +475,7 @@ async function cutover() {
   await put('mileageTrips/t2', { miles: 17, date: '2026-10-02', label: 'Olive trip', deviceId: ou });
   await put('bandSettings/global', { calendarId: 'peat@group.calendar.google.com' });
   await put('bandSettings/stagePlot', { stagePlotUrl: 'https://example.com/plot.png', stagePlotFile: null });
-  const report = await migrate(db, { bandName: 'Peat Moss & The Fertilizers', ownerUid: ou, memberUids: [mu], profiles: { [ou]: { email: 'olive@example.com' }, [mu]: { email: 'mia@example.com' } } });
+  const report = await migrate(db, { bandName: 'The Test Band', ownerUid: ou, memberUids: [mu], profiles: { [ou]: { email: 'olive@example.com' }, [mu]: { email: 'mia@example.com' } } });
   assert.equal(report.done, true);
 
   // each person's open app notices the new membership on its own and walks into the band
@@ -801,7 +801,7 @@ test('restoring without a Google sign-in: back in the app only, and the row says
 test('the calendar id is the owner\'s alone: it is checked with Google first, shows the calendar\'s name, and switching an existing one asks again', async () => {
   const olive = await person('olive@example.com');
   await fakeGoogle(olive, { token: false });
-  Object.assign(olive.google, { strict: true, known: { 'first@group.calendar.google.com': 'Peat Moss Shows', 'second@group.calendar.google.com': 'Peat Moss (new)' } });
+  Object.assign(olive.google, { strict: true, known: { 'first@group.calendar.google.com': 'Weekend Shows', 'second@group.calendar.google.com': 'Weekend Shows (new)' } });
   await signUp(olive); await startBand(olive, 'Peat Test');
   const id = await bandIdOf('Peat Test');
   const cal = () => db.doc(`bands/${id}`).get().then(d => d.data().calendarId);
@@ -813,7 +813,7 @@ test('the calendar id is the owner\'s alone: it is checked with Google first, sh
 
   // first time: checked, shows the name, saves only after "Use this calendar"; no switch warning (nothing to switch from)
   await field.fill('first@group.calendar.google.com'); await check();
-  await status.getByText('Peat Moss Shows').waitFor();
+  await status.getByText('Weekend Shows').waitFor();
   await status.getByText(/Is this your band.s calendar\?/).waitFor();
   await shot(olive, '14_calendar_found');
   await still(undefined);                                                                           // nothing saved yet
@@ -824,13 +824,13 @@ test('the calendar id is the owner\'s alone: it is checked with Google first, sh
 
   // "Not this one" backs out with nothing changed
   await field.fill('second@group.calendar.google.com'); await check();
-  await status.getByText('Peat Moss (new)').waitFor();
+  await status.getByText('Weekend Shows (new)').waitFor();
   await status.getByRole('button', { name: 'Not this one' }).click();
   await status.waitFor({ state: 'detached' });
   await still('first@group.calendar.google.com');
 
   // switching an existing calendar: confirm the name, then the switch warning; "no" at the warning changes nothing
-  await check(); await status.getByText('Peat Moss (new)').waitFor();
+  await check(); await status.getByText('Weekend Shows (new)').waitFor();
   olive.dismissNext = true;
   await status.getByRole('button', { name: 'Use this calendar' }).click();
   await poll(async () => olive.dialogs.length === 1);

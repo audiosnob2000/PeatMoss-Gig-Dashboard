@@ -28,7 +28,7 @@ const asClient = uid => env.authenticatedContext(uid).firestore();
 const rejects = (p, code) => assert.rejects(p, e => e instanceof B.BandError && (!code || e.code === code), `expected BandError ${code || ''}`);
 // Behaves as if the owner added a card (the full 30 days); the 7-day no-card start is tested in createBand and billing tests.
 const mkBand = async (owner = 'olive', now = T0) => {
-  const id = (await B.createBand(db, owner, { name: 'Peat Moss', timeZone: 'America/New_York' }, now)).bandId;
+  const id = (await B.createBand(db, owner, { name: 'Test Band', timeZone: 'America/New_York' }, now)).bandId;
   const b = (await db.doc(`bands/${id}`).get()).data().billing;
   if (b.fullTrialEndsAt) await db.doc(`bands/${id}`).update({ 'billing.trialEndsAt': b.fullTrialEndsAt });
   return id;
@@ -40,9 +40,9 @@ const join = async (bandId, owner, uid, role = 'member', now = T0) => {
 const seedGig = (bandId) => db.doc(`bands/${bandId}/gigs/g1`).set({ venue: 'Rusty Anchor' });
 
 test('createBand: owner, member doc, membership doc, 7 free days and the full 30 held for a card are all written', async () => {
-  const id = (await B.createBand(db, 'olive', { name: 'Peat Moss', timeZone: 'America/New_York' }, T0)).bandId;   // raw: no card yet
+  const id = (await B.createBand(db, 'olive', { name: 'Test Band', timeZone: 'America/New_York' }, T0)).bandId;   // raw: no card yet
   const band = (await db.doc(`bands/${id}`).get()).data();
-  assert.equal(band.name, 'Peat Moss');
+  assert.equal(band.name, 'Test Band');
   assert.equal(band.ownerUid, 'olive');
   assert.equal(band.timeZone, 'America/New_York');
   assert.equal(band.billing.trialEndsAt, T0 + 7 * DAY);
@@ -106,7 +106,7 @@ test('redeemInvite: joins instantly with the invited role, and the rules then le
   await seedGig(id);
   await assertFails(getDoc(doc(asClient('mia'), `bands/${id}/gigs/g1`)));
   const res = await join(id, 'olive', 'mia', 'member');
-  assert.deepEqual(res, { bandId: id, bandName: 'Peat Moss', role: 'member', alreadyMember: false });
+  assert.deepEqual(res, { bandId: id, bandName: 'Test Band', role: 'member', alreadyMember: false });
   const m = (await db.doc(`bands/${id}/members/mia`).get()).data();
   assert.equal(m.role, 'member');
   assert.equal(m.covered, undefined);              // inside the trial: covered by default
@@ -364,7 +364,7 @@ test('transferOwnership: the rules still hold after a handover (clients cannot t
 });
 
 test('member name and email are recorded from the account, and a missing profile is harmless', async () => {
-  const { bandId } = await B.createBand(db, 'olive', { name: 'Peat Moss' }, T0, { name: '', email: 'Olive.Oyl@Example.com' });
+  const { bandId } = await B.createBand(db, 'olive', { name: 'Test Band' }, T0, { name: '', email: 'Olive.Oyl@Example.com' });
   const owner = (await db.doc(`bands/${bandId}/members/olive`).get()).data();
   assert.equal(owner.name, 'Olive Oyl');                         // derived from the email when there is no display name
   assert.equal(owner.email, 'olive.oyl@example.com');

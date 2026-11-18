@@ -1,3 +1,8 @@
+> **Naming:** the product is called **Gig Dashboard**. It is a multi-band app; no single band's name belongs in anything
+> customers see (app name, emails, Stripe product, notifications). Some technical names still carry the old project name
+> (the Firebase project ID, the GitHub repo and address, the branch name); those are identifiers, not branding, and renaming
+> them would break the live app, so leave them.
+
 # Billing: decisions (not built yet)
 
 Agreed in conversation. This is the design Stripe billing will be built to.
@@ -33,7 +38,7 @@ Agreed in conversation. This is the design Stripe billing will be built to.
   band (`redeemInvite` already marks late joiners uncovered; it will check for an active subscription or trial).
 - A **daily job** locks members when a band's 30 days end and they have no active subscription. Today nothing does
   this: a member with no flag counts as covered forever.
-- A `complimentary` flag (set by the app's operator, not by users) for Peat Moss and any beta bands.
+- A `complimentary` flag (set by the app's operator, not by users) for the owner's own founding band and any beta bands.
 
 ## Known and accepted
 - **Shared logins** (one account used by a whole band) cannot be prevented cleanly. Revisit if it turns out to happen.
@@ -41,7 +46,7 @@ Agreed in conversation. This is the design Stripe billing will be built to.
 
 ## Needed from the app's owner before building
 - A **Stripe account** and its **test-mode keys** (never put in the chat; they go in as secrets).
-- Whether Peat Moss should be complimentary.
+- Whether the owner's own band should be complimentary.
 - Decisions on sales tax, refunds and terms of service (Stripe Tax can handle tax collection).
 - Check the local rules on charging automatically after a free trial (clear disclosure, easy cancellation, and a
   reminder before the first charge in some places). Stripe can send the reminder email.
@@ -74,7 +79,7 @@ Stripe. The sandbox cannot do these, and the owner never pastes secrets into a c
 Built to the plan above. Choices made along the way:
 - **Product and prices** (test mode) are in `functions/billing-config.json`: $6.99/month, $69/year. Re-create with
   `node scripts/setup-stripe.js` (safe to repeat; finds prices by lookup key, refuses a live key unless `--live`).
-- **Peat Moss is complimentary**: `migrate.js` sets `billing.complimentary` by default (`--paid` opts out). For any other
+- **The owner's own founding band is complimentary**: `migrate.js` sets `billing.complimentary` by default (`--paid` opts out). For any other
   band: `node scripts/set-complimentary.js --project <id> [--live] <bandId> on|off`. Users cannot write this flag.
 - **Sales tax is off** (`automaticTax: false` in `functions/index.js`); flip it once Stripe Tax is set up.
 - **Trial rules as built:** the card trial is once per person. An owner still inside their band's 30 days gets a trial that
@@ -86,7 +91,7 @@ Built to the plan above. Choices made along the way:
   from its start (so day 5 + card = 25 more days, never 30 more); after day 7 a card no longer brings it back. Only the
   band's current owner can raise it, and a refused repeat card never does. Bandmates never need a card while the band
   is in its free time. The mark is kept in `users/{uid}/private/bandTrial` (deleting a band does not reset it; the
-  migration sets it for Peat Moss's owner). A later band they start has no free time: its owner is covered only by their
+  migration sets it for the founding band's owner). A later band they start has no free time: its owner is covered only by their
   own plan and, until they subscribe, cannot make invite codes. Handing ownership around changes nothing: the dates are
   fixed at creation. Someone with a different email and card can still start over; that is the accepted limit below.
 - **Cancelling** keeps access to the end of the paid period (Stripe leaves the subscription active until then). A
@@ -147,7 +152,7 @@ extension, so this is easy to change.)
    - Email documents collection: `mail`
    - SMTP connection URI: `smtps://resend@smtp.resend.com:465`
    - SMTP password: the Resend API key from step 4 (the console stores it as a secret)
-   - Default FROM address: an address on your verified domain, for example `PeatMoss <billing@gigdashboard.com>`
+   - Default FROM address: an address on your verified domain, for example `Gig Dashboard <billing@gigdashboard.com>`
    (Resend's SMTP page lists the exact host, port and username; confirm them there.) The project must be on the Blaze plan,
    which it already needs for these functions.
 6. **Test it:** in Firebase Console > Firestore, add a document to `mail` with fields `to` (your email) and `message` (a map

@@ -1,5 +1,5 @@
 'use strict';
-// Creates (or finds) the PeatMoss product and its two prices in whichever Stripe account the
+// Creates (or finds) the Gig Dashboard product and its two prices in whichever Stripe account the
 // key belongs to, and writes the ids to functions/billing-config.json. Safe to run twice:
 // prices are found by lookup_key. Refuses to run against a live key unless --live is passed.
 // In the sandbox the key is injected by the network proxy; elsewhere set STRIPE_SECRET_KEY.
@@ -11,8 +11,8 @@ const key = process.env.STRIPE_SECRET_KEY || 'proxy-injected';
 const stripe = new Stripe(key, { httpClient: Stripe.createFetchHttpClient() });
 const CONFIG = path.join(__dirname, '..', 'functions', 'billing-config.json');
 const PRICES = [
-  { lookup_key: 'peatmoss_monthly', unit_amount: 699, interval: 'month', nickname: 'Monthly' },
-  { lookup_key: 'peatmoss_yearly', unit_amount: 6900, interval: 'year', nickname: 'Yearly' },
+  { lookup_key: 'gigdashboard_monthly', unit_amount: 699, interval: 'month', nickname: 'Monthly' },
+  { lookup_key: 'gigdashboard_yearly', unit_amount: 6900, interval: 'year', nickname: 'Yearly' },
 ];
 
 (async () => {
@@ -26,7 +26,7 @@ const PRICES = [
   const existing = (await stripe.prices.list({ lookup_keys: PRICES.map(p => p.lookup_key), active: true })).data;
   let productId = existing[0] && existing[0].product;
   if (!productId) {
-    productId = (await stripe.products.create({ name: 'PeatMoss subscription', description: 'One subscription covers every band you play in.', metadata: { app: 'peatmoss' } })).id;
+    productId = (await stripe.products.create({ name: 'Gig Dashboard subscription', description: 'One subscription covers every band you play in.', metadata: { app: 'gigdashboard' } })).id;
   }
 
   const out = { productId, prices: {} };

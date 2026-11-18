@@ -46,7 +46,7 @@ beforeEach(async () => {
   await put('sentReminders/r1', { sentAt: 1 });
 });
 
-const base = { bandName: 'Peat Moss & The Fertilizers', ownerUid: 'olive', adminUids: ['adam'], memberUids: ['mia', 'max'], now: NOW };
+const base = { bandName: 'The Test Band', ownerUid: 'olive', adminUids: ['adam'], memberUids: ['mia', 'max'], now: NOW };
 const snapshotOld = async () => {
   const out = {};
   for (const c of ['gigs', 'setlists', 'songs', 'unavailableDates', 'mileageTrips', 'checklists', 'unpaidGigs', 'bandSettings', 'fcmTokens', 'googleAuthTokens', 'sentReminders']) {
@@ -61,43 +61,43 @@ test('copies every collection under the band, with ids and content intact', asyn
   assert.equal(r.done, true);
   assert.deepEqual(r.orphans, []);
   assert.deepEqual(r.copied, { gigs: 2, setlists: 1, unavailableDates: 1, songs: 2, checklists: 1, unpaidGigs: 1, settings: 2, libraryCharts: 1, mileageTrips: 2 });
-  const g = (await db.doc('bands/peatmoss/gigs/g1').get()).data();
+  const g = (await db.doc('bands/first-band/gigs/g1').get()).data();
   assert.deepEqual(g, { venue: 'Rusty Anchor', date: '2027-01-01', source: 'app' });
-  assert.deepEqual((await db.doc('bands/peatmoss/setlists/s1').get()).data(), { name: 'Saturday', songs: ['a', 'b'] });
-  assert.deepEqual((await db.doc('bands/peatmoss/checklists/mia').get()).data(), { members: [1, 2] });
-  assert.deepEqual((await db.doc('bands/peatmoss/settings/stagePlot').get()).data(), { stagePlotUrl: 'https://x/plot.png', stagePlotFile: null });
+  assert.deepEqual((await db.doc('bands/first-band/setlists/s1').get()).data(), { name: 'Saturday', songs: ['a', 'b'] });
+  assert.deepEqual((await db.doc('bands/first-band/checklists/mia').get()).data(), { members: [1, 2] });
+  assert.deepEqual((await db.doc('bands/first-band/settings/stagePlot').get()).data(), { stagePlotUrl: 'https://x/plot.png', stagePlotFile: null });
 });
 
 test('band, members and memberships are created; the calendar id moves onto the band; trial starts at cutover', async () => {
   await migrate(db, base);
-  const band = (await db.doc('bands/peatmoss').get()).data();
-  assert.equal(band.name, 'Peat Moss & The Fertilizers');
+  const band = (await db.doc('bands/first-band').get()).data();
+  assert.equal(band.name, 'The Test Band');
   assert.equal(band.ownerUid, 'olive');
   assert.equal(band.calendarId, 'peat@group.calendar.google.com');
   assert.equal(band.timeZone, 'America/New_York');
   assert.equal(band.billing.trialEndsAt, NOW + 30 * 24 * 60 * 60 * 1000);
-  const roles = Object.fromEntries((await db.collection('bands/peatmoss/members').get()).docs.map(d => [d.id, d.data().role]));
+  const roles = Object.fromEntries((await db.collection('bands/first-band/members').get()).docs.map(d => [d.id, d.data().role]));
   assert.deepEqual(roles, { olive: 'owner', adam: 'admin', mia: 'member', max: 'member' });
-  for (const [u, role] of Object.entries(roles)) assert.equal((await db.doc(`users/${u}/memberships/peatmoss`).get()).data().role, role);
+  for (const [u, role] of Object.entries(roles)) assert.equal((await db.doc(`users/${u}/memberships/first-band`).get()).data().role, role);
 });
 
 test('translates the old data shape: deviceId becomes uid, a missing shared flag becomes shared:true', async () => {
   await migrate(db, base);
-  const old = (await db.doc('bands/peatmoss/songs/shared-old').get()).data();
+  const old = (await db.doc('bands/first-band/songs/shared-old').get()).data();
   assert.equal(old.uid, 'olive');
   assert.equal(old.shared, true);                         // live app treated "no flag" as shared
   // a private chart leaves the band and goes into its owner's own library
-  assert.equal((await db.doc('bands/peatmoss/songs/private-mia').get()).exists, false);
+  assert.equal((await db.doc('bands/first-band/songs/private-mia').get()).exists, false);
   const lib = (await db.doc('users/mia/charts/private-mia').get()).data();
   assert.equal(lib.name, 'My chart');
   assert.equal(lib.uid, 'mia');
-  assert.equal((await db.collection('bands/peatmoss/songs').get()).size, 2);
+  assert.equal((await db.collection('bands/first-band/songs').get()).size, 2);
   // mileage goes under the person, not the band
   assert.equal((await db.doc('users/mia/mileageTrips/t1').get()).data().uid, 'mia');
   assert.equal((await db.doc('users/mia/mileageTrips/t1').get()).data().deviceId, 'mia');         // original field kept
   assert.equal((await db.doc('users/max/mileageTrips/t2').get()).data().miles, 25);
-  assert.equal((await db.doc('bands/peatmoss/mileageTrips/t1').get()).exists, false);
-  assert.equal((await db.collection('bands/peatmoss/mileageTrips').get()).size, 0);
+  assert.equal((await db.doc('bands/first-band/mileageTrips/t1').get()).exists, false);
+  assert.equal((await db.collection('bands/first-band/mileageTrips').get()).size, 0);
 });
 
 test('never changes or deletes anything it read', async () => {
@@ -109,30 +109,30 @@ test('never changes or deletes anything it read', async () => {
 test('what it does not copy is reported, not silently dropped', async () => {
   const r = await migrate(db, base);
   assert.deepEqual(r.skipped, { fcmTokens: 1, googleAuthTokens: 1, sentReminders: 1 });
-  assert.equal((await db.collection('bands/peatmoss/fcmTokens').get()).size, 0);
+  assert.equal((await db.collection('bands/first-band/fcmTokens').get()).size, 0);
 });
 
 test('with the new rules, each person sees exactly what they should after migration', async () => {
   await migrate(db, base);
   // a band member reads band data; private chart only for its owner; mileage only your own
-  await assertSucceeds(getDoc(doc(as('max'), 'bands/peatmoss/gigs/g1')));
-  await assertSucceeds(getDoc(doc(as('max'), 'bands/peatmoss/songs/shared-old')));
+  await assertSucceeds(getDoc(doc(as('max'), 'bands/first-band/gigs/g1')));
+  await assertSucceeds(getDoc(doc(as('max'), 'bands/first-band/songs/shared-old')));
   await assertFails(getDoc(doc(as('max'), 'users/mia/charts/private-mia')));          // a private chart is only its owner's
   await assertFails(getDoc(doc(as('olive'), 'users/mia/charts/private-mia')));
   await assertSucceeds(getDoc(doc(as('mia'), 'users/mia/charts/private-mia')));
-  await assertSucceeds(getDocs(collection(as('max'), 'bands/peatmoss/songs')));       // everything left in the band's charts is the band's
+  await assertSucceeds(getDocs(collection(as('max'), 'bands/first-band/songs')));       // everything left in the band's charts is the band's
   await assertSucceeds(getDoc(doc(as('mia'), 'users/mia/mileageTrips/t1')));
   await assertFails(getDoc(doc(as('max'), 'users/mia/mileageTrips/t1')));
   await assertFails(getDoc(doc(as('olive'), 'users/mia/mileageTrips/t1')));          // not even the band owner
-  await assertSucceeds(getDoc(doc(as('mia'), 'bands/peatmoss/checklists/mia')));
-  await assertFails(getDoc(doc(as('max'), 'bands/peatmoss/checklists/mia')));
-  await assertFails(getDoc(doc(as('stan'), 'bands/peatmoss/gigs/g1')));                       // a stranger gets nothing
+  await assertSucceeds(getDoc(doc(as('mia'), 'bands/first-band/checklists/mia')));
+  await assertFails(getDoc(doc(as('max'), 'bands/first-band/checklists/mia')));
+  await assertFails(getDoc(doc(as('stan'), 'bands/first-band/gigs/g1')));                       // a stranger gets nothing
   await assertFails(getDoc(doc(as('olive'), 'gigs/g1')));                                      // the old flat path is closed to all
 });
 
 test('member names and emails from the sign-in accounts are stored on the member docs', async () => {
   await migrate(db, { ...base, profiles: { olive: { name: 'Olive Oyl', email: 'o@x.com' }, mia: { name: '', email: 'mia.m@x.com' } } });
-  const m = async u => (await db.doc(`bands/peatmoss/members/${u}`).get()).data();
+  const m = async u => (await db.doc(`bands/first-band/members/${u}`).get()).data();
   assert.equal((await m('olive')).name, 'Olive Oyl');
   assert.equal((await m('mia')).name, 'Mia M');
   assert.equal((await m('max')).name, undefined);        // no profile supplied: blank, not an error
@@ -147,8 +147,8 @@ test('a dry run writes nothing at all and reports what it would do', async () =>
   const r = await migrate(db, { ...base, dryRun: true });
   assert.equal(r.dryRun, true);
   assert.equal(r.copied.songs, 2);
-  assert.equal((await db.doc('bands/peatmoss').get()).exists, false);
-  assert.equal((await db.collection('bands/peatmoss/gigs').get()).size, 0);
+  assert.equal((await db.doc('bands/first-band').get()).exists, false);
+  assert.equal((await db.collection('bands/first-band/gigs').get()).size, 0);
   assert.equal((await db.collection('users').get()).size, 0);
 });
 
@@ -160,8 +160,8 @@ test('data stranded under someone who is not in the member list blocks the run u
   assert.ok(r.blocked);
   assert.equal(r.orphans.length, 3);
   assert.ok(r.orphans.some(o => o.includes('device-abc123')));
-  assert.equal((await db.doc('bands/peatmoss').get()).exists, false);       // nothing was written
-  assert.equal((await db.collection('bands/peatmoss/gigs').get()).size, 0);
+  assert.equal((await db.doc('bands/first-band').get()).exists, false);       // nothing was written
+  assert.equal((await db.collection('bands/first-band/gigs').get()).size, 0);
   // once the person is added (they signed in), it goes through
   await db.doc('songs/stray-private').delete();
   const r2 = await migrate(db, { ...base, memberUids: ['mia', 'max', 'device-abc123'] });
@@ -173,7 +173,7 @@ test('a private chart with no owner is reported and never copied, even with --al
   const r = await migrate(db, { ...base, allowOrphans: true });
   assert.equal(r.done, true);
   assert.ok(r.orphans.some(o => o.includes('songs/stray-private') && o.includes('will NOT be copied')));
-  assert.equal((await db.doc('bands/peatmoss/songs/stray-private').get()).exists, false);
+  assert.equal((await db.doc('bands/first-band/songs/stray-private').get()).exists, false);
   assert.equal((await db.collection('users').get()).docs.some(d => d.id === ''), false);
 });
 
@@ -189,14 +189,14 @@ test('bad inputs are rejected before anything is read or written', async () => {
   await assert.rejects(migrate(db, { ...base, ownerUid: '' }), /--owner/);
   await assert.rejects(migrate(db, { ...base, bandName: '' }), /--band-name/);
   await assert.rejects(migrate(db, { ...base, memberUids: ['olive'] }), /more than once/);
-  assert.equal((await db.doc('bands/peatmoss').get()).exists, false);
+  assert.equal((await db.doc('bands/first-band').get()).exists, false);
 });
 
 test('a half-finished run (no band doc) is safe to run again', async () => {
-  await db.doc('bands/peatmoss/gigs/g1').set({ venue: 'partial copy from a crashed run' });
+  await db.doc('bands/first-band/gigs/g1').set({ venue: 'partial copy from a crashed run' });
   const r = await migrate(db, base);
   assert.equal(r.done, true);
-  assert.equal((await db.doc('bands/peatmoss/gigs/g1').get()).data().venue, 'Rusty Anchor');
+  assert.equal((await db.doc('bands/first-band/gigs/g1').get()).data().venue, 'Rusty Anchor');
 });
 
 test('the command line refuses to touch a real project unless --live is given', () => {

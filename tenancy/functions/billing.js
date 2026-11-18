@@ -42,7 +42,7 @@ function confirmationEmail({ status, interval, trialEnd, currentPeriodEnd }) {
     ? `Your free trial has started. You will not be charged until ${longDate(trialEnd)}.`
     : `Your subscription is active. Your next charge is ${longDate(currentPeriodEnd)}.`;
   return {
-    subject: 'Your PeatMoss subscription',
+    subject: 'Your Gig Dashboard subscription',
     text: [head,
       `Price: ${priceText(interval)}, charged automatically every ${everyText(interval)} until you cancel.`,
       HOW_TO_CANCEL,

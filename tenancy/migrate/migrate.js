@@ -113,7 +113,7 @@ const deepEqual = (a, b) => JSON.stringify(stable(a)) === JSON.stringify(stable(
 
 async function migrate(db, o) {
   const opts = {
-    bandId: 'peatmoss', timeZone: 'America/New_York', adminUids: [], memberUids: [],
+    bandId: 'first-band', timeZone: 'America/New_York', adminUids: [], memberUids: [],
     dryRun: false, allowOrphans: false, complimentary: true, trialDays: 30, now: Date.now(), profiles: {}, ...o,
   };
   if (!opts.ownerUid) throw new Error('--owner <uid> is required.');
@@ -171,13 +171,13 @@ async function migrate(db, o) {
   // Last: the band document marks the migration as complete.
   const band = {
     name: opts.bandName, ownerUid: opts.ownerUid, timeZone: opts.timeZone, createdAt: opts.now,
-    // Peat Moss itself is free, set by the operator here (pass --paid to opt out). Users can never write this.
+    // The founding band (the owner's own band) is free, set by the operator here (pass --paid to opt out). Users can never write this.
     billing: { trialEndsAt: opts.now + opts.trialDays * DAY, ...(opts.complimentary ? { complimentary: true } : {}) },
     migratedFrom: 'flat-v1', migratedAt: opts.now,
   };
   if (calendarId) band.calendarId = calendarId;
   await bandRef.set(band);
-  // The owner's one shared free period is Peat Moss itself; a later band of theirs gets none.
+  // The owner's one shared free period is this founding band; a later band of theirs gets none.
   await db.collection('users').doc(opts.ownerUid).collection('private').doc('bandTrial').set({ bandId: opts.bandId, at: opts.now }, { merge: true });
   report.done = true;
   return report;

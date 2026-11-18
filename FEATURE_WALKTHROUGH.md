@@ -1,4 +1,4 @@
-# Peat Moss Gig Dashboard — Feature Walkthrough
+# Gig Dashboard — Feature Walkthrough
 
 *A guided tour to run through with testers before handing them the feedback questionnaire.*
 
