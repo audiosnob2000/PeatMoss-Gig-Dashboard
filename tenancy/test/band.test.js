@@ -26,20 +26,27 @@ beforeEach(async () => { await env.clearFirestore(); });
 
 const asClient = uid => env.authenticatedContext(uid).firestore();
 const rejects = (p, code) => assert.rejects(p, e => e instanceof B.BandError && (!code || e.code === code), `expected BandError ${code || ''}`);
-const mkBand = async (owner = 'olive', now = T0) => (await B.createBand(db, owner, { name: 'Peat Moss', timeZone: 'America/New_York' }, now)).bandId;
+// Behaves as if the owner added a card (the full 30 days); the 7-day no-card start is tested in createBand and billing tests.
+const mkBand = async (owner = 'olive', now = T0) => {
+  const id = (await B.createBand(db, owner, { name: 'Peat Moss', timeZone: 'America/New_York' }, now)).bandId;
+  const b = (await db.doc(`bands/${id}`).get()).data().billing;
+  if (b.fullTrialEndsAt) await db.doc(`bands/${id}`).update({ 'billing.trialEndsAt': b.fullTrialEndsAt });
+  return id;
+};
 const join = async (bandId, owner, uid, role = 'member', now = T0) => {
   const { code } = await B.createInvite(db, owner, { bandId, role }, now);
   return B.redeemInvite(db, uid, { code }, now);
 };
 const seedGig = (bandId) => db.doc(`bands/${bandId}/gigs/g1`).set({ venue: 'Rusty Anchor' });
 
-test('createBand: owner, member doc, membership doc and a 30-day trial are all written', async () => {
-  const id = await mkBand();
+test('createBand: owner, member doc, membership doc, 7 free days and the full 30 held for a card are all written', async () => {
+  const id = (await B.createBand(db, 'olive', { name: 'Peat Moss', timeZone: 'America/New_York' }, T0)).bandId;   // raw: no card yet
   const band = (await db.doc(`bands/${id}`).get()).data();
   assert.equal(band.name, 'Peat Moss');
   assert.equal(band.ownerUid, 'olive');
   assert.equal(band.timeZone, 'America/New_York');
-  assert.equal(band.billing.trialEndsAt, T0 + 30 * DAY);
+  assert.equal(band.billing.trialEndsAt, T0 + 7 * DAY);
+  assert.equal(band.billing.fullTrialEndsAt, T0 + 30 * DAY);
   assert.equal((await db.doc(`bands/${id}/members/olive`).get()).data().role, 'owner');
   assert.equal((await db.doc(`users/olive/memberships/${id}`).get()).data().role, 'owner');
   // and the security rules agree she is in: reads the band, a stranger cannot

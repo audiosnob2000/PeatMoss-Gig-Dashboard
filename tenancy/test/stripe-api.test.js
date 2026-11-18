@@ -38,11 +38,11 @@ test('startCheckout: Stripe accepts our Checkout request, trial and no trial, mo
   const uid = 'live-test-' + Date.now();
   const now = Date.now();
   const bandId = (await B.createBand(db, uid, { name: 'Real API Band' }, now)).bandId;
-  const trial = await BL.startCheckout(db, stripe, CFG, uid, { interval: 'monthly', trial: true, bandId, returnUrl: RETURN }, now, { email: 'billing-test@example.com', name: 'Test' });
+  const trial = await BL.startCheckout(db, stripe, CFG, uid, { consent: true, interval: 'monthly', trial: true, bandId, returnUrl: RETURN }, now, { email: 'billing-test@example.com', name: 'Test' });
   assert.match(trial.url, /^https:\/\/checkout\.stripe\.com\//);
   const priv = (await db.doc(`users/${uid}/private/billing`).get()).data();
   made.customers.push(priv.customerId);
-  const plain = await BL.startCheckout(db, stripe, CFG, uid, { interval: 'yearly', returnUrl: RETURN }, now + 120000);
+  const plain = await BL.startCheckout(db, stripe, CFG, uid, { consent: true, interval: 'yearly', returnUrl: RETURN }, now + 120000);
   assert.match(plain.url, /^https:\/\/checkout\.stripe\.com\//);
   const customer = await stripe.customers.retrieve(priv.customerId);
   assert.equal(customer.metadata.uid, uid);
@@ -50,11 +50,15 @@ test('startCheckout: Stripe accepts our Checkout request, trial and no trial, mo
   const sessions = await stripe.checkout.sessions.list({ customer: priv.customerId, limit: 5 });
   assert.equal(sessions.data.length, 2);
   assert.ok(sessions.data.every(s => s.mode === 'subscription' && s.client_reference_id === uid));
+  const texts = sessions.data.map(s => (s.custom_text && s.custom_text.submit && s.custom_text.submit.message) || '');
+  assert.ok(texts.some(t => /Free until .* Nothing is charged before then\./.test(t)), 'trial wording reached Stripe');
+  assert.ok(texts.some(t => /\$69 per year is charged to your card automatically every year until you cancel/.test(t)), 'yearly wording reached Stripe');
+  assert.ok(texts.every(t => /Cancel subscription/.test(t)), 'how to cancel is on every checkout page');
 });
 
 test('openPortal: the request shape is accepted (or Stripe says the portal is not switched on yet)', async () => {
   const uid = 'live-test-portal-' + Date.now();
-  await BL.startCheckout(db, stripe, CFG, uid, { interval: 'monthly', returnUrl: RETURN }, Date.now());
+  await BL.startCheckout(db, stripe, CFG, uid, { consent: true, interval: 'monthly', returnUrl: RETURN }, Date.now());
   const cust = (await db.doc(`users/${uid}/private/billing`).get()).data().customerId;
   made.customers.push(cust);
   try {

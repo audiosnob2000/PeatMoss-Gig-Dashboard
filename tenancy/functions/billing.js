@@ -19,6 +19,37 @@ const { DAY, memberCovered, subscriptionCovers } = require('./coverage');
 const MIN_TRIAL_LEAD_MS = 49 * 60 * 60 * 1000;   // Stripe wants trial_end at least 48h away
 const CARD_TRIAL_DAYS = 7;                        // for someone joining after a band's own 30 days
 
+// `interval` is our plan name ('monthly' / 'yearly') or Stripe's ('month' / 'year'); both mean the same.
+const isYearly = interval => interval === 'yearly' || interval === 'year';
+const priceText = interval => (isYearly(interval) ? '$69 per year' : '$6.99 per month');
+const everyText = interval => (isYearly(interval) ? 'year' : 'month');
+const longDate = ms => new Date(ms).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'America/New_York' });
+const HOW_TO_CANCEL = 'Cancel any time in the app: Settings > Account > Manage billing > Cancel subscription. ' +
+  'You keep access until the end of the period you have paid for (or the end of your free trial).';
+
+// What the person is told, in words, before they pay and again after they sign up.
+function disclosure({ interval, trialEnd }) {
+  const lines = [];
+  if (trialEnd) lines.push(`Free until ${longDate(trialEnd)}. Nothing is charged before then.`);
+  lines.push(`${trialEnd ? 'After that, ' : ''}${priceText(interval)} is charged to your card automatically every ${everyText(interval)} until you cancel.`);
+  lines.push(HOW_TO_CANCEL);
+  return lines.join(' ');
+}
+
+// The keepable confirmation sent after signing up (see sendConfirmation).
+function confirmationEmail({ status, interval, trialEnd, currentPeriodEnd }) {
+  const head = status === 'trialing'
+    ? `Your free trial has started. You will not be charged until ${longDate(trialEnd)}.`
+    : `Your subscription is active. Your next charge is ${longDate(currentPeriodEnd)}.`;
+  return {
+    subject: 'Your PeatMoss subscription',
+    text: [head,
+      `Price: ${priceText(interval)}, charged automatically every ${everyText(interval)} until you cancel.`,
+      HOW_TO_CANCEL,
+      'One subscription covers every band you play in. Keep this email for your records.'].join('\n\n'),
+  };
+}
+
 const privateRef = (db, uid) => db.collection('users').doc(uid).collection('private').doc('billing');
 const statusRef = (db, uid) => db.collection('users').doc(uid).collection('billing').doc('status');
 const customerRef = (db, customerId) => db.collection('stripeCustomers').doc(customerId);
@@ -101,10 +132,11 @@ function returnBase(returnUrl, cfg) {
 //   - 30 days lined up with the band's own trial for an owner whose first band is still in it,
 //   - otherwise 7 days.
 // A brand-new account that skips the trial just gets the plain subscribe screen.
-async function startCheckout(db, stripe, cfg, uid, { interval, trial = false, bandId, returnUrl } = {}, now = Date.now(), profile = null) {
+async function startCheckout(db, stripe, cfg, uid, { interval, trial = false, consent, bandId, returnUrl } = {}, now = Date.now(), profile = null) {
   if (!uid) throw new BandError('unauthenticated', 'Sign in first.');
   const price = (cfg.prices || {})[interval];
   if (!price) throw new BandError('invalid-argument', 'Choose monthly or yearly.');
+  if (consent !== true) throw new BandError('invalid-argument', 'Please confirm you agree to the terms shown before continuing.');
   const base = returnBase(returnUrl, cfg);
 
   const status = (await statusRef(db, uid).get()).data();
@@ -114,7 +146,7 @@ async function startCheckout(db, stripe, cfg, uid, { interval, trial = false, ba
 
   const priv = (await privateRef(db, uid).get()).data() || {};
   const subscription_data = { metadata: { uid } };
-  let trialNote = '';
+  let trialEndMs = null;
   if (trial && !priv.trialUsed) {
     let trialEnd = now + CARD_TRIAL_DAYS * DAY;
     if (bandId) {
@@ -122,11 +154,15 @@ async function startCheckout(db, stripe, cfg, uid, { interval, trial = false, ba
         db.collection('bands').doc(bandId).get(),
         db.collection('bands').doc(bandId).collection('members').doc(uid).get(),
       ]);
-      const bandEnds = bandSnap.exists && bandSnap.data().billing && bandSnap.data().billing.trialEndsAt;
-      if (memberSnap.exists && memberSnap.data().role === 'owner' && bandEnds > now) trialEnd = Math.max(bandEnds, now + MIN_TRIAL_LEAD_MS);
+      const bb = (bandSnap.exists && bandSnap.data().billing) || {};
+      // An owner still inside the band's free time (even its short no-card part) gets a trial that ends
+      // when the band's FULL free period does: 30 days from the band's start, not from now.
+      if (memberSnap.exists && memberSnap.data().role === 'owner' && bb.trialEndsAt > now) {
+        trialEnd = Math.max(bb.fullTrialEndsAt || bb.trialEndsAt, now + MIN_TRIAL_LEAD_MS);
+      }
     }
     subscription_data.trial_end = Math.floor(trialEnd / 1000);
-    trialNote = ' Your free trial ends on the date shown above; cancel any time before then to avoid being charged.';
+    trialEndMs = Math.floor(trialEnd / 1000) * 1000;
   }
 
   const customer = await ensureCustomer(db, stripe, uid, profile);
@@ -139,7 +175,7 @@ async function startCheckout(db, stripe, cfg, uid, { interval, trial = false, ba
     subscription_data,
     success_url: `${base}?billing=success`,
     cancel_url: `${base}?billing=cancelled`,
-    custom_text: { submit: { message: 'Renews automatically until you cancel. Cancel any time from Manage billing in the app.' + trialNote } },
+    custom_text: { submit: { message: disclosure({ interval, trialEnd: trialEndMs }) } },
   };
   if (cfg.automaticTax) params.automatic_tax = { enabled: true };
   const session = await stripe.checkout.sessions.create(params, { idempotencyKey: `checkout-${uid}-${interval}-${Math.floor(now / 60000)}` });
@@ -207,6 +243,31 @@ async function claimTrialCard(db, stripe, uid, sub) {
   return refused;
 }
 
+// A card added while the band is still in its free time raises it from the short no-card period to the full
+// 30 days (counted from the band's start). Only the band's current owner does this, only while time remains.
+async function extendBandTrials(db, uid, now) {
+  const owned = await db.collection('users').doc(uid).collection('memberships').where('role', '==', 'owner').get();
+  for (const m of owned.docs) {
+    const ref = db.collection('bands').doc(m.id);
+    const b = (await ref.get()).data();
+    const bb = b && b.billing;
+    if (bb && bb.fullTrialEndsAt > bb.trialEndsAt && bb.trialEndsAt > now) await ref.update({ 'billing.trialEndsAt': bb.fullTrialEndsAt });
+  }
+}
+
+// Written to the "mail" collection in the format of Firebase's Trigger Email extension, so choosing and
+// installing an email service later needs no code change. Until then the document just waits there.
+async function sendConfirmation(db, stripe, sub, summary) {
+  try {
+    const cust = await stripe.customers.retrieve(typeof sub.customer === 'string' ? sub.customer : sub.customer.id);
+    if (!cust || !cust.email) return;
+    const { subject, text } = confirmationEmail(summary);
+    await db.collection('mail').doc(`confirm-${sub.id}`).set({ to: cust.email, message: { subject, text } });
+  } catch (e) {
+    console.warn('billing: confirmation email not queued', e.message);   // never block billing on email
+  }
+}
+
 async function applySubscription(db, stripe, event, now) {
   const sub = event.data.object;
   const uid = await uidForSubscription(db, sub);
@@ -226,7 +287,15 @@ async function applySubscription(db, stripe, event, now) {
     refused = await claimTrialCard(db, stripe, uid, sub);
     if (refused) next = { ...next, status: 'canceled', trialRefused: true };
   }
+  if (prev && prev.id === sub.id && prev.confirmedFor === sub.id) next.confirmedFor = sub.id;
   await statusRef(db, uid).set(next);
+  if (!refused && (next.status === 'trialing' || next.status === 'active')) {
+    await extendBandTrials(db, uid, now);
+    if (next.confirmedFor !== sub.id) {
+      await sendConfirmation(db, stripe, sub, next);
+      await statusRef(db, uid).update({ confirmedFor: sub.id });
+    }
+  }
   const changed = await recomputeCoverage(db, uid, now);
   return { uid, status: next.status, refused, changed };
 }
@@ -275,6 +344,6 @@ async function handleEvent(db, stripe, event, now = Date.now()) {
 }
 
 module.exports = {
-  startCheckout, openPortal, handleEvent, recomputeCoverage, enforceCoverage, ensureCustomer,
+  startCheckout, openPortal, handleEvent, recomputeCoverage, enforceCoverage, ensureCustomer, disclosure, confirmationEmail,
   privateRef, statusRef, CARD_TRIAL_DAYS,
 };

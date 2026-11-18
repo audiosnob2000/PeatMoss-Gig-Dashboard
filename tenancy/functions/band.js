@@ -14,7 +14,8 @@ class BandError extends Error {
   constructor(code, message) { super(message); this.code = code; }
 }
 
-const TRIAL_DAYS = 30;
+const TRIAL_DAYS = 30;          // free time once the owner has added a card
+const NO_CARD_TRIAL_DAYS = 7;   // free time if the owner skips the card (raised to 30 if they add one in time)
 const MAX_BANDS_OWNED = 5;
 const INVITE_DAYS = 14;
 const MAX_INVITE_USES = 25;
@@ -70,8 +71,8 @@ function profileFields(profile) {
 }
 
 // A signed-in person starts a band. They become its owner.
-// The shared free 30 days (everyone in the band covered, no card needed) belongs to a person's FIRST band
-// ever. Starting later bands, or handing ownership around, never earns more. The "first band" mark is a
+// The shared free time (everyone in the band covered, no card needed for bandmates) belongs to a person's
+// FIRST band ever: 7 days, or 30 once the owner adds a card. Starting later bands, or handing ownership around, never earns more. The "first band" mark is a
 // durable record (users/{uid}/private/bandTrial), so deleting or leaving a band does not reset it.
 // A later band's owner is covered only by their own subscription, like anyone else after the trial.
 async function createBand(db, uid, { name, timeZone } = {}, now = Date.now(), profile = null) {
@@ -91,7 +92,10 @@ async function createBand(db, uid, { name, timeZone } = {}, now = Date.now(), pr
   await db.runTransaction(async tx => {
     const [flag, status] = await Promise.all([tx.get(flagRef), tx.get(statusRef)]);
     const first = !flag.exists;
-    const band = { name: bandName, ownerUid: uid, timeZone: tz, createdAt: now, billing: { trialEndsAt: first ? now + TRIAL_DAYS * DAY : 0 } };
+    // First band: 7 free days with no card. The full 30 (counted from today, never from when a card is
+    // added) are held in fullTrialEndsAt and switched on when the owner adds a card within the 7.
+    const billing = first ? { trialEndsAt: now + NO_CARD_TRIAL_DAYS * DAY, fullTrialEndsAt: now + TRIAL_DAYS * DAY } : { trialEndsAt: 0 };
+    const band = { name: bandName, ownerUid: uid, timeZone: tz, createdAt: now, billing };
     const member = { role: 'owner', joinedAt: now, ...profileFields(profile) };
     if (!memberCovered(band, status.data() || null, now)) member.covered = false;
     if (first) tx.set(flagRef, { bandId: ref.id, at: now });
@@ -292,5 +296,5 @@ async function transferOwnership(db, uid, { bandId, targetUid } = {}, now = Date
 
 module.exports = {
   BandError, createBand, createInvite, revokeInvite, redeemInvite, removeMember, setMemberRole, transferOwnership,
-  normalizeCode, profileFields, TRIAL_DAYS, DAY, CODE_ALPHABET, REDEEM_MAX_FAILURES,
+  normalizeCode, profileFields, TRIAL_DAYS, NO_CARD_TRIAL_DAYS, DAY, CODE_ALPHABET, REDEEM_MAX_FAILURES,
 };

@@ -60,6 +60,10 @@ async function startBand(p, name) {
   await p.page.getByRole('button', { name: 'Start a band' }).click();
   await p.page.getByLabel('Band name').fill(name);
   await p.page.getByRole('button', { name: 'Start band' }).click();
+  // A first band offers the card step once; most tests just want in.
+  const notNow = p.page.getByRole('button', { name: /Not now/ });
+  await Promise.race([notNow.waitFor({ timeout: 15000 }), p.page.getByRole('button', { name: '+ Add gig' }).waitFor({ timeout: 15000 })]);
+  if (await notNow.count()) await notNow.click();
   await inApp(p);
 }
 async function joinWithCode(p, code) {
@@ -93,7 +97,8 @@ test('sign up, start a band, land in the app as its owner', async () => {
   const band = (await db.doc(`bands/${id}`).get()).data();
   const uid = await uidOf('olive@example.com');
   assert.equal(band.ownerUid, uid);
-  assert.ok(band.billing.trialEndsAt > Date.now() + 29 * 86400000);
+  assert.ok(band.billing.trialEndsAt > Date.now() + 6 * 86400000 && band.billing.trialEndsAt < Date.now() + 8 * 86400000, 'skipping the card: 7 free days');
+  assert.ok(band.billing.fullTrialEndsAt > Date.now() + 29 * 86400000, 'the full 30 are held for a card');
   const me = (await db.doc(`bands/${id}/members/${uid}`).get()).data();
   assert.equal(me.role, 'owner');
   assert.equal(me.name, 'Olive');
@@ -272,6 +277,10 @@ test('the paused screen is a real subscribe screen: prices, trial offer, and a c
   assert.equal(await mia.page.getByRole('button', { name: 'Manage billing' }).count(), 0, 'no billing account yet');
   await shot(mia, '10_subscribe_screen');
   // Stripe's secret is not set in the emulator, so starting checkout fails; the screen must say so and recover.
+  assert.equal(await mia.page.getByRole('button', { name: 'Subscribe' }).isDisabled(), true, 'cannot continue without agreeing');
+  await mia.page.getByText(/charged to your card automatically every month until you cancel/).waitFor();
+  await mia.page.getByText(/Settings → Account → Manage billing → Cancel subscription/).waitFor();
+  await mia.page.getByRole('checkbox').check();
   await mia.page.getByRole('button', { name: 'Subscribe' }).click();
   await mia.page.getByText(/Something went wrong/).waitFor();
   await mia.page.getByRole('button', { name: 'Subscribe' }).waitFor();
@@ -290,14 +299,19 @@ test('the paused screen is a real subscribe screen: prices, trial offer, and a c
 test('covered people get a heads-up banner for a trial ending, a failing payment, a pending cancellation, or the band trial running out', async () => {
   const { mia, id, miaUid } = await twoPeople();
   const status = d => db.doc(`users/${miaUid}/billing/status`).set({ id: 'sub_x', lastEventAt: 1, interval: 'month', ...d });
-  assert.equal(await mia.page.getByText(/free 30 days end/).count(), 0, 'no banner in the middle of the band trial');
+  await db.doc(`bands/${id}`).update({ 'billing.trialEndsAt': Date.now() + 20 * 86400000 });
+  await mia.page.getByText(/free time ends/).waitFor({ state: 'detached' });     // no banner in the middle of the band trial
+  await inApp(mia);
   await db.doc(`bands/${id}`).update({ 'billing.trialEndsAt': Date.now() + 3 * 86400000 });
-  await mia.page.getByText(/free 30 days end in [34] days/).waitFor();
-  await mia.page.getByRole('button', { name: '$69/year' }).waitFor();
+  await mia.page.getByText(/free time ends in [34] days/).waitFor();
+  await mia.page.getByRole('button', { name: 'Choose a plan' }).click();
+  await mia.page.getByText(/charged to your card automatically every month until you cancel/).waitFor();
+  assert.equal(await mia.page.getByRole('button', { name: 'Subscribe' }).isDisabled(), true);
+  await mia.page.getByRole('button', { name: 'Close' }).click();
   await shot(mia, '11_band_trial_banner');
   await status({ status: 'trialing', trialEnd: Date.now() + 2 * 86400000, currentPeriodEnd: Date.now() + 2 * 86400000 });
   await mia.page.getByText(/Your free trial ends .*\$6\.99\/month is charged/).waitFor();
-  assert.equal(await mia.page.getByText(/free 30 days end/).count(), 0, 'a trial of their own replaces the band-trial banner');
+  assert.equal(await mia.page.getByText(/free time ends/).count(), 0, 'a trial of their own replaces the band-trial banner');
   await status({ status: 'active', cancelAtPeriodEnd: true, currentPeriodEnd: Date.now() + 9 * 86400000 });
   await mia.page.getByText(/Your subscription ends/).waitFor();
   await status({ status: 'past_due', pastDueSince: Date.now() - 2 * 86400000 });
@@ -307,6 +321,35 @@ test('covered people get a heads-up banner for a trial ending, a failing payment
   await mia.page.getByText(/Update your card|Your subscription ends|free trial ends/).waitFor({ state: 'detached' });
   await db.doc(`bands/${id}`).update({ 'billing.trialEndsAt': Date.now() - 1000 });   // band trial over, but a paid plan covers them
   await inApp(mia);
+  noProblems();
+});
+
+test('starting a band offers the card step first: terms in plain words, an agree tick, 30 days with a card or 7 without', async () => {
+  const olive = await person('olive@example.com');
+  await signUp(olive);
+  await olive.page.getByRole('button', { name: 'Start a band' }).click();
+  await olive.page.getByLabel('Band name').fill('Prompt Band');
+  await olive.page.getByRole('button', { name: 'Start band' }).click();
+  await olive.page.getByText('Prompt Band is ready').waitFor();
+  await olive.page.getByText(/Free until/).waitFor();
+  await olive.page.getByText(/Nothing is charged before then/).waitFor();
+  await olive.page.getByText(/\$6\.99 per month is charged to your card automatically every month until you cancel/).waitFor();
+  await olive.page.getByText(/Settings → Account → Manage billing → Cancel subscription/).waitFor();
+  await shot(olive, '15_card_prompt');
+  const addCard = olive.page.getByRole('button', { name: /Add a card/ });
+  assert.equal(await addCard.isDisabled(), true, 'cannot continue to Stripe without agreeing');
+  await olive.page.getByRole('button', { name: /\$69 \/ year/ }).click();
+  await olive.page.getByText(/\$69 per year is charged to your card automatically every year until you cancel/).waitFor();
+  await olive.page.getByRole('checkbox').check();
+  assert.equal(await addCard.isDisabled(), false);
+  await addCard.click();                                               // Stripe's secret is not set in the emulator
+  await olive.page.getByText(/Something went wrong/).waitFor();
+  await olive.page.getByRole('button', { name: /Not now/ }).click();   // skipping still gets into the band
+  await inApp(olive);
+  const band = (await db.doc(`bands/${await bandIdOf('Prompt Band')}`).get()).data();
+  assert.ok(band.billing.trialEndsAt < Date.now() + 8 * 86400000, 'no card: 7 days');
+  await olive.page.reload();
+  await inApp(olive);                                                  // the prompt does not come back
   noProblems();
 });
 

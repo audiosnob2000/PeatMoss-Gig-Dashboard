@@ -80,28 +80,35 @@ Built to the plan above. Choices made along the way:
 - **Trial rules as built:** the card trial is once per person. An owner still inside their band's 30 days gets a trial that
   ends exactly when the band's does (Stripe needs it at least 48h out, so never sooner); anyone else gets 7 days. A card
   already used for a trial on another subscription is refused: the new subscription is cancelled at once with no charge.
-- **The shared free 30 days belong to a person's first band ever** (`createBand`, mark kept in
-  `users/{uid}/private/bandTrial`, so deleting a band does not reset it; the migration sets it for Peat Moss's owner).
-  A later band they start has no free time: its owner is covered only by their own plan and, until they subscribe, cannot
-  make invite codes. Handing ownership around changes nothing: the band's free period is fixed at creation, and a new
-  owner's card trial ends with the band's, never 30 fresh days. Someone with a different email and card can still start
-  over; that is the accepted limit below.
+- **Free time belongs to a person's first band ever, and a card decides how much.** Starting that band shows a card
+  step (`CardPromptScreen`): add a card for **30 free days counted from the band's start**, or tap **Not now** for **7
+  free days with no card**. If the owner adds a card while the 7 days are still running, the band is raised to day 30
+  from its start (so day 5 + card = 25 more days, never 30 more); after day 7 a card no longer brings it back. Only the
+  band's current owner can raise it, and a refused repeat card never does. Bandmates never need a card while the band
+  is in its free time. The mark is kept in `users/{uid}/private/bandTrial` (deleting a band does not reset it; the
+  migration sets it for Peat Moss's owner). A later band they start has no free time: its owner is covered only by their
+  own plan and, until they subscribe, cannot make invite codes. Handing ownership around changes nothing: the dates are
+  fixed at creation. Someone with a different email and card can still start over; that is the accepted limit below.
 - **Cancelling** keeps access to the end of the paid period (Stripe leaves the subscription active until then). A
   subscription cancelled immediately locks immediately. **Failed payment:** 7 days from the first failure, then locked.
 - **Server pieces** (`functions/`): `coverage.js` (the one rule), `billing.js` (checkout, portal, webhook handler, daily
   job), wrappers in `index.js` (`startCheckout`, `openBillingPortal`, `stripeWebhook`, `enforceCoverage` at 03:30).
   State: `users/{uid}/billing/status` (readable by the person, written only by the webhook), plus server-only
   `users/{uid}/private/billing`, `stripeCustomers`, `stripeEvents`, `trialCards`.
-- **App:** subscribe screen on the paused screen, a banner (trial ending, payment failing, cancellation pending, band trial
-  ending), and Manage billing in Settings > Account.
-- **Tests:** `npm test` (101, incl. `test/billing.test.js` with a stand-in Stripe and locally signed webhook checks),
+- **App:** card step after starting a band, subscribe screen on the paused screen, a banner (trial ending, payment failing,
+  cancellation pending, band free time ending, and a confirmation after paying), and Manage billing in Settings > Account.
+- **Tests:** `npm test` (107, incl. `test/billing.test.js` with a stand-in Stripe and locally signed webhook checks),
   `npm run test:stripe` (real test-mode API: prices, Checkout, portal, a real trialing subscription and the same-card
-  refusal; cleans up after itself), `npm run e2e` (30 in a browser).
+  refusal; cleans up after itself), `npm run e2e` (31 in a browser).
 
 ### Still to do by the owner, in their own accounts
 1. Stripe Dashboard (test, then live): turn on the **Customer Portal** (Settings > Billing > Customer portal), allow
-   cancelling, and enable Stripe's **trial-ending reminder emails** (Settings > Billing > Subscriptions and emails).
+   cancelling, and in Settings > Billing > Subscriptions and emails turn on the **trial-ending reminder** and the
+   **upcoming-renewal reminder for yearly plans** (set to about 30 days before, which falls inside the 15 to 45 day
+   window on the checklist). Re-read the checklist's reminder windows with the accountant or lawyer.
 2. `firebase functions:secrets:set STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`.
+   Also install an email service for the confirmation email (see Open decisions). Then check one real signup in test
+   mode: you should get the confirmation with the price, the first-charge date and the cancel steps.
 3. After deploying, add the `stripeWebhook` URL in Stripe (Developers > Webhooks) for: `checkout.session.completed`,
    `customer.subscription.created|updated|deleted`, `invoice.payment_failed`. Copy that endpoint's signing secret into step 2.
 4. Before going live, re-run `node scripts/setup-stripe.js --live` with the live key to create the live prices, and
@@ -122,11 +129,25 @@ Built to the plan above. Choices made along the way:
   consider tightening (or dropping the 7-day trial for late joiners). Many trials that never convert is a separate
   question about the trial length and the subscribe screen.
 
-### Open decisions and gaps (as of the first-band-only change)
-- **No card prompt when a band is started yet.** The plan says the owner enters a card at band start; the app does not
-  ask. The card trial is only offered in the banner during the band's last 7 days and on the locked screen.
+### Automatic-renewal rules (New York General Business Law 527-a, and similar laws elsewhere)
+Built to the owner's checklist of the rules. This is not legal advice; the accountant/lawyer session below should confirm it.
+| Rule | How it is met |
+|---|---|
+| Clear disclosure of price, billing frequency, renewal and cancellation **before** consent or payment | Plain-words terms are on the plan screen above the buttons (`PlanPicker`) and repeated on Stripe's checkout page above the pay button (`disclosure()` in `billing.js`). |
+| Affirmative opt-in consent | An unticked "I agree..." box must be ticked; the buttons stay disabled until it is. The server **refuses** checkout unless `consent: true` is sent. |
+| Retainable confirmation with key terms and how to cancel | The app shows "You're all set" with the terms and a **Save a copy** button. An email with the same content is queued in the `mail` collection (Firebase "Trigger Email" format), **sent once an email service is installed** (see below). |
+| Cancel the same way you signed up, no obstacles | Signed up online, cancel online: Settings > Account > Manage billing > Cancel subscription (Stripe Customer Portal). The steps are shown on the plan screen, the Stripe page, the confirmation and in Settings. |
+| Renewal and trial-ending reminders | Stripe sends these; set them in the Dashboard (see to-do 3). The in-app banner also warns in the last 7 days of a trial. |
+| No price rises without consent | The code never changes an existing customer's price. Any future rise needs their opt-in (or the 14-day cancel-with-pro-rata-refund option). Do not edit a live Price; create a new one and ask first. |
+
+### Open decisions and gaps
+- **Confirmation email is queued but not sent**: it needs an email service. Easiest: install Firebase's "Trigger Email from
+  Firestore" extension (it reads the `mail` collection) with a provider such as SendGrid or an SMTP account. Until then the
+  in-app confirmation is the retainable copy. Needed before real customers sign up.
 - **The 7-day card trial for people joining after day 30 is still in.** Discussed dropping it (late joiners would just
   see Subscribe); not decided.
+- If the owner cancels a card trial during the trial, the band keeps the 30 days the card unlocked (they were never
+  charged). Accepted; revisit if abused.
 
 ### Known limits
 - Webhook de-duplication is check-then-write: two simultaneous deliveries of one event could both run. Every handler is
