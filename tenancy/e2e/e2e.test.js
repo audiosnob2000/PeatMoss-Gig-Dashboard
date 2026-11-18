@@ -579,10 +579,11 @@ async function trashGigsAndSets() {
 
 // A pretend Google Calendar: records what the app sends and answers the way Google does, so the
 // "put it back on the calendar" paths can be exercised without a real Google account.
-async function fakeGoogle(p) {
-  const g = { calls: [], events: [], failPosts: false };
+async function fakeGoogle(p, { token = true } = {}) {
+  // known: calendar id -> its title. With strict on, any other id is "not found" (a typo, or a private calendar).
+  const g = { calls: [], events: [], failPosts: false, strict: false, known: {}, lookups: [], lookupStatus: 0, offline: false };
   p.google = g;
-  await p.ctx.addInitScript(() => { try { localStorage.setItem('pmtf_google_auth', JSON.stringify({ token: 'fake-token', expiresAt: Date.now() + 3600e3 })); } catch {} });
+  if (token) await p.ctx.addInitScript(() => { try { localStorage.setItem('pmtf_google_auth', JSON.stringify({ token: 'fake-token', expiresAt: Date.now() + 3600e3 })); } catch {} });
   const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*' };
   const json = (route, status, body) => route.fulfill({ status, contentType: 'application/json', headers: cors, body: JSON.stringify(body) });
   await p.ctx.route('https://www.googleapis.com/calendar/v3/**', route => {
@@ -595,7 +596,14 @@ async function fakeGoogle(p) {
       g.events.push({ id, summary: b.summary, location: b.location, description: b.description, start: { date: b.start.date }, end: { date: b.end.date }, status: 'confirmed' });
       return json(route, 200, { id });
     }
-    if (m === 'GET') return json(route, 200, { items: g.events });
+    if (m === 'GET') {
+      const id = decodeURIComponent((req.url().match(/\/calendars\/([^/]+)\/events/) || [])[1] || '');
+      g.lookups.push(id);
+      if (g.offline) return route.abort('failed');
+      if (g.lookupStatus) return json(route, g.lookupStatus, { error: { message: 'test' } });
+      if (g.strict && !(id in g.known)) return json(route, 404, { error: { message: 'Not Found' } });
+      return json(route, 200, { summary: g.known[id] || 'Test Calendar', items: g.events });
+    }
     return json(route, 200, {});
   });
 }
@@ -660,31 +668,67 @@ test('restoring without a Google sign-in: back in the app only, and the row says
   noProblems();
 });
 
-test('the calendar id is the owner\'s alone, and changing an existing one asks first', async () => {
+test('the calendar id is the owner\'s alone: it is checked with Google first, shows the calendar\'s name, and switching an existing one asks again', async () => {
   const olive = await person('olive@example.com');
+  await fakeGoogle(olive, { token: false });
+  Object.assign(olive.google, { strict: true, known: { 'first@group.calendar.google.com': 'Peat Moss Shows', 'second@group.calendar.google.com': 'Peat Moss (new)' } });
   await signUp(olive); await startBand(olive, 'Peat Test');
   const id = await bandIdOf('Peat Test');
   const cal = () => db.doc(`bands/${id}`).get().then(d => d.data().calendarId);
   await openBandSettings(olive);
   const field = olive.page.getByLabel('Google Calendar ID');
-  const save = () => olive.page.getByRole('button', { name: 'Save' }).last().click();
+  const status = olive.page.locator('[data-cal-check]');
+  const check = () => olive.page.getByRole('button', { name: 'Check & save' }).click();
+  const still = async expected => { await new Promise(r => setTimeout(r, 500)); assert.equal(await cal(), expected); };
 
-  await field.fill('first@group.calendar.google.com'); await save();                                // first time: just saves, no warning
+  // first time: checked, shows the name, saves only after "Use this calendar"; no switch warning (nothing to switch from)
+  await field.fill('first@group.calendar.google.com'); await check();
+  await status.getByText('Peat Moss Shows').waitFor();
+  await status.getByText(/Is this your band.s calendar\?/).waitFor();
+  await shot(olive, '14_calendar_found');
+  await still(undefined);                                                                           // nothing saved yet
+  await status.getByRole('button', { name: 'Use this calendar' }).click();
   assert.equal(await poll(async () => (await cal()) === 'first@group.calendar.google.com'), true);
   assert.deepEqual(olive.dialogs, []);
+  assert.deepEqual(olive.google.lookups, ['first@group.calendar.google.com']);
 
-  await field.fill('second@group.calendar.google.com');                                              // changing it warns; saying no changes nothing
-  olive.dismissNext = true; await save();
+  // "Not this one" backs out with nothing changed
+  await field.fill('second@group.calendar.google.com'); await check();
+  await status.getByText('Peat Moss (new)').waitFor();
+  await status.getByRole('button', { name: 'Not this one' }).click();
+  await status.waitFor({ state: 'detached' });
+  await still('first@group.calendar.google.com');
+
+  // switching an existing calendar: confirm the name, then the switch warning; "no" at the warning changes nothing
+  await check(); await status.getByText('Peat Moss (new)').waitFor();
+  olive.dismissNext = true;
+  await status.getByRole('button', { name: 'Use this calendar' }).click();
   await poll(async () => olive.dialogs.length === 1);
   assert.match(olive.dialogs[0], /Switch the whole band to a different Google Calendar\?/);
-  assert.match(olive.dialogs[0], /drop out of everyone.s list/);
-  assert.equal(await field.inputValue(), 'first@group.calendar.google.com');                        // the field snaps back
-  await new Promise(r => setTimeout(r, 600));
-  assert.equal(await cal(), 'first@group.calendar.google.com');
-
-  await field.fill('second@group.calendar.google.com'); await save();                               // saying yes switches it
+  assert.equal(await field.inputValue(), 'first@group.calendar.google.com');                       // the field snaps back
+  await still('first@group.calendar.google.com');
+  await field.fill('second@group.calendar.google.com'); await check();
+  await status.getByRole('button', { name: 'Use this calendar' }).click();                          // "yes" at the warning
   assert.equal(await poll(async () => (await cal()) === 'second@group.calendar.google.com'), true);
-  assert.equal(olive.dialogs.length, 2);
-  await shot(olive, '14_calendar_owner');
+
+  // a typo, or a calendar that is not public: not found, and it cannot be saved
+  await field.fill('typo@group.calendar.google.com'); await check();
+  await status.getByText(/Couldn.t find a calendar with that ID/).waitFor();
+  await status.getByText(/Make available to public/).waitFor();
+  assert.equal(await status.getByRole('button', { name: /Use this|Save anyway/ }).count(), 0);
+  await status.getByRole('button', { name: 'OK' }).click();
+  await still('second@group.calendar.google.com');
+
+  // Google unreachable or erroring: say so, and offer "Save anyway" (never lock the owner out)
+  olive.google.lookupStatus = 500;
+  await field.fill('third@group.calendar.google.com'); await check();
+  await status.getByText(/Couldn.t check that calendar right now \(Google said 500\)/).waitFor();
+  await status.getByRole('button', { name: 'Cancel' }).click();
+  olive.google.lookupStatus = 0; olive.google.offline = true;
+  await check();
+  await status.getByText(/no connection/).waitFor();
+  olive.google.offline = false;
+  await status.getByRole('button', { name: 'Save anyway' }).click();                                // an existing calendar, so the switch warning still applies
+  assert.equal(await poll(async () => (await cal()) === 'third@group.calendar.google.com'), true);
   noProblems();
 });

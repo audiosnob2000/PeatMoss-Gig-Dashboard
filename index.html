@@ -3818,6 +3818,21 @@ function TrashPanel({theme,canManage,bandMembers,onRestoreGig,googleConnected}){
   );
 }
 
+// Ask Google whether a calendar id works, and what the calendar is called, so the
+// owner can see "Peat Moss Shows" before pointing the whole band at it. Google
+// puts the calendar's title in the same response the sync already reads. A
+// typo'd id, or a calendar that isn't public, comes back "not found".
+async function lookUpCalendar(id){
+  try{
+    const res=await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(id)}/events?key=${GOOGLE_API_KEY}&maxResults=1`);
+    if(res.ok){const d=await res.json();return {status:'found',name:d.summary||id};}
+    if(res.status===404)return {status:'notfound'};
+    return {status:'error',detail:'Google said '+res.status};
+  }catch{
+    return {status:'error',detail:'no connection'};
+  }
+}
+
 // Everything about the band itself: name, calendar, who is in it, invite
 // codes, roles, leaving and handing the band over. Every change that touches
 // membership goes through a server function; only the name and calendar id
@@ -3832,6 +3847,22 @@ function BandPanel({theme,band,myRole,myUid,bandMembers,invites,onCall,onRename,
   const [calVal,setCalVal]=useState(band.calendarId||'');
   useEffect(()=>setNameVal(band.name||''),[band.name]);
   useEffect(()=>setCalVal(band.calendarId||''),[band.calendarId]);
+  // Saving a calendar id first checks it with Google and shows its name; any edit to the
+  // field discards a stale check.
+  const [calCheck,setCalCheck]=useState(null);
+  useEffect(()=>setCalCheck(null),[calVal]);
+  const commitCalendar=id=>{
+    // Switching an existing calendar repoints every show for everyone, so it asks first.
+    // (Setting one for the first time just saves.)
+    if(band.calendarId&&!window.confirm('Switch the whole band to a different Google Calendar?\n\nEveryone will start reading shows from, and saving new shows to, the new calendar. Shows on the old calendar will drop out of everyone’s list the next time anyone syncs.\n\nOnly continue if you mean to.')){setCalVal(band.calendarId||'');setCalCheck(null);return;}
+    onSetCalendarId(id);setCalCheck(null);
+  };
+  const startCalendarCheck=()=>{
+    const id=calVal.trim();
+    if(!id){commitCalendar('');return;}                       // clearing it needs no lookup
+    setCalCheck({status:'checking',id});
+    lookUpCalendar(id).then(r=>setCalCheck(c=>c&&c.status==='checking'&&c.id===id?{...r,id}:c));
+  };
   const run=(key,name,data,confirmMsg)=>{
     if(confirmMsg&&!window.confirm(confirmMsg))return Promise.resolve();
     setBusy(key);
@@ -3861,12 +3892,24 @@ function BandPanel({theme,band,myRole,myUid,bandMembers,invites,onCall,onRename,
       e('div',{style:{fontSize:12,color:'#9ca3af',margin:'2px 0 8px',lineHeight:1.45}},'The calendar your band’s shows live on. In Google Calendar: Settings for that calendar › Integrate calendar › Calendar ID. It has to be a public calendar.'),
       e('div',{style:{display:'flex',gap:6}},
         e('input',{value:calVal,placeholder:'abc123…@group.calendar.google.com','aria-label':'Google Calendar ID',onChange:ev=>setCalVal(ev.target.value),style:{flex:1,minWidth:0,padding:'6px 8px',border:'1px solid #d1d5db',borderRadius:6,fontSize:12}}),
-        calVal.trim()!==(band.calendarId||'')&&e('button',{style:small,onClick:()=>{
-          // Changing an existing calendar repoints every show for everyone, so it asks first.
-          // (Setting it for the first time just saves.)
-          if(band.calendarId&&!window.confirm('Switch the whole band to a different Google Calendar?\n\nEveryone will start reading shows from, and saving new shows to, the new calendar. Shows on the old calendar will drop out of everyone’s list the next time anyone syncs.\n\nOnly continue if you mean to.')){setCalVal(band.calendarId||'');return;}
-          onSetCalendarId(calVal.trim());
-        }},'Save'))),
+        calVal.trim()!==(band.calendarId||'')&&!calCheck&&e('button',{style:small,onClick:startCalendarCheck},'Check & save')),
+      calCheck&&e('div',{role:'status','data-cal-check':calCheck.status,style:{marginTop:8,fontSize:12.5,lineHeight:1.5,padding:'9px 11px',borderRadius:9,
+          background:calCheck.status==='notfound'?'#FEF2F2':calCheck.status==='found'?'#ECFDF5':'#F9FAFB',
+          color:calCheck.status==='notfound'?'#991B1B':'#111827',border:'1px solid '+(calCheck.status==='notfound'?'#FECACA':calCheck.status==='found'?'#A7F3D0':'#E5E7EB')}},
+        calCheck.status==='checking'&&'Checking that calendar…',
+        calCheck.status==='found'&&e('div',null,
+          e('div',null,'Found a calendar called ',e('b',null,calCheck.name),'. Is this your band’s calendar?'),
+          e('div',{style:{display:'flex',gap:6,marginTop:8}},
+            e('button',{style:{...small,background:theme.primary,color:theme.headerText||'#fff',borderColor:theme.primary},onClick:()=>commitCalendar(calCheck.id)},'Use this calendar'),
+            e('button',{style:small,onClick:()=>setCalCheck(null)},'Not this one'))),
+        calCheck.status==='notfound'&&e('div',null,
+          e('div',null,'Couldn’t find a calendar with that ID. Check it for typos, and make sure the calendar is public (in Google Calendar: Settings for that calendar › Access permissions › Make available to public).'),
+          e('div',{style:{marginTop:8}},e('button',{style:small,onClick:()=>setCalCheck(null)},'OK'))),
+        calCheck.status==='error'&&e('div',null,
+          e('div',null,'Couldn’t check that calendar right now ('+calCheck.detail+'). You can save it anyway, but double-check the ID first.'),
+          e('div',{style:{display:'flex',gap:6,marginTop:8}},
+            e('button',{style:small,onClick:()=>commitCalendar(calCheck.id)},'Save anyway'),
+            e('button',{style:small,onClick:()=>setCalCheck(null)},'Cancel'))))),
     canManage&&!isOwner&&e(Row,{label:'Google Calendar',sub:'Set by the band owner. Ask them if it needs to change.',border:true,right:e('span',{style:{fontSize:13,color:'#6b7280'}},band.calendarId?'Connected':'Not set')}),
     e('div',{style:{padding:'12px 14px 4px',fontSize:12,color:'#6b7280',fontWeight:600,textTransform:'uppercase',letterSpacing:'0.06em'}},'Members ('+sorted.length+')'),
     sorted.map(m=>{
