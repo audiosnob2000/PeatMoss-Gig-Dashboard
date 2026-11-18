@@ -125,6 +125,10 @@ Built to the plan above. Choices made along the way:
       **refund wording** and **governing law (New York)**. Take both pages to the accountant or lawyer in item 3 for a
       review, then delete the yellow "Draft" box from each page. A test (`test/legal.test.js`) keeps the pages' numbers in
       step with the code and fails if a stray blank is left unmarked.
+- [ ] 3a. **(Ask Claude later) Make the one-page brief to bring to the accountant or lawyer.** Not made yet, on purpose. It
+      would hold the two pages (Terms and Privacy) as files and the questions to ask: sales tax, New York's automatic-renewal
+      rules, whether a P.O. box is acceptable as the address, the refund and governing-law wording, and whether the pages are
+      enough for your situation. You hand them the pages and ask them to say what to change.
 - [ ] 3c. **Give Stripe the page addresses** (Dashboard > Settings > Public details, or the terms and privacy fields):
       the pages live next to the app, at `<where the app is hosted>/terms.html` and `/privacy.html`.
 - [ ] After about a month live: the trial and repeat-card review (see "To check after the first month live").
