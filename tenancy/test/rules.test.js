@@ -2,7 +2,7 @@ const { test, before, after, beforeEach } = require('node:test');
 const fs = require('fs');
 const path = require('path');
 const { initializeTestEnvironment, assertSucceeds, assertFails } = require('@firebase/rules-unit-testing');
-const { doc, getDoc, getDocs, collection, query, where, setDoc, updateDoc, deleteDoc } = require('firebase/firestore');
+const { doc, getDoc, getDocs, collection, query, where, setDoc, updateDoc, deleteDoc, deleteField } = require('firebase/firestore');
 
 const A = 'bandA', B = 'bandB';
 let env;
@@ -278,11 +278,20 @@ test('invites: managers can see them, members cannot, nobody can write them', as
   await no(s(as('stan'), `bands/${A}/invites/NEW`, { role: 'owner' }));
 });
 
-test('band settings: admins can edit name, time zone, calendar; nobody can touch owner, billing or create/delete', async () => {
-  for (const uid of ['olive', 'adam']) {
-    await ok(updateDoc(doc(as(uid), `bands/${A}`), { name: 'New name', timeZone: 'America/Chicago', calendarId: 'x@group.calendar.google.com' }));
+test('band settings: owner and admins edit name and time zone; only the owner can change the calendar; nobody touches owner, billing or create/delete', async () => {
+  for (const uid of ['olive', 'adam']) await ok(updateDoc(doc(as(uid), `bands/${A}`), { name: 'New name', timeZone: 'America/Chicago' }));
+  await ok(updateDoc(doc(as('olive'), `bands/${A}`), { calendarId: 'x@group.calendar.google.com' }));          // the owner can
+  await ok(updateDoc(doc(as('olive'), `bands/${A}`), { name: 'Both at once', calendarId: 'y@group.calendar.google.com' }));
+  // an admin cannot set, change or clear it, alone or mixed in with allowed fields
+  await no(updateDoc(doc(as('adam'), `bands/${A}`), { calendarId: 'evil@group.calendar.google.com' }));
+  await no(updateDoc(doc(as('adam'), `bands/${A}`), { name: 'ok', calendarId: 'evil@group.calendar.google.com' }));
+  await no(updateDoc(doc(as('adam'), `bands/${A}`), { calendarId: '' }));
+  await no(updateDoc(doc(as('adam'), `bands/${A}`), { calendarId: deleteField() }));
+  // members, lapsed owner-level people, outsiders, other bands' owners cannot change anything
+  for (const uid of ['mia', 'ursula', 'carl', 'stan', 'bob']) {
+    await no(updateDoc(doc(as(uid), `bands/${A}`), { name: 'Hijack' }));
+    await no(updateDoc(doc(as(uid), `bands/${A}`), { calendarId: 'evil@group.calendar.google.com' }));
   }
-  await no(updateDoc(doc(as('mia'), `bands/${A}`), { name: 'Hijack' }));
   for (const uid of ['olive', 'adam']) {
     const db = as(uid);
     await no(updateDoc(doc(db, `bands/${A}`), { ownerUid: 'mallory' }));

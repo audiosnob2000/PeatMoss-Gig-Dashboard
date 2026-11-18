@@ -41,7 +41,7 @@ async function person(email) {
     const t = m.text();
     if (m.type() === 'error' && /permission|insufficient|PERMISSION_DENIED/i.test(t)) p.problems.push('permission problem: ' + t.slice(0, 200));
   });
-  page.on('dialog', d => { p.dialogs.push(d.message()); d.accept(); });
+  page.on('dialog', d => { p.dialogs.push(d.message()); if (p.dismissNext) { p.dismissNext = false; d.dismiss(); } else d.accept(); });
   people.push(p);
   return p;
 }
@@ -258,16 +258,18 @@ test('an unpaid person is locked out live, the owner sees them marked, and resub
   noProblems();
 });
 
-test('promoting a member to admin gives them invite codes, the calendar id and band name; demoting takes it away', async () => {
+test('promoting a member to admin gives them invite codes and the band name, but not the calendar; demoting takes it away', async () => {
   const { olive, mia, id, miaUid } = await twoPeople();
   await openBandSettings(olive);
   await rowOf(olive, miaUid).getByRole('button', { name: 'Make admin' }).click();
   await mia.page.getByText('Band', { exact: true }).first().waitFor({ state: 'attached' }).catch(() => {});
   await openBandSettings(mia);
   await mia.page.getByRole('button', { name: 'New invite code' }).waitFor();
-  await mia.page.getByLabel('Google Calendar ID').fill('band-cal@group.calendar.google.com');
+  assert.equal(await mia.page.getByLabel('Google Calendar ID').count(), 0);                    // the calendar is the owner's alone
+  await mia.page.getByText('Set by the band owner').waitFor();
+  await mia.page.getByLabel('Band name').fill('Renamed By Admin');                                // but an admin can rename the band
   await mia.page.getByRole('button', { name: 'Save' }).first().click();
-  assert.equal(await poll(async () => (await db.doc(`bands/${id}`).get()).data().calendarId === 'band-cal@group.calendar.google.com'), true);
+  assert.equal(await poll(async () => (await db.doc(`bands/${id}`).get()).data().name === 'Renamed By Admin'), true);
   assert.equal((await db.doc(`bands/${id}/members/${miaUid}`).get()).data().role, 'admin');
   assert.equal(await mia.page.getByRole('combobox', { name: 'Role for the invite' }).count(), 0);   // admins invite members only
   assert.equal(await mia.page.getByRole('button', { name: /Make owner/ }).count(), 0);
@@ -655,5 +657,34 @@ test('restoring without a Google sign-in: back in the app only, and the row says
   assert.ok(back);
   assert.equal(back.fromCalendar, false);
   assert.equal(back.venue, 'Back On Calendar');
+  noProblems();
+});
+
+test('the calendar id is the owner\'s alone, and changing an existing one asks first', async () => {
+  const olive = await person('olive@example.com');
+  await signUp(olive); await startBand(olive, 'Peat Test');
+  const id = await bandIdOf('Peat Test');
+  const cal = () => db.doc(`bands/${id}`).get().then(d => d.data().calendarId);
+  await openBandSettings(olive);
+  const field = olive.page.getByLabel('Google Calendar ID');
+  const save = () => olive.page.getByRole('button', { name: 'Save' }).last().click();
+
+  await field.fill('first@group.calendar.google.com'); await save();                                // first time: just saves, no warning
+  assert.equal(await poll(async () => (await cal()) === 'first@group.calendar.google.com'), true);
+  assert.deepEqual(olive.dialogs, []);
+
+  await field.fill('second@group.calendar.google.com');                                              // changing it warns; saying no changes nothing
+  olive.dismissNext = true; await save();
+  await poll(async () => olive.dialogs.length === 1);
+  assert.match(olive.dialogs[0], /Switch the whole band to a different Google Calendar\?/);
+  assert.match(olive.dialogs[0], /drop out of everyone.s list/);
+  assert.equal(await field.inputValue(), 'first@group.calendar.google.com');                        // the field snaps back
+  await new Promise(r => setTimeout(r, 600));
+  assert.equal(await cal(), 'first@group.calendar.google.com');
+
+  await field.fill('second@group.calendar.google.com'); await save();                               // saying yes switches it
+  assert.equal(await poll(async () => (await cal()) === 'second@group.calendar.google.com'), true);
+  assert.equal(olive.dialogs.length, 2);
+  await shot(olive, '14_calendar_owner');
   noProblems();
 });

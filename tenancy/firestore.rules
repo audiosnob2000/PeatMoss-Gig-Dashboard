@@ -44,11 +44,16 @@ service cloud.firestore {
     match /bands/{bandId} {
       // Name and trial info only; an uncovered member needs it to see the subscribe screen.
       allow read: if isMember(bandId);
-      // Created and deleted only by Cloud Functions. Admins may change these fields and
-      // nothing else: owner, billing, createdAt and the rest are server-only.
-      allow update: if isManager(bandId)
-        && request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(['name', 'timeZone', 'calendarId', 'publicScheduleEnabled']);
+      // Created and deleted only by Cloud Functions. Owners and admins may change the name, time
+      // zone and public-schedule switch. Only the OWNER may change which Google Calendar the band
+      // uses (calendarId): it repoints every show for everyone. Owner, billing, createdAt and the
+      // rest are server-only.
+      allow update: if (isManager(bandId)
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['name', 'timeZone', 'publicScheduleEnabled']))
+        || (hasRole(bandId, ['owner'])
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['name', 'timeZone', 'calendarId', 'publicScheduleEnabled']));
       allow create, delete: if false;
 
       match /members/{uid} {

@@ -3856,12 +3856,18 @@ function BandPanel({theme,band,myRole,myUid,bandMembers,invites,onCall,onRename,
           nameVal.trim()&&nameVal.trim()!==band.name&&e('button',{style:small,onClick:()=>onRename(nameVal.trim())},'Save'))
       :e('span',{style:{fontSize:13,color:'#6b7280'}},band.name)}),
     e(Row,{label:'Your role',border:true,right:e('span',{style:{fontSize:13,color:'#6b7280',textTransform:'capitalize'}},myRole)}),
-    canManage&&e('div',{style:{padding:'12px 14px',borderBottom:'1px solid #e5e7eb'}},
+    isOwner&&e('div',{style:{padding:'12px 14px',borderBottom:'1px solid #e5e7eb'}},
       e('div',{style:{fontSize:14,color:'#111827'}},'Google Calendar ID'),
       e('div',{style:{fontSize:12,color:'#9ca3af',margin:'2px 0 8px',lineHeight:1.45}},'The calendar your band’s shows live on. In Google Calendar: Settings for that calendar › Integrate calendar › Calendar ID. It has to be a public calendar.'),
       e('div',{style:{display:'flex',gap:6}},
         e('input',{value:calVal,placeholder:'abc123…@group.calendar.google.com','aria-label':'Google Calendar ID',onChange:ev=>setCalVal(ev.target.value),style:{flex:1,minWidth:0,padding:'6px 8px',border:'1px solid #d1d5db',borderRadius:6,fontSize:12}}),
-        calVal.trim()!==(band.calendarId||'')&&e('button',{style:small,onClick:()=>onSetCalendarId(calVal.trim())},'Save'))),
+        calVal.trim()!==(band.calendarId||'')&&e('button',{style:small,onClick:()=>{
+          // Changing an existing calendar repoints every show for everyone, so it asks first.
+          // (Setting it for the first time just saves.)
+          if(band.calendarId&&!window.confirm('Switch the whole band to a different Google Calendar?\n\nEveryone will start reading shows from, and saving new shows to, the new calendar. Shows on the old calendar will drop out of everyone’s list the next time anyone syncs.\n\nOnly continue if you mean to.')){setCalVal(band.calendarId||'');return;}
+          onSetCalendarId(calVal.trim());
+        }},'Save'))),
+    canManage&&!isOwner&&e(Row,{label:'Google Calendar',sub:'Set by the band owner. Ask them if it needs to change.',border:true,right:e('span',{style:{fontSize:13,color:'#6b7280'}},band.calendarId?'Connected':'Not set')}),
     e('div',{style:{padding:'12px 14px 4px',fontSize:12,color:'#6b7280',fontWeight:600,textTransform:'uppercase',letterSpacing:'0.06em'}},'Members ('+sorted.length+')'),
     sorted.map(m=>{
       const me=m.id===myUid;
