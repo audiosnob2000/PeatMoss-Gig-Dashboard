@@ -390,6 +390,66 @@ test('the plan screen and Settings link to the legal pages next to where people 
   noProblems();
 });
 
+test('Delete my account: needs DELETE typed, then erases the person, their solo band and their sign-in, and returns to sign-in', async () => {
+  const olive = await person('olive@example.com');
+  await signUp(olive); await startBand(olive, 'Solo Band');
+  const uid = await uidOf('olive@example.com');
+  const bandId = await bandIdOf('Solo Band');
+  await db.doc(`users/${uid}/mileageTrips/t1`).set({ miles: 5 });
+  await olive.page.getByText('⚙️', { exact: true }).click();
+  await olive.page.getByText('Account', { exact: true }).click();
+  await olive.page.getByRole('button', { name: 'Delete my account' }).click();
+  await olive.page.getByText(/cancels your subscription right away/).waitFor();
+  await olive.page.getByText(/stay with the band/).waitFor();
+  await shot(olive, '18_delete_account');
+  const go = olive.page.getByRole('button', { name: 'Delete my account permanently' });
+  assert.equal(await go.isDisabled(), true, 'nothing happens until DELETE is typed');
+  await olive.page.getByLabel('Type DELETE to confirm').fill('delete');
+  assert.equal(await go.isDisabled(), true, 'it must be the exact word');
+  await olive.page.getByLabel('Type DELETE to confirm').fill('DELETE');
+  await go.click();
+  await olive.page.getByRole('button', { name: /create account/i }).first().waitFor({ timeout: 15000 });   // back at sign-in
+  assert.ok(olive.dialogs.some(d => /account has been deleted/i.test(d)));
+  assert.equal(await poll(async () => !(await db.doc(`bands/${bandId}`).get()).exists), true, 'the solo band is gone');
+  assert.equal((await db.doc(`users/${uid}/mileageTrips/t1`).get()).exists, false);
+  assert.equal((await db.doc(`users/${uid}/memberships/${bandId}`).get()).exists, false);
+  await assert.rejects(admin.auth().getUserByEmail('olive@example.com'), /no user record|user-not-found/i, 'the sign-in account is gone');
+  noProblems();
+});
+
+test('Delete my account: an owner whose band has other members is told to hand it over, and nothing is deleted', async () => {
+  const { olive, id, oliveUid, miaUid } = await twoPeople();
+  await olive.page.getByText('⚙️', { exact: true }).click();
+  await olive.page.getByText('Account', { exact: true }).click();
+  await olive.page.getByRole('button', { name: 'Delete my account' }).click();
+  await olive.page.getByLabel('Type DELETE to confirm').fill('DELETE');
+  await olive.page.getByRole('button', { name: 'Delete my account permanently' }).click();
+  await olive.page.getByRole('alert').getByText(/still has other members.*Hand it over/).waitFor();
+  await shot(olive, '19_delete_blocked');
+  assert.equal((await db.doc(`bands/${id}/members/${oliveUid}`).get()).exists, true);
+  assert.equal((await db.doc(`bands/${id}/members/${miaUid}`).get()).exists, true);
+  assert.ok(await admin.auth().getUser(oliveUid), 'still has an account');
+  noProblems();
+});
+
+test('someone in no bands who still has a subscription is offered one-tap cancel, or can keep it for the next band', async () => {
+  const olive = await person('olive@example.com');
+  await signUp(olive);
+  const uid = await uidOf('olive@example.com');
+  assert.equal(await olive.page.getByText(/You’re not in any bands right now/).count(), 0, 'no subscription, no notice');
+  await db.doc(`users/${uid}/billing/status`).set({ id: 'sub_x', status: 'active', interval: 'month', currentPeriodEnd: Date.now() + 12 * 86400000, lastEventAt: 1 });
+  await olive.page.getByText(/You’re not in any bands right now, but your subscription \(\$6\.99\/month\) renews on/).waitFor();
+  await shot(olive, '20_no_bands_notice');
+  await olive.page.getByRole('button', { name: 'Cancel subscription' }).click();        // Stripe's secret is not set in the emulator
+  await olive.page.getByText(/Something went wrong/).waitFor();
+  await olive.page.getByRole('button', { name: 'Cancel subscription' }).waitFor();       // and the button recovers
+  await olive.page.getByRole('button', { name: 'Keep it' }).click();
+  await olive.page.getByText(/not in any bands right now/).waitFor({ state: 'detached' });
+  await db.doc(`users/${uid}/billing/status`).update({ cancelAtPeriodEnd: true });
+  assert.equal(await olive.page.getByText(/not in any bands right now/).count(), 0, 'already cancelling: nothing to offer');
+  noProblems();
+});
+
 test('a second band gets no free time: its owner meets the subscribe screen straight away, and the first band is untouched', async () => {
   const olive = await person('olive@example.com');
   await signUp(olive); await startBand(olive, 'Band One');

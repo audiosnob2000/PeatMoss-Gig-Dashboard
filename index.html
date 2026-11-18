@@ -2441,7 +2441,8 @@ function AccountSection({authUser,authBusy,authError,onSignUp,onSignIn,onSignOut
       e(LegalLinks,{prefix:'Read our ',style:{marginBottom:10}}),
       e('div',{style:{display:'flex',gap:8}},
         e('button',{onClick:()=>setChangingPw(true),style:{flex:1}},'Change password'),
-        e('button',{onClick:onSignOut,style:{flex:1,color:'#b91c1c',borderColor:'#fecaca'}},'Sign out'))
+        e('button',{onClick:onSignOut,style:{flex:1,color:'#b91c1c',borderColor:'#fecaca'}},'Sign out')),
+      e(DeleteAccountRow,{authUser})
     );
   }
   if(mode==='reset'){
@@ -3742,6 +3743,60 @@ function ManageBillingRow({uid}){
     act.err&&e('div',{style:{color:'#b91c1c',fontSize:12,marginTop:6}},act.err));
 }
 
+// Shown on the "join or start a band" screen to someone who is in no bands but still has a subscription that renews.
+// One tap cancels it (access runs to the end of what they paid for); or they keep it for the next band.
+function NoBandsNotice({uid}){
+  const billing=useBillingStatus(uid);
+  const [hidden,setHidden]=useState(false);
+  const [cancelled,setCancelled]=useState(false);
+  const [busy,setBusy]=useState(false);
+  const [err,setErr]=useState('');
+  if(hidden||!billing)return null;
+  const live=billing.status==='active'||billing.status==='trialing'||billing.status==='past_due';
+  const endsAt=billing.status==='trialing'?billing.trialEnd:billing.currentPeriodEnd;
+  const box=(tone,border,color,children)=>e('div',{role:'status',style:{padding:'10px 12px',background:tone,border:'1px solid '+border,color,borderRadius:10,fontSize:13,lineHeight:1.5,marginBottom:12}},children);
+  const small={fontSize:12,padding:'4px 10px'};
+  if(cancelled)return box('#ecfdf5','#a7f3d0','#065f46','Your subscription is cancelled. You keep access until '+(endsAt?longDateUS(endsAt):'the end of this period')+' and you won’t be charged again.');
+  if(!live||billing.cancelAtPeriodEnd)return null;
+  const cancel=()=>{setBusy(true);setErr('');callBand('cancelSubscription').then(()=>setCancelled(true)).catch(x=>{setErr((x&&x.message)||'That did not work — try again.');setBusy(false);});};
+  return box('#fffbeb','#fde68a','#92400e',e('div',null,
+    e('div',null,'You’re not in any bands right now, but your subscription ('+(PRICE_LABEL[billing.interval]||'your plan')+') '
+      +(billing.status==='trialing'?'will start charging after your free trial ends on ':'renews on ')+(endsAt?longDateUS(endsAt):'its next date')+'. Cancel it if you don’t need it. You keep access until then.'),
+    e('div',{style:{display:'flex',gap:8,marginTop:8}},
+      e('button',{onClick:cancel,disabled:busy,style:small},busy?'Cancelling…':'Cancel subscription'),
+      e('button',{onClick:()=>setHidden(true),disabled:busy,style:small},'Keep it')),
+    err&&e('div',{style:{color:'#b91c1c',marginTop:6}},err)));
+}
+
+// Settings > Account: delete the account for good. The server cancels the subscription, takes the person out of
+// every band and erases their personal data; what they added to a band stays with the band.
+function DeleteAccountRow({authUser}){
+  const [open,setOpen]=useState(false);
+  const [typed,setTyped]=useState('');
+  const [busy,setBusy]=useState(false);
+  const [err,setErr]=useState('');
+  const go=()=>{
+    setBusy(true);setErr('');
+    callBand('deleteAccount',{confirm:'DELETE'}).then(()=>{
+      try{Object.keys(localStorage).filter(k=>k.startsWith('pmtf_u_'+authUser.uid)||k==='pmtf_active_band'||k==='pmtf_settings').forEach(k=>localStorage.removeItem(k));}catch{}
+      auth.signOut().catch(()=>{});
+      alert('Your account has been deleted.');
+    }).catch(x=>{setErr((x&&x.message)||'That did not work — try again.');setBusy(false);});
+  };
+  if(!open)return e('button',{onClick:()=>setOpen(true),style:{width:'100%',marginTop:12,color:'#b91c1c',borderColor:'#fecaca'}},'Delete my account');
+  return e('div',{style:{marginTop:12,padding:'10px 12px',border:'1px solid #fecaca',background:'#fef2f2',borderRadius:10,fontSize:13,lineHeight:1.5,color:'#7f1d1d'}},
+    e('div',{style:{fontWeight:600,marginBottom:4}},'Delete your account?'),
+    e('div',null,'This cannot be undone. It cancels your subscription right away (the rest of the paid period is not refunded), removes you from every band, and erases your mileage log, your private charts and your account. Shows, setlists and charts you added to a band stay with the band. If you own a band that has other members, hand it over first.'),
+    e('div',{style:{marginTop:6}},'Only want to stop paying? Use Manage billing > Cancel subscription instead and keep your account.'),
+    e('label',{style:{display:'block',marginTop:8}},'Type DELETE to confirm'),
+    e('input',{value:typed,onChange:ev=>setTyped(ev.target.value),'aria-label':'Type DELETE to confirm',autoCapitalize:'characters',autoComplete:'off',style:{width:'100%',marginTop:4}}),
+    e('div',{style:{display:'flex',gap:8,marginTop:8}},
+      e('button',{onClick:go,disabled:typed!=='DELETE'||busy,style:{flex:1,color:'#fff',background:'#b91c1c',borderColor:'#b91c1c'}},busy?'Deleting…':'Delete my account permanently'),
+      e('button',{onClick:()=>{setOpen(false);setTyped('');setErr('');},disabled:busy,style:{flex:1}},'Cancel')),
+    err&&e('div',{role:'alert',style:{color:'#b91c1c',marginTop:6}},err));
+}
+
+
 const PRELOGIN_THEME=(()=>{
   const base=THEMES.teal;const dark=needsDarkText(base.primary);
   return {...base,headerText:dark?'#1a1a2e':'#fff',headerSoft:dark?'rgba(26,26,46,0.65)':null,
@@ -3802,6 +3857,7 @@ function BandPickerScreen({authUser,memberships,names,onChoose,onCreated,onJoine
     border:'1px solid '+(mode===id?theme.primary:'#d1d5db'),background:mode===id?theme.primary:'#fff',color:mode===id?(theme.headerText||'#fff'):'#374151',cursor:'pointer'}},label);
   return e(CardScreen,{theme,icon:'🎸',title:memberships.length?'Your bands':'Join or start a band',
       sub:memberships.length?'Pick a band, or join or start another.':'Join your band with the code someone sent you, or start a new one.'},
+    memberships.length===0&&e(NoBandsNotice,{uid:authUser.uid}),
     memberships.length>0&&e('div',{style:{display:'flex',gap:8,marginBottom:12}},
       tabBtn('list','My bands'),tabBtn('join','Join with code'),tabBtn('create','Start a band')),
     memberships.length===0&&e('div',{style:{display:'flex',gap:8,marginBottom:12}},tabBtn('join','Join with code'),tabBtn('create','Start a band')),
@@ -3824,7 +3880,7 @@ function BandPickerScreen({authUser,memberships,names,onChoose,onCreated,onJoine
       e('input',{value:name,placeholder:'Your band’s name',maxLength:80,'aria-label':'Band name',onChange:ev=>setName(ev.target.value),onKeyDown:ev=>{if(ev.key==='Enter')create();}}),
       e('label',null,'Time zone'),
       e('select',{value:tz,onChange:ev=>setTz(ev.target.value),'aria-label':'Time zone'},zones.map(z=>e('option',{key:z,value:z},z.replace(/_/g,' ')))),
-      e('div',{style:{fontSize:12,color:'#6b7280',margin:'8px 0 12px',lineHeight:1.5}},'You’ll be the band’s owner. Your whole band gets a 30-day free trial.'),
+      e('div',{style:{fontSize:12,color:'#6b7280',margin:'8px 0 12px',lineHeight:1.5}},'You’ll be the band’s owner. Free time applies to the first band you start: 7 days, or 30 if you add a card.'),
       e('button',{onClick:create,disabled:busy||!name.trim(),style:{background:theme.primary,color:theme.headerText||'#fff',borderColor:theme.primary,width:'100%'}},busy?'Creating…':'Start band')
     ),
     error&&e('div',{role:'alert',style:{color:'#b91c1c',fontSize:13,marginTop:10}},error),

@@ -12,6 +12,7 @@ const band = require('./band');
 const trash = require('./trash');
 const reminders = require('./reminders');
 const billing = require('./billing');
+const account = require('./account');
 const { makeResendMailer } = require('./mailer');
 const billingConfig = require('./billing-config.json');
 const Stripe = require('stripe');
@@ -92,6 +93,11 @@ const billingCall = fn => wrap((db, uid, data, now, profile) => fn(db, stripeCli
   { withProfile: true, secrets: [STRIPE_SECRET_KEY] });
 exports.startCheckout = billingCall(billing.startCheckout);
 exports.openBillingPortal = billingCall(billing.openPortal);
+
+// Leaving. cancelSubscription stops renewal at the end of the paid period. deleteAccount removes the person (it only
+// reaches for Stripe if they have a live subscription, so the key is fetched lazily).
+exports.cancelSubscription = wrap((db, uid) => account.cancelSubscription(db, stripeClient(), uid), { secrets: [STRIPE_SECRET_KEY] });
+exports.deleteAccount = wrap((db, uid, data) => account.deleteAccount(db, admin.auth(), () => stripeClient(), uid, data), { secrets: [STRIPE_SECRET_KEY] });
 
 // The only writer of subscription state. Stripe signs every delivery; anything unsigned is refused.
 exports.stripeWebhook = onRequest({ secrets: [STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, RESEND_API_KEY] }, async (req, res) => {

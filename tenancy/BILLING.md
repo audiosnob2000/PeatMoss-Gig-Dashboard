@@ -102,9 +102,9 @@ Built to the plan above. Choices made along the way:
   `users/{uid}/private/billing`, `stripeCustomers`, `stripeEvents`, `trialCards`.
 - **App:** card step after starting a band, subscribe screen on the paused screen, a banner (trial ending, payment failing,
   cancellation pending, band free time ending, and a confirmation after paying), and Manage billing in Settings > Account.
-- **Tests:** `npm test` (107, incl. `test/billing.test.js` with a stand-in Stripe and locally signed webhook checks),
+- **Tests:** `npm test` (121, incl. `test/billing.test.js` with a stand-in Stripe and locally signed webhook checks),
   `npm run test:stripe` (real test-mode API: prices, Checkout, portal, a real trialing subscription and the same-card
-  refusal; cleans up after itself), `npm run e2e` (31 in a browser).
+  refusal; cleans up after itself), `npm run e2e` (36 in a browser).
 
 ### Launch checklist (owner, in order; tick them off here)
 - [ ] 1. **Stripe reminder emails and the live portal.** In the Stripe Dashboard turn on the trial-ending reminder and the
@@ -121,7 +121,7 @@ Built to the plan above. Choices made along the way:
 - [ ] 3b. **Terms and Privacy pages: fill in the blanks and get them reviewed.** The pages are built (`terms.html` and
       `privacy.html` in the app's root, linked from sign-up, the plan screens and Settings) but they are DRAFTS.
       Highlighted yellow on the pages, you need to fill in: your **business name and address** (both pages), a
-      **support email** that you actually read (both pages; customers use it to ask for account deletion), and confirm the
+      **support email** that you actually read (both pages; customers use it for questions, and if they cannot use the delete button), and confirm the
       **refund wording** and **governing law (New York)**. Take both pages to the accountant or lawyer in item 3 for a
       review, then delete the yellow "Draft" box from each page. A test (`test/legal.test.js`) keeps the pages' numbers in
       step with the code and fails if a stray blank is left unmarked.
@@ -200,10 +200,23 @@ Built to the owner's checklist of the rules. This is not legal advice; the accou
 - If the owner cancels a card trial during the trial, the band keeps the 30 days the card unlocked (they were never
   charged). Accepted; revisit if abused.
 
-### Account deletion is manual for now
-The Privacy page tells people to email the support address to have their account and data deleted, and promises a reply
-within 30 days. There is no self-serve "delete my account" yet (and no delete-band function). Build those if requests
-become frequent, and update the pages when you do.
+### Leaving and deleting (built)
+- **Cancel subscription** (`cancelSubscription` in `functions/account.js`): stops renewal at the end of the paid period; access
+  continues until then. The "no bands" notice on the join/start screen offers it in one tap to anyone who is in no bands but
+  still has a live subscription, with a **Keep it** option for people about to join another band. Leaving a band never
+  touches a subscription (it belongs to the person, not to a band).
+- **Delete my account** (`deleteAccount`, Settings > Account): the person types DELETE. The server (1) refuses if they own a
+  band that still has other members (they hand it over first; nothing is changed), (2) cancels the Stripe subscription
+  immediately (no refund for the rest of the period, per the Terms; if Stripe fails, nothing is deleted and it is safe to
+  retry), (3) removes them from every band, clearing their checklist, unpaid marks, availability and phone tokens there,
+  (4) deletes any band where they were the only member, with its join codes, (5) erases their user data (mileage, private
+  charts, billing records) and (6) deletes their sign-in account. Shows, sets and charts they added to a band stay with the
+  band. Kept on purpose: Stripe's own customer and payment records, and the anonymous card fingerprint in `trialCards` so a
+  card still gets one trial. Google Calendar tokens are keyed by device, not person, so they are not removed; the Privacy page
+  tells people to revoke access in their Google account.
+- Someone who deletes and signs up again with the same email can get a new first-band free period (the card fingerprint still
+  blocks a second card trial). This is part of the accepted limit on repeated free time.
+- Still not built: a delete-band function for owners who want to remove a band that has other members.
 
 ### Known limits
 - Webhook de-duplication is check-then-write: two simultaneous deliveries of one event could both run. Every handler is

@@ -45,6 +45,7 @@ test('the Terms state the same prices, free days, grace period and trash period 
   assert.match(privacy + terms, new RegExp(`${trash.TRASH_DAYS} days`), 'recently-deleted days');
   assert.match(t, /Settings → Account → Manage billing → Cancel subscription/, 'the same cancel path the app shows');
   assert.match(t, /renews automatically/i);
+  assert.match(t, /Settings → Account → Delete my account/, 'the delete button the app shows');
   assert.match(t, /without telling you in advance and getting your agreement/i, 'price rises need consent');
 });
 
@@ -52,7 +53,7 @@ test('the Privacy page covers what the app actually collects and uses', () => {
   const p = text(privacy);
   for (const phrase of ['email address', 'mileage log', 'private chart library', 'card fingerprint', 'Google Calendar', 'Stripe',
     'Resend', 'OpenStreetMap', 'Open-Meteo', 'notifications', 'location', 'local storage', 'We do not sell your information',
-    'no advertising and no analytics']) {
+    'no advertising and no analytics', 'Delete my account', 'What stays', 'anonymous card fingerprint']) {
     assert.ok(p.includes(phrase), `missing: ${phrase}`);
   }
   assert.match(p, /never see or store your card number/);
