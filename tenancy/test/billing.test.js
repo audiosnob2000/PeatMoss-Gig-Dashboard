@@ -372,29 +372,74 @@ test('checkout requires explicit consent, and its text states price, renewal, tr
   assert.doesNotMatch(y, /Free until/, 'no trial, no trial wording');
 });
 
-test('a confirmation email with price, renewal date and how to cancel is queued once per subscription', async () => {
+// A stand-in mailer that records what it was asked to send (and can be told to fail).
+function fakeMailer({ fail = false } = {}) {
+  const sent = [];
+  const send = async m => { if (fail) throw new Error('Resend 500'); sent.push(m); return true; };
+  send.sent = sent;
+  return send;
+}
+
+test('a confirmation email with price, renewal date and how to cancel is sent once per subscription', async () => {
   const { stripe } = await setup();
+  const mailer = fakeMailer();
   const ev = subEvent('customer.subscription.created', { status: 'trialing', trialEnd: (AFTER + 7 * DAY) / 1000, pm: 'pm_c', created: AFTER / 1000 });
-  await BL.handleEvent(db, stripe, ev, AFTER);
-  const mail = (await db.doc('mail/confirm-sub_1').get()).data();
+  await BL.handleEvent(db, stripe, ev, AFTER, mailer);
+  assert.equal(mailer.sent.length, 1);
+  const mail = mailer.sent[0];
   assert.equal(mail.to, 'person@example.com');
-  assert.match(mail.message.text, /free trial has started/i);
-  assert.match(mail.message.text, /not be charged until/i);
-  assert.match(mail.message.text, /\$6\.99 per month, charged automatically every month until you cancel/);
+  assert.equal(mail.subject, 'Your Gig Dashboard subscription');
+  assert.match(mail.text, /free trial has started/i);
+  assert.match(mail.text, /not be charged until/i);
+  assert.match(mail.text, /\$6\.99 per month, charged automatically every month until you cancel/);
+  assert.match(mail.text, /Manage billing > Cancel subscription/);
   assert.equal(BL.confirmationEmail({ status: 'active', interval: 'year', currentPeriodEnd: AFTER }).text.includes('$69 per year, charged automatically every year'), true, 'yearly wording');
-  assert.match(mail.message.text, /Manage billing > Cancel subscription/);
-  await db.doc('mail/confirm-sub_1').delete();
-  await BL.handleEvent(db, stripe, subEvent('customer.subscription.updated', { status: 'trialing', trialEnd: (AFTER + 7 * DAY) / 1000, pm: 'pm_c', created: AFTER / 1000 + 10 }), AFTER);
-  assert.equal((await db.doc('mail/confirm-sub_1').get()).exists, false, 'later events do not send it again');
+  await BL.handleEvent(db, stripe, subEvent('customer.subscription.updated', { status: 'trialing', trialEnd: (AFTER + 7 * DAY) / 1000, pm: 'pm_c', created: AFTER / 1000 + 10 }), AFTER, mailer);
+  assert.equal(mailer.sent.length, 1, 'later events do not send it again');
   assert.equal((await db.doc('users/olive/billing/status').get()).data().confirmedFor, 'sub_1');
 });
 
-test('no email on the Stripe customer means no confirmation, and billing carries on', async () => {
+test('if sending fails, billing still works and the next event tries again; once sent it is not repeated', async () => {
+  const { stripe, b1 } = await setup();
+  const broken = fakeMailer({ fail: true });
+  const r = await BL.handleEvent(db, stripe, subEvent('customer.subscription.created', { created: AFTER / 1000 }), AFTER, broken);
+  assert.equal(r.status, 'active', 'a mail failure never blocks the subscription');
+  assert.equal(await covered(b1, 'olive'), true);
+  assert.equal((await db.doc('users/olive/billing/status').get()).data().confirmedFor, undefined, 'not marked as sent');
+  const working = fakeMailer();
+  await BL.handleEvent(db, stripe, subEvent('customer.subscription.updated', { created: AFTER / 1000 + 5 }), AFTER, working);
+  assert.equal(working.sent.length, 1);
+  await BL.handleEvent(db, stripe, subEvent('customer.subscription.updated', { created: AFTER / 1000 + 9 }), AFTER, working);
+  assert.equal(working.sent.length, 1);
+});
+
+test('no mailer configured, or no email on the Stripe customer: no confirmation, and billing carries on', async () => {
   const { stripe } = await setup();
-  await db.doc('stripeCustomers/cus_noemail').set({ uid: 'olive' });
-  const r = await BL.handleEvent(db, stripe, subEvent('customer.subscription.created', { cust: 'cus_noemail', created: AFTER / 1000 }), AFTER);
+  const r = await BL.handleEvent(db, stripe, subEvent('customer.subscription.created', { created: AFTER / 1000 }), AFTER);   // no mailer
   assert.equal(r.status, 'active');
-  assert.equal((await db.collection('mail').get()).size, 0);
+  await db.doc('stripeCustomers/cus_noemail').set({ uid: 'olive' });
+  const mailer = fakeMailer();
+  const r2 = await BL.handleEvent(db, stripe, subEvent('customer.subscription.created', { id: 'sub_9', cust: 'cus_noemail', created: AFTER / 1000 + 50 }), AFTER, mailer);
+  assert.equal(r2.status, 'active');
+  assert.equal(mailer.sent.length, 0);
+});
+
+test('the Resend mailer builds the right request and never leaks the key in an error', async () => {
+  const { makeResendMailer } = require('../functions/mailer');
+  const calls = [];
+  const ok = makeResendMailer({ apiKey: 're_test_key', from: 'Gig Dashboard <billing@gigdashboard.com>', replyTo: 'help@example.com',
+    fetchImpl: async (url, init) => { calls.push({ url, init }); return { ok: true }; } });
+  await ok({ to: 'a@b.test', subject: 'S', text: 'T' });
+  assert.equal(calls[0].url, 'https://api.resend.com/emails');
+  assert.equal(calls[0].init.method, 'POST');
+  assert.equal(calls[0].init.headers.Authorization, 'Bearer re_test_key');
+  assert.deepEqual(JSON.parse(calls[0].init.body), { from: 'Gig Dashboard <billing@gigdashboard.com>', to: ['a@b.test'], subject: 'S', text: 'T', reply_to: 'help@example.com' });
+  const noReply = makeResendMailer({ apiKey: 'k', from: 'f', fetchImpl: async (u, i) => { calls.push({ u, i }); return { ok: true }; } });
+  await noReply({ to: 'a@b.test', subject: 'S', text: 'T' });
+  assert.equal('reply_to' in JSON.parse(calls[1].i.body), false, 'reply_to is omitted when not set');
+  const bad = makeResendMailer({ apiKey: 're_secret_value', from: 'f', fetchImpl: async () => ({ ok: false, status: 403, text: async () => 'domain not verified' }) });
+  await assert.rejects(bad({ to: 'a@b.test', subject: 'S', text: 'T' }), e => /403/.test(e.message) && /domain not verified/.test(e.message) && !/re_secret_value/.test(e.message));
+  assert.throws(() => makeResendMailer({ from: 'f' }), /API key/);
 });
 
 // ---- bands: complimentary and joining -------------------------------------------------------
@@ -447,8 +492,6 @@ test('rules: a person reads their own billing summary, nobody writes it, and ser
   await assertFails(getDoc(doc(olive, 'users/olive/private/billing')));
   await assertFails(getDoc(doc(olive, 'trialCards/fp_A')));
   await assertFails(getDoc(doc(olive, 'stripeEvents/x')));
-  await assertFails(getDoc(doc(olive, 'mail/confirm-sub_1')));
-  await assertFails(setDoc(doc(olive, 'mail/x'), { to: 'a@b.c' }));
   const b = await mkBand('olive', T0);
   await assertFails(setDoc(doc(olive, `bands/${b}`), { name: 'x', billing: { complimentary: true } }, { merge: true }));
 });

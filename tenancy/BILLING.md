@@ -113,7 +113,7 @@ Built to the plan above. Choices made along the way:
    **upcoming-renewal reminder for yearly plans** (set to about 30 days before, which falls inside the 15 to 45 day
    window on the checklist). Re-read the checklist's reminder windows with the accountant or lawyer.
 2. `firebase functions:secrets:set STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`.
-   Also set up the Resend email (steps above). Then check one real signup in test
+   Also set `RESEND_API_KEY` for the confirmation email (steps above). Then check one real signup in test
    mode: you should get the confirmation with the price, the first-charge date and the cancel steps.
 3. After deploying, add the `stripeWebhook` URL in Stripe (Developers > Webhooks) for: `checkout.session.completed`,
    `customer.subscription.created|updated|deleted`, `invoice.payment_failed`. Copy that endpoint's signing secret into step 2.
@@ -135,31 +135,26 @@ Built to the plan above. Choices made along the way:
   consider tightening (or dropping the 7-day trial for late joiners). Many trials that never convert is a separate
   question about the trial length and the subscribe screen.
 
-### Setting up the confirmation email with Resend (owner steps, about 20 minutes, do before launch)
-The app already writes each confirmation into the `mail` collection in your Firebase project. This sends them.
-(SendGrid was tried first, but it is only a ~2 month trial, not a permanent free plan, so Resend was chosen instead.
-Check Resend's current free-plan limits on their pricing page before relying on them; any SMTP service works with the
-extension, so this is easy to change.)
-1. **Resend account:** sign up at resend.com.
-2. **Add your domain:** Domains > Add Domain > `gigdashboard.com`. Resend lists a few DNS records (usually an `MX` and a
-   `TXT` for sending, a `TXT` named `resend._domainkey` for the signature, and optionally a `_dmarc` `TXT`).
-3. **Add those records in Spaceship** (Domain Manager > gigdashboard.com > Advanced DNS > Add record). Type the short host
-   name (Spaceship adds `.gigdashboard.com` itself) and paste the value exactly. Keep only ONE `_dmarc` record. Then click
-   Verify in Resend; it can take minutes to a day.
-4. **Make an API key:** API Keys > Create API Key with **Sending access** only. Copy it once.
-   **Never paste it into a chat or into the repo.**
-5. **Install the extension:** Firebase Console > your project > Extensions > "Trigger Email from Firestore" > Install.
-   - Email documents collection: `mail`
-   - SMTP connection URI: `smtps://resend@smtp.resend.com:465`
-   - SMTP password: the Resend API key from step 4 (the console stores it as a secret)
-   - Default FROM address: an address on your verified domain, for example `Gig Dashboard <billing@gigdashboard.com>`
-   (Resend's SMTP page lists the exact host, port and username; confirm them there.) The project must be on the Blaze plan,
-   which it already needs for these functions.
-6. **Test it:** in Firebase Console > Firestore, add a document to `mail` with fields `to` (your email) and `message` (a map
-   with `subject` and `text`). It should arrive within a minute, and the document gets a `delivery` field with the result.
-7. **Check a real signup in Stripe test mode** after deploying: complete a trial signup with Stripe's test card
-   `4242 4242 4242 4242`, and confirm the email arrives with the price, the first-charge date and the cancel steps.
-If it does not arrive, look at the `delivery` field on the `mail` document and at Resend's Logs page, and check spam.
+### Setting up the confirmation email with Resend (owner steps)
+The server sends each confirmation straight through Resend's API (`functions/mailer.js`). It does NOT use Firebase's
+"Trigger Email from Firestore" extension, because Firebase Extensions shuts down on 31 March 2027 (no installs or edits
+after that), and there is no replacement for that extension.
+(SendGrid was tried first, but it is only a ~2 month trial. Resend's free plan, as shown on its pricing page, is $0 for
+3,000 emails a month with a 100 a day cap. Any service with an HTTP API would do; only `mailer.js` would change.)
+1. **Resend account and domain:** done. `gigdashboard.com` is added and **verified** (DKIM, SPF and DMARC records are in
+   Spaceship's Advanced DNS). Leave "Enable receiving" off.
+2. **API key:** in Resend, API keys > Create API Key, named `Gig Dashboard confirmations`, **Sending access**, domain
+   `gigdashboard.com`. Copy it once. **Never paste it into a chat or the repo.**
+3. **Give it to the functions as a secret** (from the folder that has the Firebase project, using the Firebase account that
+   owns the project; it prompts you to paste the value):
+   `firebase functions:secrets:set RESEND_API_KEY`
+4. **Optional reply-to address:** deploy asks for `REPLY_TO_EMAIL`. Enter an inbox you read (customers' replies go
+   there, since our domain does not receive mail) or leave it blank.
+5. **Test it** after deploying: complete a trial signup in Stripe test mode with the test card `4242 4242 4242 4242`
+   and confirm the email arrives with the price, the first-charge date and the cancel steps. If it does not, check
+   Resend's Logs page and the function logs (`stripeWebhook`). A missing key or a failed send never blocks billing: it is
+   logged and the next subscription event tries again.
+The From address is `Gig Dashboard <billing@gigdashboard.com>` (set in `functions/index.js`).
 
 ### Automatic-renewal rules (New York General Business Law 527-a, and similar laws elsewhere)
 Built to the owner's checklist of the rules. This is not legal advice; the accountant/lawyer session below should confirm it.
@@ -167,14 +162,14 @@ Built to the owner's checklist of the rules. This is not legal advice; the accou
 |---|---|
 | Clear disclosure of price, billing frequency, renewal and cancellation **before** consent or payment | Plain-words terms are on the plan screen above the buttons (`PlanPicker`) and repeated on Stripe's checkout page above the pay button (`disclosure()` in `billing.js`). |
 | Affirmative opt-in consent | An unticked "I agree..." box must be ticked; the buttons stay disabled until it is. The server **refuses** checkout unless `consent: true` is sent. |
-| Retainable confirmation with key terms and how to cancel | The app shows "You're all set" with the terms and a **Save a copy** button. An email with the same content is queued in the `mail` collection (Firebase "Trigger Email" format), **sent once an email service is installed** (see below). |
+| Retainable confirmation with key terms and how to cancel | The app shows "You're all set" with the terms and a **Save a copy** button. An email with the same content is sent by the server through Resend once the `RESEND_API_KEY` secret is set (see below). |
 | Cancel the same way you signed up, no obstacles | Signed up online, cancel online: Settings > Account > Manage billing > Cancel subscription (Stripe Customer Portal). The steps are shown on the plan screen, the Stripe page, the confirmation and in Settings. |
 | Renewal and trial-ending reminders | Stripe sends these; set them in the Dashboard (see to-do 3). The in-app banner also warns in the last 7 days of a trial. |
 | No price rises without consent | The code never changes an existing customer's price. Any future rise needs their opt-in (or the 14-day cancel-with-pro-rata-refund option). Do not edit a live Price; create a new one and ask first. |
 
 ### Open decisions and gaps
-- **Confirmation email is queued but not sent** until you do the Resend steps above (decided: Resend). Until then the
-  in-app confirmation is the retainable copy. Needed before real customers sign up.
+- **Confirmation email is built and tested but not live** until the `RESEND_API_KEY` secret is set and the functions are
+  deployed (steps above). Until then the in-app confirmation is the retainable copy. Needed before real customers sign up.
 - **The 7-day card trial for people joining after day 30 is still in.** Discussed dropping it (late joiners would just
   see Subscribe); not decided.
 - If the owner cancels a card trial during the trial, the band keeps the 30 days the card unlocked (they were never

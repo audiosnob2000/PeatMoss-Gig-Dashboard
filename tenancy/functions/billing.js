@@ -36,7 +36,7 @@ function disclosure({ interval, trialEnd }) {
   return lines.join(' ');
 }
 
-// The keepable confirmation sent after signing up (see sendConfirmation).
+// The keepable confirmation emailed after signing up (see sendConfirmation).
 function confirmationEmail({ status, interval, trialEnd, currentPeriodEnd }) {
   const head = status === 'trialing'
     ? `Your free trial has started. You will not be charged until ${longDate(trialEnd)}.`
@@ -255,20 +255,23 @@ async function extendBandTrials(db, uid, now) {
   }
 }
 
-// Written to the "mail" collection in the format of Firebase's Trigger Email extension, so choosing and
-// installing an email service later needs no code change. Until then the document just waits there.
-async function sendConfirmation(db, stripe, sub, summary) {
+// Sends the confirmation through `mailer` ({to, subject, text}). Returns true when there is nothing left to
+// do (sent, or no email address on file) and false when sending failed, so a later event tries again.
+// Email never blocks billing: a failure is logged, not thrown.
+async function sendConfirmation(stripe, sub, summary, mailer) {
   try {
     const cust = await stripe.customers.retrieve(typeof sub.customer === 'string' ? sub.customer : sub.customer.id);
-    if (!cust || !cust.email) return;
+    if (!cust || !cust.email) return true;
     const { subject, text } = confirmationEmail(summary);
-    await db.collection('mail').doc(`confirm-${sub.id}`).set({ to: cust.email, message: { subject, text } });
+    await mailer({ to: cust.email, subject, text });
+    return true;
   } catch (e) {
-    console.warn('billing: confirmation email not queued', e.message);   // never block billing on email
+    console.warn('billing: confirmation email not sent', e.message);
+    return false;
   }
 }
 
-async function applySubscription(db, stripe, event, now) {
+async function applySubscription(db, stripe, event, now, mailer) {
   const sub = event.data.object;
   const uid = await uidForSubscription(db, sub);
   if (!uid) { console.warn('billing: subscription with no known person', sub.id); return { ignored: 'unknown-customer' }; }
@@ -291,8 +294,7 @@ async function applySubscription(db, stripe, event, now) {
   await statusRef(db, uid).set(next);
   if (!refused && (next.status === 'trialing' || next.status === 'active')) {
     await extendBandTrials(db, uid, now);
-    if (next.confirmedFor !== sub.id) {
-      await sendConfirmation(db, stripe, sub, next);
+    if (next.confirmedFor !== sub.id && mailer && await sendConfirmation(stripe, sub, next, mailer)) {
       await statusRef(db, uid).update({ confirmedFor: sub.id });
     }
   }
@@ -300,7 +302,7 @@ async function applySubscription(db, stripe, event, now) {
   return { uid, status: next.status, refused, changed };
 }
 
-async function handleEvent(db, stripe, event, now = Date.now()) {
+async function handleEvent(db, stripe, event, now = Date.now(), mailer = null) {
   const done = await eventRef(db, event.id).get();
   if (done.exists && done.data().done) return { duplicate: true };
 
@@ -319,7 +321,7 @@ async function handleEvent(db, stripe, event, now = Date.now()) {
     case 'customer.subscription.created':
     case 'customer.subscription.updated':
     case 'customer.subscription.deleted':
-      result = await applySubscription(db, stripe, event, now);
+      result = await applySubscription(db, stripe, event, now, mailer);
       break;
     case 'invoice.payment_failed': {
       // Start the 7-day grace clock at the first failure. The matching subscription.updated

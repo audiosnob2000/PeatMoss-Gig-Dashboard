@@ -4,7 +4,7 @@
 // its tests are in band.js.
 
 const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https');
-const { defineSecret } = require('firebase-functions/params');
+const { defineSecret, defineString } = require('firebase-functions/params');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const admin = require('firebase-admin');
@@ -12,6 +12,7 @@ const band = require('./band');
 const trash = require('./trash');
 const reminders = require('./reminders');
 const billing = require('./billing');
+const { makeResendMailer } = require('./mailer');
 const billingConfig = require('./billing-config.json');
 const Stripe = require('stripe');
 
@@ -78,13 +79,22 @@ const cfg = { ...billingConfig, automaticTax: false,
   allowedOrigins: ['https://peatmoss-gig-dashboard-4f41b.web.app', 'https://peatmoss-gig-dashboard-4f41b.firebaseapp.com', 'http://localhost:5000', 'http://127.0.0.1:5000'] };
 const stripeClient = () => new Stripe(STRIPE_SECRET_KEY.value());
 
+// Confirmation emails go out through Resend. The key is a secret set by the owner; the reply-to address is an
+// optional setting (asked for at deploy time, may be left empty) so no personal address lives in the code.
+const RESEND_API_KEY = defineSecret('RESEND_API_KEY');
+const REPLY_TO_EMAIL = defineString('REPLY_TO_EMAIL', { default: '' });
+const FROM_ADDRESS = 'Gig Dashboard <billing@gigdashboard.com>';
+// If the email key is not set (yet), billing still works and the confirmation is simply skipped and logged.
+const safeMailer = () => { try { return mailer(); } catch (e) { console.warn('billing: email not configured, confirmation skipped:', e.message); return null; } };
+const mailer = () => makeResendMailer({ apiKey: RESEND_API_KEY.value(), from: FROM_ADDRESS, replyTo: REPLY_TO_EMAIL.value() || undefined });
+
 const billingCall = fn => wrap((db, uid, data, now, profile) => fn(db, stripeClient(), cfg, uid, data, now, profile),
   { withProfile: true, secrets: [STRIPE_SECRET_KEY] });
 exports.startCheckout = billingCall(billing.startCheckout);
 exports.openBillingPortal = billingCall(billing.openPortal);
 
 // The only writer of subscription state. Stripe signs every delivery; anything unsigned is refused.
-exports.stripeWebhook = onRequest({ secrets: [STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET] }, async (req, res) => {
+exports.stripeWebhook = onRequest({ secrets: [STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, RESEND_API_KEY] }, async (req, res) => {
   if (req.method !== 'POST') return res.status(405).send('POST only');
   const stripe = stripeClient();
   let event;
@@ -94,7 +104,7 @@ exports.stripeWebhook = onRequest({ secrets: [STRIPE_SECRET_KEY, STRIPE_WEBHOOK_
     return res.status(400).send('Bad signature');
   }
   try {
-    const result = await billing.handleEvent(db(), stripe, event, Date.now());
+    const result = await billing.handleEvent(db(), stripe, event, Date.now(), safeMailer());
     console.log('stripeWebhook', event.type, JSON.stringify(result));
     res.json({ received: true });
   } catch (e) {
