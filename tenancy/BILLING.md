@@ -108,6 +108,14 @@ Built to the plan above. Choices made along the way:
    Stripe customer. Stripe Tax only calculates tax; registering with states and remitting it is still on you.
 6. Add your real site address to `allowedOrigins` in `functions/index.js` if it is not the Firebase one.
 
+### To check after the first month live
+- In Stripe, look at how many trials turned into paying customers (Billing > Subscriptions, filter by trial).
+- Count how many were refused by the repeat-card check: those are subscriptions cancelled during their trial with no
+  charge. In Firestore they are the `users/{uid}/billing/status` documents with `trialRefused: true`.
+- Near zero refusals means the check is harmless and needs nothing. Many refusals means people are repeating trials, so
+  consider tightening (or dropping the 7-day trial for late joiners). Many trials that never convert is a separate
+  question about the trial length and the subscribe screen.
+
 ### Known limits
 - Webhook de-duplication is check-then-write: two simultaneous deliveries of one event could both run. Every handler is
   safe to repeat, and the card claim is transactional, so the effect is the same.
