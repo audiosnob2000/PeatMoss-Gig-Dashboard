@@ -210,6 +210,8 @@ test('two bands never mix: switching bands shows only that band\'s gigs, and swi
   await olive.page.getByText('⚙️', { exact: true }).click();
   await olive.page.getByText('Band', { exact: true }).first().click();
   await olive.page.getByRole('button', { name: /Switch band/ }).click();
+  // Only a person's first band gets free time, so someone running two bands has their own plan.
+  await db.doc(`users/${await uidOf('olive@example.com')}/billing/status`).set({ id: 'sub_e2e', status: 'active', lastEventAt: 1 });
   await olive.page.getByRole('button', { name: 'Start a band' }).click();
   await olive.page.getByLabel('Band name').fill('Band Two');
   await olive.page.getByRole('button', { name: 'Start band' }).click();
@@ -305,6 +307,26 @@ test('covered people get a heads-up banner for a trial ending, a failing payment
   await mia.page.getByText(/Update your card|Your subscription ends|free trial ends/).waitFor({ state: 'detached' });
   await db.doc(`bands/${id}`).update({ 'billing.trialEndsAt': Date.now() - 1000 });   // band trial over, but a paid plan covers them
   await inApp(mia);
+  noProblems();
+});
+
+test('a second band gets no free time: its owner meets the subscribe screen straight away, and the first band is untouched', async () => {
+  const olive = await person('olive@example.com');
+  await signUp(olive); await startBand(olive, 'Band One');
+  await olive.page.getByText('⚙️', { exact: true }).click();
+  await olive.page.getByText('Band', { exact: true }).first().click();
+  await olive.page.getByRole('button', { name: /Switch band/ }).click();
+  await olive.page.getByRole('button', { name: 'Start a band' }).click();
+  await olive.page.getByLabel('Band name').fill('Band Two');
+  await olive.page.getByRole('button', { name: 'Start band' }).click();
+  await olive.page.getByText('Your access is paused').waitFor();
+  await olive.page.getByText(/You need an active subscription for Band Two/).waitFor();
+  await shot(olive, '14_second_band_locked');
+  const two = await bandIdOf('Band Two');
+  assert.equal((await db.doc(`bands/${two}`).get()).data().billing.trialEndsAt, 0);
+  await olive.page.getByRole('button', { name: 'Switch band' }).click();
+  await olive.page.getByRole('button', { name: /Band One/ }).click();
+  await inApp(olive);
   noProblems();
 });
 
@@ -502,6 +524,8 @@ test('mileage follows the person: one total across two bands', async () => {
   await olive.page.getByText('⚙️', { exact: true }).click();
   await olive.page.getByText('Band', { exact: true }).first().click();
   await olive.page.getByRole('button', { name: /Switch band/ }).click();
+  // Only a person's first band gets free time, so someone running two bands has their own plan.
+  await db.doc(`users/${await uidOf('olive@example.com')}/billing/status`).set({ id: 'sub_e2e', status: 'active', lastEventAt: 1 });
   await olive.page.getByRole('button', { name: 'Start a band' }).click();
   await olive.page.getByLabel('Band name').fill('Band Two');
   await olive.page.getByRole('button', { name: 'Start band' }).click();

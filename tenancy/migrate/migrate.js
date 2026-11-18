@@ -177,6 +177,8 @@ async function migrate(db, o) {
   };
   if (calendarId) band.calendarId = calendarId;
   await bandRef.set(band);
+  // The owner's one shared free period is Peat Moss itself; a later band of theirs gets none.
+  await db.collection('users').doc(opts.ownerUid).collection('private').doc('bandTrial').set({ bandId: opts.bandId, at: opts.now }, { merge: true });
   report.done = true;
   return report;
 }

@@ -144,8 +144,9 @@ test('checkout and portal refuse bad input', async () => {
 async function setup() {
   const stripe = fakeStripe({ fingerprints: { pm_a: 'fp_A', pm_b: 'fp_A', pm_c: 'fp_C' } });
   const b1 = await mkBand('olive', T0, 'Peat Moss');
-  const b2 = await mkBand('olive', T0, 'Side Project');
-  await join(b2, 'olive', 'ben');
+  const b2 = await mkBand('zed', T0, 'Side Project');      // zed's first band; olive and ben play in it too
+  await join(b2, 'zed', 'olive');
+  await join(b2, 'zed', 'ben');
   await db.doc('stripeCustomers/cus_1').set({ uid: 'olive' });
   return { stripe, b1, b2 };
 }
@@ -153,7 +154,7 @@ const AFTER = T0 + 40 * DAY;      // past every band's 30 days
 
 test('webhook: after the trial an unsubscribed person is locked, and subscribing unlocks every band at once', async () => {
   const { stripe, b1, b2 } = await setup();
-  assert.deepEqual(await BL.enforceCoverage(db, AFTER), { members: 3, locked: 3, unlocked: 0 });
+  assert.deepEqual(await BL.enforceCoverage(db, AFTER), { members: 4, locked: 4, unlocked: 0 });
   assert.equal(await covered(b1, 'olive'), false);
   assert.equal(await covered(b2, 'olive'), false);
   assert.equal(await covered(b2, 'ben'), false);
@@ -186,8 +187,8 @@ test('webhook: failed payment gives 7 days of grace, then the daily job locks; p
   const failAt = AFTER + 2 * DAY;
   await BL.handleEvent(db, stripe, subEvent('customer.subscription.updated', { status: 'past_due', created: failAt / 1000 }), failAt);
   assert.equal(await covered(b1, 'olive'), true, 'still covered while Stripe retries');
-  // day 6: ben (never subscribed) gets locked by the daily job; olive is still in grace
-  assert.deepEqual(await BL.enforceCoverage(db, failAt + 6 * DAY), { members: 3, locked: 1, unlocked: 0 });
+  // day 6: zed and ben (never subscribed) get locked by the daily job; olive is still in grace
+  assert.deepEqual(await BL.enforceCoverage(db, failAt + 6 * DAY), { members: 4, locked: 2, unlocked: 0 });
   assert.equal(await covered(b1, 'olive'), true, 'day 6');
   await BL.enforceCoverage(db, failAt + 7 * DAY);
   assert.equal(await covered(b1, 'olive'), false, 'day 7: locked');
@@ -250,6 +251,52 @@ test('trials belong to the card: a second person using the same card is refused 
   await db.doc('stripeCustomers/cus_3').set({ uid: 'cara' });
   const third = subEvent('customer.subscription.created', { uid: 'cara', cust: 'cus_3', id: 'sub_3', status: 'trialing', trialEnd: (AFTER + 7 * DAY) / 1000, pm: 'pm_c', created: AFTER / 1000 });
   assert.equal((await BL.handleEvent(db, stripe, third, AFTER)).refused, false);
+});
+
+// ---- the free 30 days belong to a person's first band only ---------------------------------------
+
+test('only a person\'s first band ever gets the shared free 30 days; later bands start locked for the owner', async () => {
+  const first = await mkBand('olive', T0, 'First');
+  assert.equal((await db.doc(`bands/${first}`).get()).data().billing.trialEndsAt, T0 + 30 * DAY);
+  assert.equal(await covered(first, 'olive'), true);
+  const second = await mkBand('olive', T0 + DAY, 'Second');
+  assert.equal((await db.doc(`bands/${second}`).get()).data().billing.trialEndsAt, 0);
+  assert.equal(await covered(second, 'olive'), false, 'no free time for a second band');
+  assert.equal(await covered(first, 'olive'), true, 'the first band is untouched');
+  await assert.rejects(B.createInvite(db, 'olive', { bandId: second }, T0 + DAY), e => e.code === 'permission-denied', 'a locked owner cannot invite until they subscribe');
+  await db.doc('users/olive/billing/status').set({ status: 'active' });
+  await BL.recomputeCoverage(db, 'olive', T0 + DAY);
+  await join(second, 'olive', 'ben', T0 + 2 * DAY);
+  assert.equal(await covered(second, 'ben'), false, 'a bandmate of a no-trial band gets no free time either');
+});
+
+test('starting many bands, or deleting the first, never earns another free period', async () => {
+  const first = await mkBand('olive', T0, 'First');
+  await db.recursiveDelete(db.doc(`bands/${first}`));
+  await db.recursiveDelete(db.doc(`users/olive/memberships/${first}`));
+  const again = await mkBand('olive', T0 + 90 * DAY, 'Again');
+  assert.equal((await db.doc(`bands/${again}`).get()).data().billing.trialEndsAt, 0);
+  assert.equal(await covered(again, 'olive'), false);
+});
+
+test('a later band is covered for an owner who has their own plan, and the first-band mark is per person', async () => {
+  await db.doc('users/olive/billing/status').set({ status: 'active' });
+  await mkBand('olive', T0, 'First');
+  const second = await mkBand('olive', T0 + DAY, 'Second');
+  assert.equal(await covered(second, 'olive'), true);
+  const other = await mkBand('zed', T0, 'Zed First');
+  assert.equal((await db.doc(`bands/${other}`).get()).data().billing.trialEndsAt, T0 + 30 * DAY, 'someone else\'s first band still gets it');
+});
+
+test('handing ownership around does not extend a band\'s free time or give anyone a second trial', async () => {
+  const stripe = fakeStripe();
+  const b = await mkBand('olive', T0);
+  await join(b, 'olive', 'ben', T0);
+  await B.transferOwnership(db, 'olive', { bandId: b, targetUid: 'ben' });
+  const end = (await db.doc(`bands/${b}`).get()).data().billing.trialEndsAt;
+  assert.equal(end, T0 + 30 * DAY, 'the band\'s free period does not move');
+  await BL.startCheckout(db, stripe, CFG, 'ben', { interval: 'monthly', trial: true, bandId: b, returnUrl: RETURN }, T0 + 20 * DAY);
+  assert.equal(stripe.calls.checkout[0].p.subscription_data.trial_end, Math.floor(end / 1000), 'the new owner\'s trial ends with the band\'s, not 30 days from now');
 });
 
 // ---- bands: complimentary and joining -------------------------------------------------------

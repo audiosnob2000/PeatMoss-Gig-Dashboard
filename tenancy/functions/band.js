@@ -69,8 +69,11 @@ function profileFields(profile) {
   return out;
 }
 
-// A signed-in person starts a band. They become its owner. The whole band is covered by a
-// free trial from this moment; after it ends each person's own subscription decides.
+// A signed-in person starts a band. They become its owner.
+// The shared free 30 days (everyone in the band covered, no card needed) belongs to a person's FIRST band
+// ever. Starting later bands, or handing ownership around, never earns more. The "first band" mark is a
+// durable record (users/{uid}/private/bandTrial), so deleting or leaving a band does not reset it.
+// A later band's owner is covered only by their own subscription, like anyone else after the trial.
 async function createBand(db, uid, { name, timeZone } = {}, now = Date.now(), profile = null) {
   requireUid(uid);
   const bandName = cleanString(name, 80, 'Band name');
@@ -83,17 +86,19 @@ async function createBand(db, uid, { name, timeZone } = {}, now = Date.now(), pr
   }
 
   const ref = db.collection('bands').doc();
-  const batch = db.batch();
-  batch.set(ref, {
-    name: bandName,
-    ownerUid: uid,
-    timeZone: tz,
-    createdAt: now,
-    billing: { trialEndsAt: now + TRIAL_DAYS * DAY },
+  const flagRef = db.collection('users').doc(uid).collection('private').doc('bandTrial');
+  const statusRef = db.collection('users').doc(uid).collection('billing').doc('status');
+  await db.runTransaction(async tx => {
+    const [flag, status] = await Promise.all([tx.get(flagRef), tx.get(statusRef)]);
+    const first = !flag.exists;
+    const band = { name: bandName, ownerUid: uid, timeZone: tz, createdAt: now, billing: { trialEndsAt: first ? now + TRIAL_DAYS * DAY : 0 } };
+    const member = { role: 'owner', joinedAt: now, ...profileFields(profile) };
+    if (!memberCovered(band, status.data() || null, now)) member.covered = false;
+    if (first) tx.set(flagRef, { bandId: ref.id, at: now });
+    tx.set(ref, band);
+    tx.set(memberRef(db, ref.id, uid), member);
+    tx.set(membershipRef(db, uid, ref.id), { role: 'owner', joinedAt: now });
   });
-  batch.set(memberRef(db, ref.id, uid), { role: 'owner', joinedAt: now, ...profileFields(profile) });
-  batch.set(membershipRef(db, uid, ref.id), { role: 'owner', joinedAt: now });
-  await batch.commit();
   return { bandId: ref.id };
 }
 

@@ -3606,7 +3606,7 @@ function SubscribeScreen({theme,band,billing,onSwitch,onSignOut}){
   const note={fontSize:13,color:'#6b7280',lineHeight:1.5,marginBottom:12};
   return e(CardScreen,{theme,icon:'🔒',title:failed?'Your last payment didn’t go through':'Your access is paused',
       sub:failed?'Update your card and everything comes straight back.'
-        :'Your free time in '+band.name+' is over, so its shows, setlists and charts are locked for you. Everyone else in the band is unaffected.'},
+        :'You need an active subscription for '+band.name+'. Its shows, setlists and charts are locked until then. Everyone else in the band is unaffected.'},
     BILLING_RETURNED==='success'&&e('div',{style:{...note,background:'#ecfdf5',border:'1px solid #a7f3d0',borderRadius:8,padding:'8px 10px',color:'#065f46'}},'Thanks! Finishing up — this screen clears on its own in a moment.'),
     BILLING_RETURNED==='cancelled'&&e('div',{style:note},'No charge was made. You can subscribe whenever you’re ready.'),
     failed

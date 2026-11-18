@@ -80,6 +80,12 @@ Built to the plan above. Choices made along the way:
 - **Trial rules as built:** the card trial is once per person. An owner still inside their band's 30 days gets a trial that
   ends exactly when the band's does (Stripe needs it at least 48h out, so never sooner); anyone else gets 7 days. A card
   already used for a trial on another subscription is refused: the new subscription is cancelled at once with no charge.
+- **The shared free 30 days belong to a person's first band ever** (`createBand`, mark kept in
+  `users/{uid}/private/bandTrial`, so deleting a band does not reset it; the migration sets it for Peat Moss's owner).
+  A later band they start has no free time: its owner is covered only by their own plan and, until they subscribe, cannot
+  make invite codes. Handing ownership around changes nothing: the band's free period is fixed at creation, and a new
+  owner's card trial ends with the band's, never 30 fresh days. Someone with a different email and card can still start
+  over; that is the accepted limit below.
 - **Cancelling** keeps access to the end of the paid period (Stripe leaves the subscription active until then). A
   subscription cancelled immediately locks immediately. **Failed payment:** 7 days from the first failure, then locked.
 - **Server pieces** (`functions/`): `coverage.js` (the one rule), `billing.js` (checkout, portal, webhook handler, daily
@@ -88,9 +94,9 @@ Built to the plan above. Choices made along the way:
   `users/{uid}/private/billing`, `stripeCustomers`, `stripeEvents`, `trialCards`.
 - **App:** subscribe screen on the paused screen, a banner (trial ending, payment failing, cancellation pending, band trial
   ending), and Manage billing in Settings > Account.
-- **Tests:** `npm test` (97, incl. `test/billing.test.js` with a stand-in Stripe and locally signed webhook checks),
+- **Tests:** `npm test` (101, incl. `test/billing.test.js` with a stand-in Stripe and locally signed webhook checks),
   `npm run test:stripe` (real test-mode API: prices, Checkout, portal, a real trialing subscription and the same-card
-  refusal; cleans up after itself), `npm run e2e` (29 in a browser).
+  refusal; cleans up after itself), `npm run e2e` (30 in a browser).
 
 ### Still to do by the owner, in their own accounts
 1. Stripe Dashboard (test, then live): turn on the **Customer Portal** (Settings > Billing > Customer portal), allow
@@ -115,6 +121,12 @@ Built to the plan above. Choices made along the way:
 - Near zero refusals means the check is harmless and needs nothing. Many refusals means people are repeating trials, so
   consider tightening (or dropping the 7-day trial for late joiners). Many trials that never convert is a separate
   question about the trial length and the subscribe screen.
+
+### Open decisions and gaps (as of the first-band-only change)
+- **No card prompt when a band is started yet.** The plan says the owner enters a card at band start; the app does not
+  ask. The card trial is only offered in the banner during the band's last 7 days and on the locked screen.
+- **The 7-day card trial for people joining after day 30 is still in.** Discussed dropping it (late joiners would just
+  see Subscribe); not decided.
 
 ### Known limits
 - Webhook de-duplication is check-then-write: two simultaneous deliveries of one event could both run. Every handler is
