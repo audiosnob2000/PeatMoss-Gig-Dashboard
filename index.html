@@ -3781,7 +3781,7 @@ function Root(){
 // Recently deleted: shows, sets and charts that someone in the band removed. Anyone
 // can restore them for 30 days; owners and admins can erase one early. (A daily
 // server job erases the rest after 30 days.)
-function TrashPanel({theme,canManage,bandMembers}){
+function TrashPanel({theme,canManage,bandMembers,onRestoreGig,googleConnected}){
   const [items,setItems]=useState({gigs:[],songs:[],setlists:[]});
   const [busy,setBusy]=useState('');
   useEffect(()=>{
@@ -3792,7 +3792,7 @@ function TrashPanel({theme,canManage,bandMembers}){
   },[]);
   const DAY=86400000;
   const kinds={gigs:'Show',songs:'Chart',setlists:'Set'};
-  const rows=Object.entries(items).flatMap(([col,list])=>list.map(it=>({col,it}))).sort((a,b)=>b.it.deletedAt-a.it.deletedAt);
+  const rows=Object.entries(items).flatMap(([col,list])=>list.filter(it=>!it.restoredAs).map(it=>({col,it}))).sort((a,b)=>b.it.deletedAt-a.it.deletedAt);
   const titleOf=(col,it)=>col==='gigs'?(it.venue||'Show')+(it.date?' · '+it.date:''):(it.name||'Untitled');
   const who=uid=>{const m=bandMembers.find(x=>x.id===uid);return m?(m.name||m.email):'someone';};
   const run=(key,promise)=>{setBusy(key);promise.catch(()=>alert('That did not work — check your connection and try again.')).finally(()=>setBusy(''));};
@@ -3810,10 +3810,10 @@ function TrashPanel({theme,canManage,bandMembers}){
             e('div',{style:{fontSize:11,color:'#9ca3af'}},kinds[col]+' · deleted by '+who(it.deletedBy)+' · '+left+' day'+(left===1?'':'s')+' left')),
           e('div',{style:{display:'flex',gap:6,flexShrink:0}},
             e('button',{style:{...small,background:theme.primary,color:theme.headerText||'#fff',borderColor:theme.primary},disabled:!!busy,
-              onClick:()=>run(key,bc(col).doc(it.id).update({deletedAt:FV.delete(),deletedBy:FV.delete(),...(col==='gigs'&&it.fromCalendar?{fromCalendar:false}:{})}))},'Restore'),
+              onClick:()=>run(key,col==='gigs'?onRestoreGig(it):bc(col).doc(it.id).update({deletedAt:FV.delete(),deletedBy:FV.delete()}))},'Restore'),
             canManage&&e('button',{style:{...small,color:'#b91c1c',borderColor:'#fecaca'},disabled:!!busy,
               onClick:()=>{if(window.confirm('Erase "'+titleOf(col,it)+'" for good? This can\'t be undone.'))run(key,bc(col).doc(it.id).delete());}},'Erase'))),
-        col==='gigs'&&it.fromCalendar&&e('div',{style:{fontSize:11,color:'#9ca3af',marginTop:4}},'This show was on Google Calendar. Restoring it brings it back in the app, but not onto the calendar.'));
+        col==='gigs'&&e('div',{style:{fontSize:11,color:'#9ca3af',marginTop:4}},googleConnected?'Restoring puts it back on the band’s Google Calendar too.':'Restoring brings it back in the app only. Sign in to Google under Settings › Calendar, then save it again to put it on the calendar.'));
     })
   );
 }
@@ -4790,6 +4790,33 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
     closeModal();
   };
 
+  // Restoring a deleted show does what saving a new one does: if I'm signed in to
+  // Google it goes back on the band's calendar too. A new calendar event has a new
+  // id, and the show is saved under that id, so the old trashed copy is marked
+  // restoredAs (and hidden) instead of being brought back a second time.
+  const restoreGig=async it=>{
+    const{id:oldId,deletedAt:_d,deletedBy:_b,restoredAs:_r,...fields}=it;
+    const gig={...fields,id:oldId,fromCalendar:false};
+    if(googleAccessToken){
+      if(isGoogleTokenExpired()){
+        clearExpiredGoogleAuth();
+        alert('Your Google sign-in expired, so this was restored in the app only. Sign in under Settings → Calendar and save the show again to put it back on the calendar.');
+      }else{
+        const result=await writeGigToCalendar('POST',gig,null);
+        if(result.ok){gig.id=result.id;gig.fromCalendar=true;}
+        else alert('Could not put this back on Google Calendar, so it was restored in the app only.\n\nReason: '+result.error);
+      }
+    }
+    const{id:newId,...body}=gig;
+    const FV=firebase.firestore.FieldValue;
+    if(String(newId)!==String(oldId)){
+      await bc('gigs').doc(String(newId)).set(body);
+      await bc('gigs').doc(String(oldId)).update({restoredAs:String(newId)});
+    }else{
+      await bc('gigs').doc(String(oldId)).update({deletedAt:FV.delete(),deletedBy:FV.delete(),fromCalendar:false});
+    }
+  };
+
   const syncFromGoogleCalendar=async(silent=false)=>{
     if(!settings.calendarId){
       if(!silent)alert('Add your Google Calendar ID in Settings → Calendar first.');
@@ -5417,7 +5444,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
   const liveViewingChartSetlist=viewingChartSetlist&&(setlists.find(s=>s.id===viewingChartSetlist.id)||viewingChartSetlist);
 
 
-  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,authUser,authBusy,authError,onSignUp:signUpWithEmail,onSignIn:signInWithEmail,onSignOut:signOutOfAccount,onSendReset:sendPasswordReset,onChangePassword:changePassword,canManage,trashProps:{theme,canManage,bandMembers},bandPanelProps:{theme,band,myRole,myUid:authUser&&authUser.uid,bandMembers,invites:bandInvites,onCall:callBandAlert,onRename:renameBand,onSetCalendarId:setBandCalendarId,onSwitch:onSwitchBand,onLeaving:onLeavingBand,onLeft:onLeftBand}});
+  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,authUser,authBusy,authError,onSignUp:signUpWithEmail,onSignIn:signInWithEmail,onSignOut:signOutOfAccount,onSendReset:sendPasswordReset,onChangePassword:changePassword,canManage,trashProps:{theme,canManage,bandMembers,onRestoreGig:restoreGig,googleConnected:!!googleAccessToken},bandPanelProps:{theme,band,myRole,myUid:authUser&&authUser.uid,bandMembers,invites:bandInvites,onCall:callBandAlert,onRename:renameBand,onSetCalendarId:setBandCalendarId,onSwitch:onSwitchBand,onLeaving:onLeavingBand,onLeft:onLeftBand}});
 
   const travelModalsProps={askTrack,setAskTrack,goHome,openMapsChooser,startTracking,askHomeAddress,setAskHomeAddress,homeAddressDraft,setHomeAddressDraft,saveHomeAddressAndGo,mapsChoice,setMapsChoice,theme,trackingMiles,stopTracking,gpsStandaloneHelp,dismissGpsStandaloneHelp};
 

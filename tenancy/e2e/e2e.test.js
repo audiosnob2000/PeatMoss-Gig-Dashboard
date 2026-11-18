@@ -574,3 +574,86 @@ async function trashGigsAndSets() {
   assert.equal((await db.doc(`bands/${id}/setlists/s1`).get()).exists, true);             // the set is still recoverable
   noProblems();
 }
+
+// A pretend Google Calendar: records what the app sends and answers the way Google does, so the
+// "put it back on the calendar" paths can be exercised without a real Google account.
+async function fakeGoogle(p) {
+  const g = { calls: [], events: [], failPosts: false };
+  p.google = g;
+  await p.ctx.addInitScript(() => { try { localStorage.setItem('pmtf_google_auth', JSON.stringify({ token: 'fake-token', expiresAt: Date.now() + 3600e3 })); } catch {} });
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*' };
+  const json = (route, status, body) => route.fulfill({ status, contentType: 'application/json', headers: cors, body: JSON.stringify(body) });
+  await p.ctx.route('https://www.googleapis.com/calendar/v3/**', route => {
+    const req = route.request(), m = req.method();
+    if (m === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+    if (m === 'POST') {
+      const b = req.postDataJSON(); g.calls.push({ method: m, url: req.url(), body: b });
+      if (g.failPosts) return json(route, 403, { error: { message: 'Forbidden by test' } });
+      const id = 'evt' + (1000 + g.events.length);
+      g.events.push({ id, summary: b.summary, location: b.location, description: b.description, start: { date: b.start.date }, end: { date: b.end.date }, status: 'confirmed' });
+      return json(route, 200, { id });
+    }
+    if (m === 'GET') return json(route, 200, { items: g.events });
+    return json(route, 200, {});
+  });
+}
+async function ownerWithTrashedGig({ google = false, failPosts = false } = {}) {
+  const olive = await person('olive@example.com');
+  if (google) { await fakeGoogle(olive); olive.google.failPosts = failPosts; }
+  await signUp(olive); await startBand(olive, 'Peat Test');
+  const id = await bandIdOf('Peat Test'); const oliveUid = await uidOf('olive@example.com');
+  if (google) await db.doc(`bands/${id}`).update({ calendarId: 'band-cal@group.calendar.google.com' });
+  await db.doc(`bands/${id}/gigs/oldgig1`).set({ venue: 'Back On Calendar', location: 'Dock St', date: inDays(9), type: 'gig', status: 'confirmed', time: '8:00 PM', fromCalendar: true, deletedAt: Date.now() - 1000, deletedBy: oliveUid });
+  await openBandSettings(olive);
+  await olive.page.getByText('Recently deleted', { exact: true }).click();
+  return { olive, id };
+}
+
+test('restoring a show while signed in to Google puts it back on the band calendar too', async () => {
+  const { olive, id } = await ownerWithTrashedGig({ google: true });
+  const row = olive.page.locator('[data-trash="gigs:oldgig1"]');
+  await row.getByText(/puts it back on the band.s Google Calendar too/).waitFor();
+  await row.getByRole('button', { name: 'Restore' }).click();
+  await row.waitFor({ state: 'detached' });
+  assert.equal(olive.google.calls.length, 1);                                                     // one event created on the calendar
+  const sent = olive.google.calls[0].body;
+  assert.equal(sent.summary, 'Back On Calendar');
+  assert.equal(sent.location, 'Dock St');
+  assert.match(sent.description, /\[PMTF_GIG\].*Time: 8:00 PM/);
+  assert.equal(sent.start.date, inDays(9));
+  assert.match(olive.google.calls[0].url, /band-cal%40group\.calendar\.google\.com/);            // the band's calendar
+  const restored = await poll(async () => { const d = await db.doc(`bands/${id}/gigs/evt1000`).get(); return d.exists ? d.data() : null; });
+  assert.equal(restored.venue, 'Back On Calendar');
+  assert.equal(restored.fromCalendar, true);                                                     // saved under the new calendar event id
+  assert.equal(restored.deletedAt, undefined);
+  const old = (await db.doc(`bands/${id}/gigs/oldgig1`).get()).data();
+  assert.equal(old.restoredAs, 'evt1000');                                                       // the old trashed copy is marked, not brought back twice
+  assert.ok(old.deletedAt);
+  await olive.page.getByRole('button', { name: /Back/ }).click(); await inApp(olive);
+  await tab(olive, 'Shows');
+  await olive.page.getByText('Back On Calendar').first().waitFor();
+  assert.equal((await db.collection(`bands/${id}/gigs`).get()).docs.filter(d => !d.data().deletedAt).length, 1);
+  noProblems();
+});
+
+test('restoring when the calendar refuses: it is still restored in the app, and you are told', async () => {
+  const { olive, id } = await ownerWithTrashedGig({ google: true, failPosts: true });
+  await olive.page.locator('[data-trash="gigs:oldgig1"]').getByRole('button', { name: 'Restore' }).click();
+  const back = await poll(async () => { const d = (await db.doc(`bands/${id}/gigs/oldgig1`).get()).data(); return d && d.deletedAt === undefined ? d : null; });
+  assert.ok(back, 'restored in place');
+  assert.equal(back.fromCalendar, false);
+  assert.match(olive.dialogs.join('|'), /Could not put this back on Google Calendar, so it was restored in the app only/);
+  noProblems();
+});
+
+test('restoring without a Google sign-in: back in the app only, and the row says so up front', async () => {
+  const { olive, id } = await ownerWithTrashedGig({ google: false });
+  const row = olive.page.locator('[data-trash="gigs:oldgig1"]');
+  await row.getByText(/Restoring brings it back in the app only/).waitFor();
+  await row.getByRole('button', { name: 'Restore' }).click();
+  const back = await poll(async () => { const d = (await db.doc(`bands/${id}/gigs/oldgig1`).get()).data(); return d && d.deletedAt === undefined ? d : null; });
+  assert.ok(back);
+  assert.equal(back.fromCalendar, false);
+  assert.equal(back.venue, 'Back On Calendar');
+  noProblems();
+});

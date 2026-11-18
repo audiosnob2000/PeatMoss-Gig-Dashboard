@@ -18,7 +18,7 @@ branch only.
 ```
 npm install
 npm test        # 69: rules, band functions, migration (Firestore emulator)
-npm run e2e     # 22: the real index.html in a phone-sized browser against the real rules and functions
+npm run e2e     # 25: the real index.html in a phone-sized browser against the real rules and functions
 ```
 
 `npm run e2e` needs Playwright available (`require('playwright')`). Set `E2E_SHOTS=/some/dir` to save screenshots,
