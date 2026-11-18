@@ -21,7 +21,7 @@ npm test        # 80: rules, band functions, migration (Firestore emulator)
 npm run e2e     # 26: the real index.html in a phone-sized browser against the real rules and functions
 ```
 
-`npm run e2e` needs Playwright available (`require('playwright')`). Set `E2E_SHOTS=/some/dir` to save screenshots,
+`npm run e2e` needs Playwright available (`require('playwright')`). If your shell forces an outbound proxy (`https_proxy`), run it as `env -u https_proxy -u HTTPS_PROXY npm run e2e`: the Functions emulator registers the set-added trigger over a local call that a proxy can intercept and block. Set `E2E_SHOTS=/some/dir` to save screenshots,
 including `FAIL_*.png` if the cutover test fails.
 
 The end-to-end suite fails a test if the app logs any Firestore permission error, so it proves every query and write
