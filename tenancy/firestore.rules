@@ -135,13 +135,19 @@ service cloud.firestore {
       match /charts/{chartId} {
         allow read, write: if signedIn() && request.auth.uid == uid;
       }
+      // The person's own subscription summary (status, renewal date, trial end). Written only by
+      // the Stripe webhook; it holds nothing secret, so the app can show a banner from it.
+      match /billing/{doc} {
+        allow read: if signedIn() && request.auth.uid == uid;
+        allow write: if false;
+      }
       // Google refresh tokens and similar. Server only.
       match /private/{doc=**} {
         allow read, write: if false;
       }
     }
 
-    // Everything else (sentReminders, stripeCustomers, stripeEvents, and today's flat
+    // Everything else (sentReminders, stripeCustomers, stripeEvents, trialCards, and today's flat
     // collections) is closed. A collection nobody wrote a rule for fails shut, not open.
     match /{document=**} {
       allow read, write: if false;

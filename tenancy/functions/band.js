@@ -8,6 +8,7 @@
 // this file is the only way into a band.
 
 const crypto = require('node:crypto');
+const { memberCovered } = require('./coverage');
 
 class BandError extends Error {
   constructor(code, message) { super(message); this.code = code; }
@@ -181,7 +182,8 @@ async function redeemInvite(db, uid, { code } = {}, now = Date.now(), profile = 
   try {
     return await db.runTransaction(async tx => {
       const invRef = bandRef(db, bandId).collection('invites').doc(c);
-      const [inv, band, existing] = await Promise.all([tx.get(invRef), tx.get(bandRef(db, bandId)), tx.get(memberRef(db, bandId, uid))]);
+      const statusDoc = db.collection('users').doc(uid).collection('billing').doc('status');
+      const [inv, band, existing, status] = await Promise.all([tx.get(invRef), tx.get(bandRef(db, bandId)), tx.get(memberRef(db, bandId, uid)), tx.get(statusDoc)]);
       if (!inv.exists || !band.exists) throw new BandError('not-found', BAD_CODE);
       if (existing.exists) {
         // Already in. Never consume a use, never change their role.
@@ -190,11 +192,11 @@ async function redeemInvite(db, uid, { code } = {}, now = Date.now(), profile = 
       const i = inv.data();
       if (i.revoked || i.expiresAt <= now || i.uses >= i.maxUses) throw new BandError('not-found', BAD_CODE);
 
-      const trialEndsAt = (band.data().billing || {}).trialEndsAt || 0;
-      // Joining after the trial: not covered until this person subscribes. Joining during
-      // it: covered, like everyone else. (Missing flag = covered, see the rules.)
+      // Joining covered: during the band's first 30 days, in a complimentary band, or with an
+      // active subscription or trial of their own. Otherwise not covered until they subscribe.
+      // (Missing flag = covered, see the rules.)
       const member = { role: i.role, joinedAt: now, invitedBy: i.createdBy, ...profileFields(profile) };
-      if (now > trialEndsAt) member.covered = false;
+      if (!memberCovered(band.data(), status.data() || null, now)) member.covered = false;
 
       tx.set(memberRef(db, bandId, uid), member);
       tx.set(membershipRef(db, uid, bandId), { role: i.role, joinedAt: now });

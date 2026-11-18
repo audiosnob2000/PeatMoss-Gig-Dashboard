@@ -2437,6 +2437,7 @@ function AccountSection({authUser,authBusy,authError,onSignUp,onSignIn,onSignOut
     return e('div',{style:{padding:'12px 14px'}},
       e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:10}},
         `Signed in as ${authUser.email}. Your mileage log, checklist, private songs, and unpaid marks now follow this account instead of just this phone.`),
+      e(ManageBillingRow,{uid:authUser.uid}),
       e('div',{style:{display:'flex',gap:8}},
         e('button',{onClick:()=>setChangingPw(true),style:{flex:1}},'Change password'),
         e('button',{onClick:onSignOut,style:{flex:1,color:'#b91c1c',borderColor:'#fecaca'}},'Sign out'))
@@ -3567,6 +3568,106 @@ const lsUserKey=k=>'pmtf_u_'+getUserId()+'_'+k;
 const callBand=(name,data)=>fns.httpsCallable(name)(data).then(r=>r.data);
 const callBandAlert=(name,data)=>callBand(name,data).catch(err=>{alert((err&&err.message)||'Something went wrong — try again.');});
 
+// ---- Billing ------------------------------------------------------------------------------------
+// One subscription per person covers every band they are in. Paying and managing happen on
+// Stripe's own pages (Checkout and the Customer Portal); the app only sends people there and shows
+// the status the server keeps in users/{uid}/billing/status. The app can never write that.
+const BILLING_RETURNED=(()=>{try{const q=new URLSearchParams(location.search);const v=q.get('billing');
+  if(v){q.delete('billing');history.replaceState(null,'',location.pathname+(q.toString()?'?'+q:'')+location.hash);}return v;}catch{return null;}})();
+const billingReturn=()=>location.origin+location.pathname;
+const goToStripe=p=>p.then(r=>{if(r&&r.url)location.href=r.url;});
+const PRICE_LABEL={month:'$6.99/month',year:'$69/year'};
+const shortDate=ms=>new Date(ms).toLocaleDateString(undefined,{month:'short',day:'numeric'});
+function useBillingStatus(uid){
+  const [s,setS]=useState(undefined);
+  useEffect(()=>{
+    if(!uid){setS(undefined);return;}
+    return db.collection('users').doc(uid).collection('billing').doc('status')
+      .onSnapshot(d=>setS(d.exists?d.data():null),()=>setS(null));
+  },[uid]);
+  return s;
+}
+function useBillingActions(bandId){
+  const [busy,setBusy]=useState('');
+  const [err,setErr]=useState('');
+  const run=(key,fn)=>{setBusy(key);setErr('');fn().catch(x=>{setErr((x&&x.message)||'That did not work — try again.');setBusy('');});};
+  return {busy,err,
+    subscribe:(interval,trial)=>run(interval+trial,()=>goToStripe(callBand('startCheckout',{interval,trial,bandId,returnUrl:billingReturn()}))),
+    manage:()=>run('manage',()=>goToStripe(callBand('openBillingPortal',{returnUrl:billingReturn()})))};
+}
+
+// Replaces the old placeholder on the "access paused" screen.
+function SubscribeScreen({theme,band,billing,onSwitch,onSignOut}){
+  const [interval,setInterval_]=useState('monthly');
+  const act=useBillingActions(band.id);
+  const trialOffer=!billing||!billing.trialEnd;           // the server decides for real; this only decides what to offer
+  const failed=billing&&(billing.status==='past_due'||billing.status==='unpaid');
+  const tab=(k,label)=>e('button',{onClick:()=>setInterval_(k),style:{flex:1,fontWeight:interval===k?600:400,background:interval===k?'#eef2ff':'#fff',borderColor:interval===k?'#6366f1':'#d1d5db'}},label);
+  const note={fontSize:13,color:'#6b7280',lineHeight:1.5,marginBottom:12};
+  return e(CardScreen,{theme,icon:'🔒',title:failed?'Your last payment didn’t go through':'Your access is paused',
+      sub:failed?'Update your card and everything comes straight back.'
+        :'Your free time in '+band.name+' is over, so its shows, setlists and charts are locked for you. Everyone else in the band is unaffected.'},
+    BILLING_RETURNED==='success'&&e('div',{style:{...note,background:'#ecfdf5',border:'1px solid #a7f3d0',borderRadius:8,padding:'8px 10px',color:'#065f46'}},'Thanks! Finishing up — this screen clears on its own in a moment.'),
+    BILLING_RETURNED==='cancelled'&&e('div',{style:note},'No charge was made. You can subscribe whenever you’re ready.'),
+    failed
+      ?e('button',{onClick:act.manage,disabled:!!act.busy,style:{width:'100%',marginBottom:10}},act.busy==='manage'?'Opening…':'Update card')
+      :e('div',null,
+        e('div',{style:note},'One subscription covers every band you play in. Cancel any time.'),
+        e('div',{style:{display:'flex',gap:8,marginBottom:10}},tab('monthly','$6.99 / month'),tab('yearly','$69 / year · 2 months free')),
+        e('button',{onClick:()=>act.subscribe(interval,false),disabled:!!act.busy,style:{width:'100%',marginBottom:8}},act.busy===interval+false?'Opening…':'Subscribe'),
+        trialOffer&&e('button',{onClick:()=>act.subscribe(interval,true),disabled:!!act.busy,style:{width:'100%',marginBottom:8}},act.busy===interval+true?'Opening…':'Start a 7-day free trial (card required)'),
+        trialOffer&&e('div',{style:{...note,fontSize:12}},'The trial needs a card and renews automatically at the price above unless you cancel before it ends. Each card gets one trial.')),
+    act.err&&e('div',{style:{color:'#b91c1c',fontSize:13,marginBottom:10}},act.err),
+    e('div',{style:note},'Your own mileage history is still on this account.'),
+    billing&&e('button',{onClick:act.manage,disabled:!!act.busy,style:{width:'100%',marginBottom:8}},'Manage billing'),
+    e('button',{onClick:onSwitch,style:{width:'100%'}},'Switch band'),
+    e('div',{style:{textAlign:'center',marginTop:12,fontSize:12}},e('a',{href:'#',onClick:ev=>{ev.preventDefault();onSignOut();},style:{color:'#9ca3af'}},'Sign out')));
+}
+
+// A heads-up above the app: card trial ending, payment failing, cancellation pending, or the
+// band's own free 30 days about to end for someone with no plan of their own.
+function BillingBanner({theme,band,uid}){
+  const billing=useBillingStatus(uid);
+  const act=useBillingActions(band.id);
+  if(billing===undefined)return null;
+  const now=Date.now(),DAY=86400000;
+  let msg=null,actions=null,tone='#fffbeb',border='#fde68a',color='#92400e';
+  const manage=e('button',{onClick:act.manage,disabled:!!act.busy,style:{fontSize:12,padding:'4px 10px'}},'Manage billing');
+  if(billing&&billing.status==='past_due'){
+    const left=Math.max(0,Math.ceil(((billing.pastDueSince||now)+7*DAY-now)/DAY));
+    msg='Your last payment didn’t go through. Update your card within '+left+(left===1?' day':' days')+' to keep access.';
+    actions=e('button',{onClick:act.manage,disabled:!!act.busy,style:{fontSize:12,padding:'4px 10px'}},'Update card');tone='#fef2f2';border='#fecaca';color='#991b1b';
+  }else if(billing&&billing.status==='trialing'&&billing.trialEnd&&billing.trialEnd-now<7*DAY&&!billing.cancelAtPeriodEnd){
+    msg='Your free trial ends '+shortDate(billing.trialEnd)+'. After that '+(PRICE_LABEL[billing.interval]||'your plan')+' is charged to your card unless you cancel.';actions=manage;
+  }else if(billing&&(billing.status==='active'||billing.status==='trialing')&&billing.cancelAtPeriodEnd&&billing.currentPeriodEnd){
+    msg='Your subscription ends '+shortDate(billing.currentPeriodEnd)+'. Until then everything works as usual.';actions=manage;
+  }else if(!(billing&&(billing.status==='active'||billing.status==='trialing'))&&!(band.billing&&band.billing.complimentary)){
+    const end=band.billing&&band.billing.trialEndsAt;
+    if(end&&end>now&&end-now<7*DAY){
+      const left=Math.ceil((end-now)/DAY);
+      msg=band.name+'’s free 30 days end in '+left+(left===1?' day':' days')+'. Pick a plan to keep your access.';
+      actions=e('span',{style:{display:'flex',gap:6}},
+        e('button',{onClick:()=>act.subscribe('monthly',true),disabled:!!act.busy,style:{fontSize:12,padding:'4px 10px'}},'$6.99/month'),
+        e('button',{onClick:()=>act.subscribe('yearly',true),disabled:!!act.busy,style:{fontSize:12,padding:'4px 10px'}},'$69/year'));
+    }
+  }
+  if(!msg)return null;
+  return e('div',{style:{margin:'0 1rem 1rem',padding:'10px 12px',background:tone,border:'1px solid '+border,color,borderRadius:10,fontSize:13,lineHeight:1.45,display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,flexWrap:'wrap'}},
+    e('span',{style:{flex:'1 1 220px'}},msg,act.err&&e('span',{style:{display:'block',marginTop:4}},act.err)),actions);
+}
+
+// In Settings, for anyone who has ever subscribed: card, invoices, plan changes and cancelling.
+function ManageBillingRow({uid}){
+  const billing=useBillingStatus(uid);
+  const act=useBillingActions(null);
+  if(!billing)return null;
+  return e('div',{style:{marginBottom:10}},
+    e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:6}},'Your subscription: '+({active:'active',trialing:'free trial',past_due:'payment failed',canceled:'cancelled'}[billing.status]||billing.status)
+      +(billing.currentPeriodEnd&&billing.status!=='canceled'?(billing.cancelAtPeriodEnd?' · ends ':' · renews ')+shortDate(billing.currentPeriodEnd):'')+'.'),
+    e('button',{onClick:act.manage,disabled:!!act.busy,style:{width:'100%'}},act.busy?'Opening…':'Manage billing'),
+    act.err&&e('div',{style:{color:'#b91c1c',fontSize:12,marginTop:6}},act.err));
+}
+
 const PRELOGIN_THEME=(()=>{
   const base=THEMES.teal;const dark=needsDarkText(base.primary);
   return {...base,headerText:dark?'#1a1a2e':'#fff',headerSoft:dark?'rgba(26,26,46,0.65)':null,
@@ -3719,6 +3820,7 @@ function Root(){
 
   // The open band and my own membership record in it, both live, so being
   // removed or going unpaid changes the screen immediately.
+  const billing=useBillingStatus(uid);
   const [bandDoc,setBandDoc]=useState(undefined);
   const [myMember,setMyMember]=useState(undefined);
   useEffect(()=>{
@@ -3767,11 +3869,7 @@ function Root(){
   if(!bandReady)return e(Splash);
   if(!bandDoc.exists||!myMember.exists)return e(Splash);   // the removal effect above takes over in a moment
   if(myMember.data.covered===false){
-    return e(CardScreen,{theme:PRELOGIN_THEME,icon:'🔒',title:'Your access is paused',
-        sub:'Your subscription for '+bandDoc.data.name+' isn’t active, so its shows, setlists and charts are locked for you. Everyone else in the band is unaffected.'},
-      e('div',{style:{fontSize:13,color:'#6b7280',lineHeight:1.5,marginBottom:12}},'Resubscribe and everything comes straight back. Your own mileage history is still on this account.'),
-      e('button',{onClick:()=>setPicking(true),style:{width:'100%'}},'Switch band'),
-      e('div',{style:{textAlign:'center',marginTop:12,fontSize:12}},e('a',{href:'#',onClick:ev=>{ev.preventDefault();signOut();},style:{color:'#9ca3af'}},'Sign out')));
+    return e(SubscribeScreen,{theme:PRELOGIN_THEME,band:bandDoc.data,billing:billing||null,onSwitch:()=>setPicking(true),onSignOut:signOut});
   }
   ACTIVE_BAND_ID=bandId;
   return e(App,{key:bandId+':'+uid,band:bandDoc.data,myRole:myMember.data.role,onSwitchBand:()=>setPicking(true),
@@ -5557,6 +5655,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
         )
       )
     ),
+    authUser&&e(BillingBanner,{theme,band,uid:authUser.uid}),
     e('div',{style:{padding:'0 1rem'}},
       e(WhatsChangedBanner,{
         summary:changeSummary,expanded:changeExpanded,

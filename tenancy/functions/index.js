@@ -3,13 +3,17 @@
 // the live functions/index.js. Each one only checks sign-in and maps errors; the logic and
 // its tests are in band.js.
 
-const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https');
+const { defineSecret } = require('firebase-functions/params');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const admin = require('firebase-admin');
 const band = require('./band');
 const trash = require('./trash');
 const reminders = require('./reminders');
+const billing = require('./billing');
+const billingConfig = require('./billing-config.json');
+const Stripe = require('stripe');
 
 if (!admin.apps.length) admin.initializeApp();
 const db = () => admin.firestore();
@@ -24,8 +28,8 @@ async function profileOf(uid) {
   }
 }
 
-function wrap(fn, { withProfile = false } = {}) {
-  return onCall(async request => {
+function wrap(fn, { withProfile = false, secrets = [] } = {}) {
+  return onCall({ secrets }, async request => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
     try {
       if (withProfile) return await fn(db(), request.auth.uid, request.data || {}, Date.now(), await profileOf(request.auth.uid));
@@ -62,4 +66,45 @@ exports.sendGigReminders = onSchedule({ schedule: 'every 5 minutes', timeZone: '
 exports.notifyOnNewSetlist = onDocumentCreated('bands/{bandId}/setlists/{setlistId}', async event => {
   const result = await reminders.notifyNewSetlist(db(), admin.messaging(), event.params.bandId, event.data.data());
   console.log('notifyOnNewSetlist', JSON.stringify(result));
+});
+
+// ---- Billing (Stripe) -------------------------------------------------------------------------
+// The two secrets are set by the app's owner with `firebase functions:secrets:set`; neither is in
+// the repo. Prices come from billing-config.json (made by scripts/setup-stripe.js, not secret).
+const STRIPE_SECRET_KEY = defineSecret('STRIPE_SECRET_KEY');
+const STRIPE_WEBHOOK_SECRET = defineSecret('STRIPE_WEBHOOK_SECRET');
+// Where Checkout and the portal may send people back to. Add any custom domain here.
+const cfg = { ...billingConfig, automaticTax: false,
+  allowedOrigins: ['https://peatmoss-gig-dashboard-4f41b.web.app', 'https://peatmoss-gig-dashboard-4f41b.firebaseapp.com', 'http://localhost:5000', 'http://127.0.0.1:5000'] };
+const stripeClient = () => new Stripe(STRIPE_SECRET_KEY.value());
+
+const billingCall = fn => wrap((db, uid, data, now, profile) => fn(db, stripeClient(), cfg, uid, data, now, profile),
+  { withProfile: true, secrets: [STRIPE_SECRET_KEY] });
+exports.startCheckout = billingCall(billing.startCheckout);
+exports.openBillingPortal = billingCall(billing.openPortal);
+
+// The only writer of subscription state. Stripe signs every delivery; anything unsigned is refused.
+exports.stripeWebhook = onRequest({ secrets: [STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET] }, async (req, res) => {
+  if (req.method !== 'POST') return res.status(405).send('POST only');
+  const stripe = stripeClient();
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.rawBody, req.get('stripe-signature'), STRIPE_WEBHOOK_SECRET.value());
+  } catch (e) {
+    return res.status(400).send('Bad signature');
+  }
+  try {
+    const result = await billing.handleEvent(db(), stripe, event, Date.now());
+    console.log('stripeWebhook', event.type, JSON.stringify(result));
+    res.json({ received: true });
+  } catch (e) {
+    console.error('stripeWebhook', event.type, e);
+    res.status(500).send('Retry');     // Stripe redelivers; events are idempotent
+  }
+});
+
+// Daily: lock members whose band's 30 days ended or whose payment grace ran out.
+exports.enforceCoverage = onSchedule({ schedule: 'every day 03:30', timeZone: 'America/New_York' }, async () => {
+  const counts = await billing.enforceCoverage(db(), Date.now());
+  console.log('enforceCoverage', JSON.stringify(counts));
 });

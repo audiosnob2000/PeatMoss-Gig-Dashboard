@@ -114,7 +114,7 @@ const deepEqual = (a, b) => JSON.stringify(stable(a)) === JSON.stringify(stable(
 async function migrate(db, o) {
   const opts = {
     bandId: 'peatmoss', timeZone: 'America/New_York', adminUids: [], memberUids: [],
-    dryRun: false, allowOrphans: false, trialDays: 30, now: Date.now(), profiles: {}, ...o,
+    dryRun: false, allowOrphans: false, complimentary: true, trialDays: 30, now: Date.now(), profiles: {}, ...o,
   };
   if (!opts.ownerUid) throw new Error('--owner <uid> is required.');
   if (!opts.bandName) throw new Error('--band-name is required.');
@@ -171,7 +171,8 @@ async function migrate(db, o) {
   // Last: the band document marks the migration as complete.
   const band = {
     name: opts.bandName, ownerUid: opts.ownerUid, timeZone: opts.timeZone, createdAt: opts.now,
-    billing: { trialEndsAt: opts.now + opts.trialDays * DAY },
+    // Peat Moss itself is free, set by the operator here (pass --paid to opt out). Users can never write this.
+    billing: { trialEndsAt: opts.now + opts.trialDays * DAY, ...(opts.complimentary ? { complimentary: true } : {}) },
     migratedFrom: 'flat-v1', migratedAt: opts.now,
   };
   if (calendarId) band.calendarId = calendarId;
@@ -212,7 +213,7 @@ async function main() {
     profiles,
     bandId: a['band-id'], bandName: a['band-name'], timeZone: a['time-zone'],
     ownerUid: a.owner, adminUids: list(a.admins), memberUids: list(a.members),
-    dryRun: !!a['dry-run'], allowOrphans: !!a['allow-orphans'],
+    dryRun: !!a['dry-run'], allowOrphans: !!a['allow-orphans'], complimentary: !a.paid,
   });
   console.log(JSON.stringify(report, null, 2));
   if (report.blocked) process.exitCode = 2;

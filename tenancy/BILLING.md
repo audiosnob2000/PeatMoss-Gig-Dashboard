@@ -66,3 +66,43 @@ Work on branch `claude/peatmoss-tenancy`, in `tenancy/`. Run `npm install` there
 What the owner must do later, in their own accounts: turn on the Customer Portal in Stripe (Settings › Billing ›
 Customer portal), set the two Firebase secrets (secret key, webhook signing secret), and add the deployed webhook URL in
 Stripe. The sandbox cannot do these, and the owner never pastes secrets into a chat.
+
+---
+
+## Status: built and tested in Stripe test mode (nothing deployed)
+
+Built to the plan above. Choices made along the way:
+- **Product and prices** (test mode) are in `functions/billing-config.json`: $6.99/month, $69/year. Re-create with
+  `node scripts/setup-stripe.js` (safe to repeat; finds prices by lookup key, refuses a live key unless `--live`).
+- **Peat Moss is complimentary**: `migrate.js` sets `billing.complimentary` by default (`--paid` opts out). For any other
+  band: `node scripts/set-complimentary.js --project <id> [--live] <bandId> on|off`. Users cannot write this flag.
+- **Sales tax is off** (`automaticTax: false` in `functions/index.js`); flip it once Stripe Tax is set up.
+- **Trial rules as built:** the card trial is once per person. An owner still inside their band's 30 days gets a trial that
+  ends exactly when the band's does (Stripe needs it at least 48h out, so never sooner); anyone else gets 7 days. A card
+  already used for a trial on another subscription is refused: the new subscription is cancelled at once with no charge.
+- **Cancelling** keeps access to the end of the paid period (Stripe leaves the subscription active until then). A
+  subscription cancelled immediately locks immediately. **Failed payment:** 7 days from the first failure, then locked.
+- **Server pieces** (`functions/`): `coverage.js` (the one rule), `billing.js` (checkout, portal, webhook handler, daily
+  job), wrappers in `index.js` (`startCheckout`, `openBillingPortal`, `stripeWebhook`, `enforceCoverage` at 03:30).
+  State: `users/{uid}/billing/status` (readable by the person, written only by the webhook), plus server-only
+  `users/{uid}/private/billing`, `stripeCustomers`, `stripeEvents`, `trialCards`.
+- **App:** subscribe screen on the paused screen, a banner (trial ending, payment failing, cancellation pending, band trial
+  ending), and Manage billing in Settings > Account.
+- **Tests:** `npm test` (97, incl. `test/billing.test.js` with a stand-in Stripe and locally signed webhook checks),
+  `npm run test:stripe` (real test-mode API: prices, Checkout, portal, a real trialing subscription and the same-card
+  refusal; cleans up after itself), `npm run e2e` (29 in a browser).
+
+### Still to do by the owner, in their own accounts
+1. Stripe Dashboard (test, then live): turn on the **Customer Portal** (Settings > Billing > Customer portal), allow
+   cancelling, and enable Stripe's **trial-ending reminder emails** (Settings > Billing > Subscriptions and emails).
+2. `firebase functions:secrets:set STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`.
+3. After deploying, add the `stripeWebhook` URL in Stripe (Developers > Webhooks) for: `checkout.session.completed`,
+   `customer.subscription.created|updated|deleted`, `invoice.payment_failed`. Copy that endpoint's signing secret into step 2.
+4. Before going live, re-run `node scripts/setup-stripe.js --live` with the live key to create the live prices, and
+   decide sales tax, refunds, terms, and the local rules on auto-charging after a free trial (see above).
+5. Add your real site address to `allowedOrigins` in `functions/index.js` if it is not the Firebase one.
+
+### Known limits
+- Webhook de-duplication is check-then-write: two simultaneous deliveries of one event could both run. Every handler is
+  safe to repeat, and the card claim is transactional, so the effect is the same.
+- The daily job reads every member document; fine at this size, revisit at thousands of bands.

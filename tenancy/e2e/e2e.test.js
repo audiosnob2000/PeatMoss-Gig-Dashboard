@@ -258,6 +258,69 @@ test('an unpaid person is locked out live, the owner sees them marked, and resub
   noProblems();
 });
 
+test('the paused screen is a real subscribe screen: prices, trial offer, and a clear error when checkout cannot start', async () => {
+  const { mia, id, miaUid } = await twoPeople();
+  await db.doc(`bands/${id}/members/${miaUid}`).update({ covered: false });
+  await mia.page.getByText('Your access is paused').waitFor();
+  await mia.page.getByText('$6.99 / month').waitFor();
+  await mia.page.getByText('$69 / year · 2 months free').waitFor();
+  await mia.page.getByRole('button', { name: 'Subscribe' }).waitFor();
+  await mia.page.getByRole('button', { name: /7-day free trial/ }).waitFor();
+  await mia.page.getByText(/Each card gets one trial/).waitFor();
+  assert.equal(await mia.page.getByRole('button', { name: 'Manage billing' }).count(), 0, 'no billing account yet');
+  await shot(mia, '10_subscribe_screen');
+  // Stripe's secret is not set in the emulator, so starting checkout fails; the screen must say so and recover.
+  await mia.page.getByRole('button', { name: 'Subscribe' }).click();
+  await mia.page.getByText(/Something went wrong/).waitFor();
+  await mia.page.getByRole('button', { name: 'Subscribe' }).waitFor();
+  // Someone who already had a trial is not offered another.
+  await db.doc(`users/${miaUid}/billing/status`).set({ id: 'sub_x', status: 'canceled', trialEnd: Date.now() - 86400000, lastEventAt: 1 });
+  await mia.page.getByRole('button', { name: 'Manage billing' }).waitFor();
+  assert.equal(await mia.page.getByRole('button', { name: /7-day free trial/ }).count(), 0);
+  // A failed payment past the grace period asks for a new card instead.
+  await db.doc(`users/${miaUid}/billing/status`).set({ id: 'sub_x', status: 'past_due', pastDueSince: Date.now() - 9 * 86400000, lastEventAt: 1 });
+  await mia.page.getByText('Your last payment didn’t go through').first().waitFor();
+  await mia.page.getByRole('button', { name: 'Update card' }).waitFor();
+  assert.equal(await mia.page.getByRole('button', { name: 'Subscribe' }).count(), 0);
+  noProblems();
+});
+
+test('covered people get a heads-up banner for a trial ending, a failing payment, a pending cancellation, or the band trial running out', async () => {
+  const { mia, id, miaUid } = await twoPeople();
+  const status = d => db.doc(`users/${miaUid}/billing/status`).set({ id: 'sub_x', lastEventAt: 1, interval: 'month', ...d });
+  assert.equal(await mia.page.getByText(/free 30 days end/).count(), 0, 'no banner in the middle of the band trial');
+  await db.doc(`bands/${id}`).update({ 'billing.trialEndsAt': Date.now() + 3 * 86400000 });
+  await mia.page.getByText(/free 30 days end in [34] days/).waitFor();
+  await mia.page.getByRole('button', { name: '$69/year' }).waitFor();
+  await shot(mia, '11_band_trial_banner');
+  await status({ status: 'trialing', trialEnd: Date.now() + 2 * 86400000, currentPeriodEnd: Date.now() + 2 * 86400000 });
+  await mia.page.getByText(/Your free trial ends .*\$6\.99\/month is charged/).waitFor();
+  assert.equal(await mia.page.getByText(/free 30 days end/).count(), 0, 'a trial of their own replaces the band-trial banner');
+  await status({ status: 'active', cancelAtPeriodEnd: true, currentPeriodEnd: Date.now() + 9 * 86400000 });
+  await mia.page.getByText(/Your subscription ends/).waitFor();
+  await status({ status: 'past_due', pastDueSince: Date.now() - 2 * 86400000 });
+  await mia.page.getByText(/Update your card within [45] days/).waitFor();
+  await shot(mia, '12_payment_banner');
+  await status({ status: 'active', currentPeriodEnd: Date.now() + 20 * 86400000 });
+  await mia.page.getByText(/Update your card|Your subscription ends|free trial ends/).waitFor({ state: 'detached' });
+  await db.doc(`bands/${id}`).update({ 'billing.trialEndsAt': Date.now() - 1000 });   // band trial over, but a paid plan covers them
+  await inApp(mia);
+  noProblems();
+});
+
+test('Settings shows Manage billing only for someone with a subscription record', async () => {
+  const { mia, miaUid } = await twoPeople();
+  await mia.page.getByText('⚙️', { exact: true }).click();
+  await mia.page.getByText('Account', { exact: true }).click();
+  await mia.page.getByText(/Signed in as/).first().waitFor();
+  assert.equal(await mia.page.getByRole('button', { name: 'Manage billing' }).count(), 0);
+  await db.doc(`users/${miaUid}/billing/status`).set({ id: 'sub_x', status: 'active', interval: 'month', currentPeriodEnd: Date.now() + 20 * 86400000, lastEventAt: 1 });
+  await mia.page.getByRole('button', { name: 'Manage billing' }).waitFor();
+  await mia.page.getByText(/Your subscription: active · renews/).waitFor();
+  await shot(mia, '13_manage_billing');
+  noProblems();
+});
+
 test('promoting a member to admin gives them invite codes and the band name, but not the calendar; demoting takes it away', async () => {
   const { olive, mia, id, miaUid } = await twoPeople();
   await openBandSettings(olive);
