@@ -118,6 +118,15 @@ Built to the plan above. Choices made along the way:
       you will sell. Details in the numbered list below.
 - [ ] 4. **Test-mode signup and the email.** Do a signup with Stripe's test card `4242 4242 4242 4242` and confirm the
       confirmation email arrives with the price, first-charge date and cancel steps.
+- [ ] 3b. **Terms and Privacy pages: fill in the blanks and get them reviewed.** The pages are built (`terms.html` and
+      `privacy.html` in the app's root, linked from sign-up, the plan screens and Settings) but they are DRAFTS.
+      Highlighted yellow on the pages, you need to fill in: your **business name and address** (both pages), a
+      **support email** that you actually read (both pages; customers use it to ask for account deletion), and confirm the
+      **refund wording** and **governing law (New York)**. Take both pages to the accountant or lawyer in item 3 for a
+      review, then delete the yellow "Draft" box from each page. A test (`test/legal.test.js`) keeps the pages' numbers in
+      step with the code and fails if a stray blank is left unmarked.
+- [ ] 3c. **Give Stripe the page addresses** (Dashboard > Settings > Public details, or the terms and privacy fields):
+      the pages live next to the app, at `<where the app is hosted>/terms.html` and `/privacy.html`.
 - [ ] After about a month live: the trial and repeat-card review (see "To check after the first month live").
 
 The detail behind each item is in the list below.
@@ -190,6 +199,11 @@ Built to the owner's checklist of the rules. This is not legal advice; the accou
   see Subscribe); not decided.
 - If the owner cancels a card trial during the trial, the band keeps the 30 days the card unlocked (they were never
   charged). Accepted; revisit if abused.
+
+### Account deletion is manual for now
+The Privacy page tells people to email the support address to have their account and data deleted, and promises a reply
+within 30 days. There is no self-serve "delete my account" yet (and no delete-band function). Build those if requests
+become frequent, and update the pages when you do.
 
 ### Known limits
 - Webhook de-duplication is check-then-write: two simultaneous deliveries of one event could both run. Every handler is

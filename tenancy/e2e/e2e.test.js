@@ -353,6 +353,43 @@ test('starting a band offers the card step first: terms in plain words, an agree
   noProblems();
 });
 
+test('the sign-up screen links to the Terms and Privacy pages, and both pages open', async () => {
+  const olive = await person('olive@example.com');
+  await olive.page.goto(BASE);
+  await olive.page.getByText(/By creating an account you agree to the/).waitFor();
+  const termsLink = olive.page.getByRole('link', { name: 'Terms of Service' });
+  const privacyLink = olive.page.getByRole('link', { name: 'Privacy Policy' });
+  assert.equal(await termsLink.getAttribute('href'), 'terms.html');
+  assert.equal(await privacyLink.getAttribute('href'), 'privacy.html');
+  assert.equal(await termsLink.getAttribute('target'), '_blank');
+  await shot(olive, '16_signup_with_legal_links');
+  for (const [file, heading] of [['terms.html', 'Terms of Service'], ['privacy.html', 'Privacy Policy']]) {
+    const page = await olive.ctx.newPage();
+    const res = await page.goto(BASE + file);
+    assert.equal(res.status(), 200, file);
+    await page.getByRole('heading', { level: 1, name: heading }).waitFor();
+    await page.getByRole('link', { name: /Back to Gig Dashboard/ }).waitFor();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, file + ' fits a phone screen without sideways scrolling');
+    if (file === 'terms.html') await shot({ page }, '17_terms_page');
+    await page.close();
+  }
+  noProblems();
+});
+
+test('the plan screen and Settings link to the legal pages next to where people agree', async () => {
+  const { mia, id, miaUid } = await twoPeople();
+  await db.doc(`bands/${id}/members/${miaUid}`).update({ covered: false });
+  await mia.page.getByText('Your access is paused').waitFor();
+  await mia.page.getByRole('link', { name: 'Terms of Service' }).waitFor();
+  await mia.page.getByRole('link', { name: 'Privacy Policy' }).waitFor();
+  await db.doc(`bands/${id}/members/${miaUid}`).update({ covered: true });
+  await inApp(mia);
+  await mia.page.getByText('⚙️', { exact: true }).click();
+  await mia.page.getByText('Account', { exact: true }).click();
+  await mia.page.getByRole('link', { name: 'Terms of Service' }).waitFor();
+  noProblems();
+});
+
 test('a second band gets no free time: its owner meets the subscribe screen straight away, and the first band is untouched', async () => {
   const olive = await person('olive@example.com');
   await signUp(olive); await startBand(olive, 'Band One');

@@ -2438,6 +2438,7 @@ function AccountSection({authUser,authBusy,authError,onSignUp,onSignIn,onSignOut
       e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:10}},
         `Signed in as ${authUser.email}. Your mileage log, checklist, private songs, and unpaid marks now follow this account instead of just this phone.`),
       e(ManageBillingRow,{uid:authUser.uid}),
+      e(LegalLinks,{prefix:'Read our ',style:{marginBottom:10}}),
       e('div',{style:{display:'flex',gap:8}},
         e('button',{onClick:()=>setChangingPw(true),style:{flex:1}},'Change password'),
         e('button',{onClick:onSignOut,style:{flex:1,color:'#b91c1c',borderColor:'#fecaca'}},'Sign out'))
@@ -3596,6 +3597,14 @@ function useBillingActions(bandId){
     manage:()=>run('manage',()=>goToStripe(callBand('openBillingPortal',{returnUrl:billingReturn()})))};
 }
 
+// Links to the legal pages (static files next to the app). They open in a new tab so nobody loses their place.
+function LegalLinks({prefix,style}){
+  const a={color:'inherit',textDecoration:'underline'};
+  return e('div',{style:{fontSize:12,color:'#6b7280',lineHeight:1.5,...style}},prefix,
+    e('a',{href:'terms.html',target:'_blank',rel:'noopener',style:a},'Terms of Service'),' and ',
+    e('a',{href:'privacy.html',target:'_blank',rel:'noopener',style:a},'Privacy Policy'),'.');
+}
+
 const longDateUS=ms=>new Date(ms).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
 
 // Plan choice with the terms in plain words, shown BEFORE anyone is sent to pay, and an explicit tick to
@@ -3620,6 +3629,7 @@ function PlanPicker({bandId,trialEnd,trialLabel,allowPlain,onSkip,skipLabel,foot
     e('label',{style:{display:'flex',gap:8,alignItems:'flex-start',fontSize:13,margin:'0 0 10px',cursor:'pointer'}},
       e('input',{type:'checkbox',checked:agreed,onChange:ev=>setAgreed(ev.target.checked),style:{marginTop:3}}),
       e('span',null,'I agree to '+(trialEnd?'start my free trial and to ':'')+'be charged '+price+' automatically '+(trialEnd?'after it ends ':'')+'until I cancel.')),
+    e(LegalLinks,{prefix:'See our ',style:{margin:'-4px 0 10px'}}),
     trialEnd&&e('button',{onClick:()=>act.subscribe(interval,true,true),disabled:off,style:btn},act.busy===interval+true?'Opening…':trialLabel),
     allowPlain&&e('button',{onClick:()=>act.subscribe(interval,false,true),disabled:off,style:btn},act.busy===interval+false?'Opening…':'Subscribe'),
     footnote&&e('div',{style:{fontSize:12,color:'#6b7280',lineHeight:1.5,marginBottom:8}},footnote),
@@ -3761,7 +3771,8 @@ function AuthScreen({authBusy,authError,onSignUp,onSignIn,onSendReset}){
         e('div',{style:{color:theme.headerSoft||theme.accent,fontSize:13,textAlign:'center',marginTop:8,lineHeight:1.5}},
           'Shows, setlists, charts and mileage for your band. Sign in or make an account to start or join a band.')
       ),
-      e(AccountSection,{authUser:null,authBusy,authError,onSignUp,onSignIn,onSignOut:()=>{},onSendReset,theme,initialMode:'signup',hideBlurb:true})
+      e(AccountSection,{authUser:null,authBusy,authError,onSignUp,onSignIn,onSignOut:()=>{},onSendReset,theme,initialMode:'signup',hideBlurb:true}),
+      e(LegalLinks,{prefix:'By creating an account you agree to the ',style:{padding:'0 14px 14px',textAlign:'center'}})
     )
   );
 }
