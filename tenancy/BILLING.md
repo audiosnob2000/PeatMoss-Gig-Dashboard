@@ -108,7 +108,7 @@ Built to the plan above. Choices made along the way:
    **upcoming-renewal reminder for yearly plans** (set to about 30 days before, which falls inside the 15 to 45 day
    window on the checklist). Re-read the checklist's reminder windows with the accountant or lawyer.
 2. `firebase functions:secrets:set STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`.
-   Also install an email service for the confirmation email (see Open decisions). Then check one real signup in test
+   Also set up the Resend email (steps above). Then check one real signup in test
    mode: you should get the confirmation with the price, the first-charge date and the cancel steps.
 3. After deploying, add the `stripeWebhook` URL in Stripe (Developers > Webhooks) for: `checkout.session.completed`,
    `customer.subscription.created|updated|deleted`, `invoice.payment_failed`. Copy that endpoint's signing secret into step 2.
@@ -130,25 +130,31 @@ Built to the plan above. Choices made along the way:
   consider tightening (or dropping the 7-day trial for late joiners). Many trials that never convert is a separate
   question about the trial length and the subscribe screen.
 
-### Setting up the confirmation email with SendGrid (owner steps, about 20 minutes, do before launch)
+### Setting up the confirmation email with Resend (owner steps, about 20 minutes, do before launch)
 The app already writes each confirmation into the `mail` collection in your Firebase project. This sends them.
-1. **SendGrid account:** sign up at sendgrid.com (the free plan is enough).
-2. **Verify a sender:** in SendGrid go to Settings > Sender Authentication. Easiest: "Single Sender Verification" with an
-   address you can receive mail at (for example billing@ your own domain or a Gmail you control) and click the link they email
-   you. Better for reaching inboxes later: "Authenticate Your Domain" if you own a domain.
-3. **Make an API key:** Settings > API Keys > Create API Key, with "Restricted Access" and only **Mail Send** turned on.
-   Copy it once. **Never paste it into a chat or into the repo.**
-4. **Install the extension:** Firebase Console > your project > Extensions > "Trigger Email from Firestore" > Install.
+(SendGrid was tried first, but it is only a ~2 month trial, not a permanent free plan, so Resend was chosen instead.
+Check Resend's current free-plan limits on their pricing page before relying on them; any SMTP service works with the
+extension, so this is easy to change.)
+1. **Resend account:** sign up at resend.com.
+2. **Add your domain:** Domains > Add Domain > `gigdashboard.com`. Resend lists a few DNS records (usually an `MX` and a
+   `TXT` for sending, a `TXT` named `resend._domainkey` for the signature, and optionally a `_dmarc` `TXT`).
+3. **Add those records in Spaceship** (Domain Manager > gigdashboard.com > Advanced DNS > Add record). Type the short host
+   name (Spaceship adds `.gigdashboard.com` itself) and paste the value exactly. Keep only ONE `_dmarc` record. Then click
+   Verify in Resend; it can take minutes to a day.
+4. **Make an API key:** API Keys > Create API Key with **Sending access** only. Copy it once.
+   **Never paste it into a chat or into the repo.**
+5. **Install the extension:** Firebase Console > your project > Extensions > "Trigger Email from Firestore" > Install.
    - Email documents collection: `mail`
-   - SMTP connection URI: `smtps://apikey@smtp.sendgrid.net:465`
-   - SMTP password: the SendGrid API key from step 3 (the console stores it as a secret)
-   - Default FROM address: the sender you verified in step 2 (for example `PeatMoss <billing@yourdomain.com>`)
-   Your project must be on the Blaze plan (it already needs to be for these functions).
-5. **Test it:** in Firebase Console > Firestore, add a document to `mail` with fields `to` (your email) and `message` (a map
-   with `subject` and `text`). It should arrive within a minute and the document gets a `delivery` field showing the result.
-6. **Check a real signup in Stripe test mode** after deploying: complete a trial signup with Stripe's test card
+   - SMTP connection URI: `smtps://resend@smtp.resend.com:465`
+   - SMTP password: the Resend API key from step 4 (the console stores it as a secret)
+   - Default FROM address: an address on your verified domain, for example `PeatMoss <billing@gigdashboard.com>`
+   (Resend's SMTP page lists the exact host, port and username; confirm them there.) The project must be on the Blaze plan,
+   which it already needs for these functions.
+6. **Test it:** in Firebase Console > Firestore, add a document to `mail` with fields `to` (your email) and `message` (a map
+   with `subject` and `text`). It should arrive within a minute, and the document gets a `delivery` field with the result.
+7. **Check a real signup in Stripe test mode** after deploying: complete a trial signup with Stripe's test card
    `4242 4242 4242 4242`, and confirm the email arrives with the price, the first-charge date and the cancel steps.
-If it does not arrive, look at the `delivery` field on the `mail` document and at the SendGrid Activity page, and check spam.
+If it does not arrive, look at the `delivery` field on the `mail` document and at Resend's Logs page, and check spam.
 
 ### Automatic-renewal rules (New York General Business Law 527-a, and similar laws elsewhere)
 Built to the owner's checklist of the rules. This is not legal advice; the accountant/lawyer session below should confirm it.
@@ -162,7 +168,7 @@ Built to the owner's checklist of the rules. This is not legal advice; the accou
 | No price rises without consent | The code never changes an existing customer's price. Any future rise needs their opt-in (or the 14-day cancel-with-pro-rata-refund option). Do not edit a live Price; create a new one and ask first. |
 
 ### Open decisions and gaps
-- **Confirmation email is queued but not sent** until you do the SendGrid steps above (decided: SendGrid). Until then the
+- **Confirmation email is queued but not sent** until you do the Resend steps above (decided: Resend). Until then the
   in-app confirmation is the retainable copy. Needed before real customers sign up.
 - **The 7-day card trial for people joining after day 30 is still in.** Discussed dropping it (late joiners would just
   see Subscribe); not decided.
