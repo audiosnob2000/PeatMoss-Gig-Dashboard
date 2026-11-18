@@ -5,9 +5,11 @@
 
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
+const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const admin = require('firebase-admin');
 const band = require('./band');
 const trash = require('./trash');
+const reminders = require('./reminders');
 
 if (!admin.apps.length) admin.initializeApp();
 const db = () => admin.firestore();
@@ -48,4 +50,16 @@ exports.transferOwnership = wrap(band.transferOwnership);
 exports.purgeTrash = onSchedule({ schedule: 'every day 04:00', timeZone: 'America/New_York' }, async () => {
   const counts = await trash.purgeTrash(db());
   console.log('purgeTrash', JSON.stringify(counts));
+});
+
+// Gig reminders, every 5 minutes, across all bands. Replaces the live sendGigReminders at cutover.
+exports.sendGigReminders = onSchedule({ schedule: 'every 5 minutes', timeZone: 'America/New_York' }, async () => {
+  const summary = await reminders.runGigReminders(db(), admin.messaging());
+  console.log('sendGigReminders', JSON.stringify(summary));
+});
+
+// A set was added to a band. Replaces the live notifyOnNewSetlist at cutover.
+exports.notifyOnNewSetlist = onDocumentCreated('bands/{bandId}/setlists/{setlistId}', async event => {
+  const result = await reminders.notifyNewSetlist(db(), admin.messaging(), event.params.bandId, event.data.data());
+  console.log('notifyOnNewSetlist', JSON.stringify(result));
 });

@@ -9,7 +9,7 @@ branch only.
 | Piece | Where | What it does |
 |---|---|---|
 | Security rules | `firestore.rules` | Everything a band owns lives under `bands/{id}`. Roles: owner, admin, member. A person whose own subscription lapses (`covered:false`) is locked out of all band content. Charts in a band are the band's (they stay when the person who added them leaves); private charts live in the person's own library (`users/{uid}/charts`). Band gigs, sets and charts are never erased directly: a member "deletes" by stamping `deletedAt` (Recently deleted, 30 days), and only an owner or admin can erase something already in the trash. Mileage is not part of any band: it lives under the person (`users/{uid}/mileageTrips`), so it follows them between bands and survives leaving one. |
-| Band functions | `functions/band.js`, `functions/trash.js`, `functions/index.js` | `createBand`, `createInvite`, `revokeInvite`, `redeemInvite`, `removeMember`, `setMemberRole`, `transferOwnership`, plus the daily `purgeTrash` job that erases what has been in Recently deleted for 30 days. Membership is only ever written here (Admin SDK); clients cannot write it. |
+| Band functions | `functions/band.js`, `functions/reminders.js`, `functions/trash.js`, `functions/index.js` | `createBand`, `createInvite`, `revokeInvite`, `redeemInvite`, `removeMember`, `setMemberRole`, `transferOwnership`, plus `functions/reminders.js` (gig reminders and new-setlist alerts, band by band, in each band's own time zone) and the daily `purgeTrash` job that erases what has been in Recently deleted for 30 days. Membership is only ever written here (Admin SDK); clients cannot write it. |
 | Migration | `migrate/migrate.js` | Copies today's flat collections under `bands/{id}` (mileage goes to each person's own area), translating `deviceId` to `uid`; a chart the live app calls shared (a missing flag counts as shared) becomes the band's, a private one goes to its owner's library. Never changes the originals. Refuses a real project without `--live`. |
 | App | `../index.html` | New `Root` (sign-in, band picker, start/join, removed and locked-out screens), band-scoped data layer, Band section in Settings (members, invite codes, roles, hand over, leave), "My charts" library with Share with band, and Settings > Recently deleted. |
 
@@ -17,7 +17,7 @@ branch only.
 
 ```
 npm install
-npm test        # 69: rules, band functions, migration (Firestore emulator)
+npm test        # 80: rules, band functions, migration (Firestore emulator)
 npm run e2e     # 26: the real index.html in a phone-sized browser against the real rules and functions
 ```
 
@@ -40,9 +40,12 @@ the app makes is allowed for that role.
 
 ## Must be done before cutover
 
-- `sendGigReminders` and `notifyOnNewSetlist` in the live `functions/index.js` still read the flat `gigs`, `setlists`,
-  `fcmTokens` and `bandSettings` paths. They need to read `bands/{id}/...`.
-- Push tokens are not migrated (they have no owner). Each phone turns notifications on again in the new app.
+- Reminders: done (`functions/reminders.js`). `sendGigReminders` and `notifyOnNewSetlist` in `tenancy/functions/index.js`
+  replace the live ones of the same name. **Deploy order matters:** run the migration first, then deploy the functions.
+  The migration writes every existing set, and the new-set trigger would otherwise announce each as new (it also
+  skips a band for an hour after a migration as a safety net).
+- Push tokens are not migrated (they have no owner). Each phone turns notifications on again in the new app, so no
+  one gets reminders until they do. Tell the band beforehand.
 - `googleAuthTokens` stay device-keyed and are not migrated.
 - The locked-out screen says to resubscribe, but billing is not built yet.
 
