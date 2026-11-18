@@ -106,6 +106,22 @@ Built to the plan above. Choices made along the way:
   `npm run test:stripe` (real test-mode API: prices, Checkout, portal, a real trialing subscription and the same-card
   refusal; cleans up after itself), `npm run e2e` (31 in a browser).
 
+### Launch checklist (owner, in order; tick them off here)
+- [ ] 1. **Stripe reminder emails and the live portal.** In the Stripe Dashboard turn on the trial-ending reminder and the
+      upcoming-renewal reminder for yearly plans (about 30 days before). Check the LIVE Customer Portal the same way the
+      test one is set: cancelling allowed (at period end), card updates and invoices on.
+- [ ] 2. **The three secrets, deploy, and the webhook.** Set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` and
+      `RESEND_API_KEY` with `firebase functions:secrets:set` (use the Firebase account that owns the project), deploy,
+      then add the deployed `stripeWebhook` URL in Stripe with the events listed below and copy its signing secret into
+      `STRIPE_WEBHOOK_SECRET`.
+- [ ] 3. **Book the accountant (or lawyer) session.** Sales tax, New York's automatic-renewal rules and the other places
+      you will sell. Details in the numbered list below.
+- [ ] 4. **Test-mode signup and the email.** Do a signup with Stripe's test card `4242 4242 4242 4242` and confirm the
+      confirmation email arrives with the price, first-charge date and cancel steps.
+- [ ] After about a month live: the trial and repeat-card review (see "To check after the first month live").
+
+The detail behind each item is in the list below.
+
 ### Still to do by the owner, in their own accounts
 1. Stripe Dashboard (test, then live): turn on the **Customer Portal** (Settings > Billing > Customer portal), allow
    cancelling (the TEST-mode portal is already set to cancel at period end, with card updates and invoices on; check the
