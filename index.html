@@ -3485,7 +3485,8 @@ function GigDayScreen({todaysGigs,theme,settings,unpaidGigIds,onToggleUnpaid,mil
         gig.location&&e(GigDayCard,{icon:'📍',title:'Getting there',theme},
           e('div',{style:{fontSize:13,marginBottom:9}},gig.location),
           e('div',{style:{display:'flex',gap:7}},
-            e('button',{onClick:()=>openMapsChooser(gig.venue,gig.location),
+            // Same as the calendar's map button: ask about tracking first, then the maps chooser.
+            e('button',{onClick:()=>travelModalsProps.setAskTrack(gig),
               style:{flex:1,padding:'9px 0',borderRadius:9,border:'none',background:theme.mid,color:theme.midText||'#fff',fontWeight:650,fontSize:12.5,cursor:'pointer'}},'Navigate'),
             e('button',{onClick:()=>travelModalsProps.setAskTrack(gig),
               style:{flex:1,padding:'9px 0',borderRadius:9,border:'1px solid #e5e7eb',background:'#fff',color:'#374151',fontWeight:650,fontSize:12.5,cursor:'pointer'}},'Track miles')

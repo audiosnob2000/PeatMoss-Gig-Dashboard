@@ -450,6 +450,35 @@ test('someone in no bands who still has a subscription is offered one-tap cancel
   noProblems();
 });
 
+test('Gig Day: Navigate asks "Track miles?" first, like the calendar, and Skip goes on to the maps chooser', async () => {
+  const { mia, id } = await twoPeople();
+  await db.doc(`bands/${id}/gigs/today1`).set({ venue: 'Tonight Venue', date: inDays(0), time: '7:30 PM', type: 'gig', status: 'confirmed', location: '1 Main St, Port Jefferson, NY' });
+  await mia.page.getByText('TONIGHT', { exact: true }).waitFor();
+  await mia.page.getByRole('button', { name: 'Navigate' }).click();
+  await mia.page.getByText('Track miles for this trip?').waitFor();
+  assert.equal(await mia.page.getByText('Google Maps').count(), 0, 'the maps chooser waits until they have answered');
+  await shot(mia, '21_gigday_track_question');
+  await mia.page.getByRole('button', { name: 'Skip' }).click();
+  await mia.page.getByText('Apple Maps').waitFor();
+  await mia.page.getByText('Google Maps').waitFor();
+  assert.equal(await mia.page.getByText('Tracking miles').count(), 0, 'Skip means no tracking');
+  noProblems();
+});
+
+test('Gig Day: Navigate then "Yes, track" starts mileage tracking and then offers the maps chooser', async () => {
+  const { mia, id } = await twoPeople();
+  await mia.ctx.grantPermissions(['geolocation']);
+  await mia.ctx.setGeolocation({ latitude: 40.9465, longitude: -73.0693 });
+  await db.doc(`bands/${id}/gigs/today1`).set({ venue: 'Tonight Venue', date: inDays(0), time: '7:30 PM', type: 'gig', status: 'confirmed', location: '1 Main St, Port Jefferson, NY' });
+  await mia.page.getByText('TONIGHT', { exact: true }).waitFor();
+  await mia.page.getByRole('button', { name: 'Navigate' }).click();
+  await mia.page.getByRole('button', { name: 'Yes, track' }).click();
+  await mia.page.getByText('Tracking miles').waitFor();
+  await mia.page.getByText('Google Maps').waitFor();
+  await shot(mia, '22_gigday_tracking_started');
+  noProblems();
+});
+
 test('a second band gets no free time: its owner meets the subscribe screen straight away, and the first band is untouched', async () => {
   const olive = await person('olive@example.com');
   await signUp(olive); await startBand(olive, 'Band One');
