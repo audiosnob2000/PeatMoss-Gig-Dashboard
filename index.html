@@ -3148,8 +3148,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
       ),
       e(SettingsGroup,{title:null},
         e(Section,{icon:'ℹ️',iconBg:'#E5E7EB',title:'About',summary:'v1.0.0',isOpen:openSections.has('about'),onToggle:()=>toggleSection('about')},
-          e(Row,{label:'Version',sub:'1.0.0',border:true,right:null}),
-          e(Row,{label:'Share app',sub:'Coming soon',border:false,right:e('button',{disabled:true,style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #e5e7eb',color:'#9ca3af',cursor:'not-allowed',background:'#f9fafb'}},'Coming soon')})
+          e(Row,{label:'Version',sub:'1.0.0',border:false,right:null})
         )
       )
     ),
