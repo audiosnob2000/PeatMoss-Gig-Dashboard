@@ -124,6 +124,8 @@ Built to the plan above. Choices made along the way:
 - [x] **The flaky browser test** ("restoring a show while signed in to Google ...") failed in a few runs. The test checked
       for the Google call and the database writes the instant the row left the screen, before they had happened. It now waits
       for them. Fixed; look again only if it fails again.
+- [x] *Done from the review's "small leftovers":* Settings > Default view now reads Calendar, Shows, Charts/Sets and ✓ Checklists
+      (live app: branch `claude/gigday-checklist-picker`, awaiting merge; new app: this branch).
 - [ ] **The Gig Dashboard Review's "Fix now" list** (11 items: calendar sync dates, reminders for calendar gigs, cancelled
       gigs, mileage rate, large PDFs and more) has not been worked on in this session. Check what is still open.
 
