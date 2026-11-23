@@ -106,6 +106,17 @@ Built to the plan above. Choices made along the way:
   `npm run test:stripe` (real test-mode API: prices, Checkout, portal, a real trialing subscription and the same-card
   refusal; cleans up after itself), `npm run e2e` (36 in a browser).
 
+### Other app items to come back to (not billing)
+- [ ] **Gig Day: the two buttons next to each other now do the same thing.** "Navigate" was changed to ask "Track miles for
+      this trip?" first (like the calendar), so the "Track miles" button beside it is a duplicate (it already opened that
+      question, and Skip went to the maps chooser). Decide: (1) remove "Track miles", or (2) make it start tracking only,
+      with no maps (for someone already driving or not needing directions). Recommended: option 2.
+- [ ] **A flaky browser test:** "restoring a show while signed in to Google puts it back on the band calendar too" failed
+      once in about six runs of `npm run e2e` and then passed twice in a row. Looks like timing, unrelated to any change;
+      look into it if it fails again.
+- [ ] **The Gig Dashboard Review's "Fix now" list** (11 items: calendar sync dates, reminders for calendar gigs, cancelled
+      gigs, mileage rate, large PDFs and more) has not been worked on in this session. Check what is still open.
+
 ### Launch checklist (owner, in order; tick them off here)
 - [ ] 1. **Stripe reminder emails and the live portal.** In the Stripe Dashboard turn on the trial-ending reminder and the
       upcoming-renewal reminder for yearly plans (about 30 days before). Check the LIVE Customer Portal the same way the
