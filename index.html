@@ -2927,7 +2927,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         e(Row,{label:'Default view',border:true,
           right:e('select',{value:settings.defaultTab,onChange:ev=>setSettings(s=>({...s,defaultTab:ev.target.value})),
             style:{padding:'5px 8px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'auto'}},
-            e('option',{value:'calendar'},'Calendar'),e('option',{value:'list'},'Shows'),e('option',{value:'songs'},'Charts/Sets'),e('option',{value:'checklist'},'✓ Checklists')
+            e('option',{value:'calendar'},'Calendar'),e('option',{value:'list'},'Shows'),e('option',{value:'songs'},'Charts/Sets'),e('option',{value:'checklist'},'Checklists')
           )
         }),
         e(Row,{label:'Band name',border:true,
