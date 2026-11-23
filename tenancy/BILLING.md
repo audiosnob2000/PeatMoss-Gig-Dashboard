@@ -111,11 +111,12 @@ Built to the plan above. Choices made along the way:
       commit on top of main (only `index.html` changes, no rules or server changes). It is NOT live until that branch is merged
       into main (a pull request is the easy way; merge it on a day without a gig, then close and reopen the app on the phone).
       The same feature is also in this branch's new multi-band app, so the cutover prep must reconcile the two.
-- [ ] **Port "tonight's gig starts Unpaid" to the new multi-band app.** Done in the live app (branch
-      `claude/gigday-checklist-picker`): a gig on today's date counts as unpaid until marked paid, is flagged automatically so it
-      stays on the unpaid list, and "paid" is remembered in a new `paidGigIds` list saved with the person's unpaid marks.
-      The new app (this branch) still has the old behavior (Paid by default, "Mark unpaid"); the cutover prep must carry the
-      change over so launch day does not undo it.
+- [ ] **Port "tonight's gig reads Unpaid" to the new multi-band app.** Done in the live app (branch
+      `claude/gigday-checklist-picker`): on Gig Day, tonight's gig shows Unpaid with Mark paid (it is not on the unpaid list yet).
+      The next day, or the next time the app is open, a gig still not marked paid is flagged unpaid, but only gigs from the first
+      day of tracking onward (kept as `trackFrom`) and not cancelled or on-hold ones. "Paid" is remembered in `paidGigIds`; both
+      are saved with the person's unpaid marks. The new app (this branch) still has the old behavior (Paid by default,
+      "Mark unpaid"); the cutover prep must carry the change over so launch day does not undo it.
 - [ ] **A startup bug already in the live app (found while testing the picker):** a checklist tick made within about a second
       of opening the app can be lost. The app briefly sets itself up twice after a page load, and a tick that lands before it
       is ready to save is never written, so it is undone. Not caused by the picker (an unmodified copy of main does the same,
