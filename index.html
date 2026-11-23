@@ -72,6 +72,8 @@ button:hover{background:#f3f4f6}
 .tab-btn.active{background:#fff;font-weight:500;box-shadow:0 1px 3px rgba(0,0,0,0.08)}
 .tab-btn:not(.active){background:transparent;color:#6b7280}
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:100;padding:1rem}
+.set-card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden}
+.set-card>.set-row+.set-row{border-top:1px solid #eef0f0}
 .modal{background:#fff;border-radius:16px;padding:1.5rem;width:min(420px,100%);box-shadow:0 20px 60px rgba(0,0,0,0.2)}
 label{font-size:12px;font-weight:500;color:#6b7280;display:block;margin-bottom:4px;margin-top:12px}
 @media(max-width:480px){
@@ -2276,14 +2278,19 @@ function Modal({gig,prefillDate,onSave,onDelete,onClose,calendarLocked}){
 // section open at once, which made it hard to scan. iconBg gives each
 // section a distinct colored tile so they're easy to tell apart at a glance
 // even while collapsed.
+// Settings is grouped (The Band, Tools, You): each group is one card, and every Section is a row in it. The row shows its
+// icon, its name, a short value on the right, and a chevron; it opens in place, as before.
+function SettingsGroup({title,children}){
+  return e(React.Fragment,null,
+    title&&e('div',{style:{fontSize:10.5,fontWeight:700,letterSpacing:'0.09em',textTransform:'uppercase',color:'#6b7280',margin:'18px 4px 6px'}},title),
+    e('div',{className:'set-card',style:title?undefined:{marginTop:18}},children));
+}
 function Section({icon,iconBg,title,summary,isOpen,onToggle,children}){
-  return e('div',{style:{background:'#fff',borderRadius:12,border:'1px solid #e5e7eb',overflow:'hidden',marginBottom:10}},
-    e('div',{onClick:onToggle,style:{display:'flex',alignItems:'center',gap:11,padding:'13px 14px',cursor:'pointer'}},
-      e('div',{style:{width:26,height:26,borderRadius:8,background:iconBg||'#f3f4f6',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flexShrink:0}},icon),
-      e('div',{style:{flex:1,minWidth:0}},
-        e('div',{style:{fontSize:14,fontWeight:600,color:'#111827'}},title),
-        summary&&e('div',{style:{fontSize:12,color:'#9ca3af',marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},summary)
-      ),
+  return e('div',{className:'set-row'},
+    e('div',{onClick:onToggle,style:{display:'flex',alignItems:'center',gap:10,padding:'12px 14px',cursor:'pointer'}},
+      e('span',{style:{fontSize:15,width:20,textAlign:'center',flexShrink:0}},icon),
+      e('div',{style:{flex:1,minWidth:0,fontSize:14,fontWeight:500,color:'#111827'}},title),
+      summary&&e('div',{style:{fontSize:12,color:'#9ca3af',maxWidth:'52%',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},summary),
       e('span',{style:{fontSize:16,color:'#9ca3af',flexShrink:0,transform:isOpen?'rotate(90deg)':'none',transition:'transform 0.15s'}},'›')
     ),
     isOpen&&e('div',{style:{borderTop:'1px solid #e5e7eb'}},children)
@@ -2819,12 +2826,12 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
     return parts.length?parts.join(', '):'No reminders set';
   };
   const THEME_LABEL={green:'Green',blue:'Blue',purple:'Purple',red:'Red',dark:'Dark',orange:'Orange',teal:'Teal',pink:'Pink',custom:'Custom'};
-  const appearanceSummary=(THEME_LABEL[settings.theme]||'Teal')+' theme';
+  const appearanceSummary=THEME_LABEL[settings.theme]||'Teal';
   const homeSummary=settings.homeAddress
     ?(settings.homeAddress.length>34?settings.homeAddress.slice(0,34)+'…':settings.homeAddress)
     :'Not set';
   const notificationsSummary=pushEnabling?'Enabling…':pushToken?reminderSummary():'Off';
-  const calendarSummary=googleAccessToken?'Google Calendar connected':'Not connected';
+  const calendarSummary=googleAccessToken?'Connected':'Not connected';
   const stagePlotSummary=settings.stagePlotUrl?'Link saved':settings.stagePlotFile?'File uploaded':'Not set';
   const totalMiles=mileageLog.reduce((s,t)=>s+t.miles,0);
   const totalDeduction=(totalMiles*IRS_RATE).toFixed(2);
@@ -2923,219 +2930,227 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
       )
     ),
     e('div',{style:{padding:'1rem',maxWidth:520,margin:'0 auto'}},
-      e(Section,{icon:'🎨',iconBg:'#FEE9F0',title:'Appearance',summary:appearanceSummary,isOpen:openSections.has('appearance'),onToggle:()=>toggleSection('appearance')},
-        e(Row,{label:'Default view',border:true,
-          right:e('select',{value:settings.defaultTab,onChange:ev=>setSettings(s=>({...s,defaultTab:ev.target.value})),
-            style:{padding:'5px 8px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'auto'}},
-            e('option',{value:'calendar'},'Calendar'),e('option',{value:'list'},'Shows'),e('option',{value:'songs'},'Charts/Sets'),e('option',{value:'checklist'},'✓ Checklists')
-          )
-        }),
-        e(Row,{label:'Band name',border:true,
-          right:editingBandName
-            ?e('div',{style:{display:'flex',alignItems:'center',gap:6}},
-                e('input',{autoFocus:true,value:bandNameValue,onChange:ev=>setBandNameValue(ev.target.value),
-                  onKeyDown:ev=>{if(ev.key==='Enter')saveBandName();if(ev.key==='Escape')setEditingBandName(false);},
-                  style:{padding:'4px 8px',border:'1px solid #d1d5db',borderRadius:6,fontSize:13,width:160}}),
-                e('button',{onClick:saveBandName,style:{fontSize:12,padding:'4px 10px',borderRadius:6,border:'none',background:theme.mid,color:'#fff',cursor:'pointer'}},'Save')
-              )
-            :e('div',{style:{display:'flex',alignItems:'center',gap:8}},
-                e('span',{style:{fontSize:12,color:'#6b7280'}},settings.bandName),
-                e('button',{onClick:()=>{setBandNameValue(settings.bandName);setEditingBandName(true);},style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'Edit')
-              )
-        }),
-        e(Row,{label:'Color scheme',border:false,
-          right:e('div',{style:{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-end'}},
-            Object.entries(THEMES).map(([k,v])=>
-              e('div',{key:k,onClick:()=>setSettings(s=>({...s,theme:k})),
-                style:{width:24,height:24,borderRadius:'50%',background:v.primary,cursor:'pointer',
-                  border:settings.theme===k?'3px solid #fff':'3px solid transparent',
-                  boxShadow:settings.theme===k?`0 0 0 2px ${v.primary}`:'none'}})
-            ),
-            e(CustomColorSwatch,{
-              selected:settings.theme==='custom',
-              customColor:settings.customColor,
-              onPick:hex=>setSettings(s=>({...s,theme:'custom',customColor:hex}))
-            })
-          )
-        })
-      ),
-      e(Section,{icon:'🔐',iconBg:'#EEF2FF',title:'Account',summary:authUser?authUser.email:'Not signed in',isOpen:openSections.has('account'),onToggle:()=>toggleSection('account')},
-        e(AccountSection,{authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,onSendReset,onChangePassword,theme})
-      ),
-      e(Section,{icon:'🏠',iconBg:'#E0EFFE',title:'Home',summary:homeSummary,isOpen:openSections.has('home'),onToggle:()=>toggleSection('home')},
-        e(HomeAddressInput,{settings,setSettings,theme})
-      ),
-      e(Section,{icon:'🔔',iconBg:'#FEF3C7',title:'Notifications',summary:notificationsSummary,isOpen:openSections.has('notifications'),onToggle:()=>toggleSection('notifications')},
-        e(Row,{label:'Push notifications',
-          sub:pushEnabling?'Enabling…':pushToken?reminderSummary():'Get notified on this device when you have upcoming gigs',
-          border:pushToken,
-          right:pushEnabling
-            ?e('span',{style:{fontSize:13,color:'#9ca3af'}},'…')
-            :e(Toggle,{on:!!pushToken,disabled:pushEnabling,label:'Push notifications',
-                onToggle:()=>{if(pushToken)disablePushNotifications();else enablePushNotifications();}})
-        }),
-        pushError&&e('div',{style:{padding:'0 14px 12px',fontSize:12,color:'#b91c1c'}},pushError),
-        pushToken&&e(Row,{label:'First reminder',sub:'Your early heads-up before a show',border:true,
-          right:e(ReminderTimeSelect,{value:settings.gigReminder1,onChange:v=>setSettings(s=>({...s,gigReminder1:v}))})
-        }),
-        pushToken&&e(Row,{label:'Second reminder',sub:'Closer to showtime · optional',border:true,
-          right:e(ReminderTimeSelect,{value:settings.gigReminder2,onChange:v=>setSettings(s=>({...s,gigReminder2:v}))})
-        }),
-        pushToken&&e(Row,{label:'🔊 Sound gigs need more lead time',
-          sub:'For gigs marked "we\'re bringing the PA" — those usually need more lead time',
-          border:settings.selfPaReminderEnabled,
-          right:e(Toggle,{on:settings.selfPaReminderEnabled,label:'Sound gigs need more lead time',
-            onToggle:()=>setSettings(s=>({...s,selfPaReminderEnabled:!s.selfPaReminderEnabled}))})
-        }),
-        // The reminder-slot picker used to be its own row of two buttons;
-        // folding it into this row's subtitle (tap to flip) keeps the same
-        // capability in one row instead of two.
-        pushToken&&settings.selfPaReminderEnabled&&e(Row,{label:'Remind me instead',
-          sub:e('span',{onClick:()=>setSettings(s=>({...s,selfPaReminderTarget:s.selfPaReminderTarget==='reminder1'?'reminder2':'reminder1'})),
-              style:{cursor:'pointer',textDecoration:'underline',textDecorationStyle:'dotted',textDecorationColor:'#d1d5db'}},
-            'Replaces your '+(settings.selfPaReminderTarget==='reminder1'?'first':'second')+' reminder — tap to change'),
-          border:false,
-          right:e(ReminderTimeSelect,{value:settings.selfPaReminderTime,onChange:v=>{
-            if(v==='off')setSettings(s=>({...s,selfPaReminderEnabled:false}));
-            else setSettings(s=>({...s,selfPaReminderTime:v}));
-          }})
-        })
-      ),
-      e(Section,{icon:'📅',iconBg:'#EDE9FE',title:'Calendar',summary:calendarSummary,isOpen:openSections.has('calendar'),onToggle:()=>toggleSection('calendar')},
-        e(Row,{label:'Show past gigs on Calendar',border:true,right:e(Toggle,{on:settings.showPast,onToggle:()=>setSettings(s=>({...s,showPast:!s.showPast}))})}),
-        e(Row,{label:'Show past gigs on Shows list',border:true,right:e(Toggle,{on:settings.showPastShows,onToggle:()=>setSettings(s=>({...s,showPastShows:!s.showPastShows}))})}),
-        e('div',{ref:googleCalendarRowRef},
-          e(Row,{label:googleAccessToken?'Connected to Google Calendar':'Connect Google Calendar',
-            sub:googleAccessToken?'Gigs you add/edit/delete now write directly to the shared calendar':'Sign in to make "+ Add gig" write to the real shared calendar instead of just this device',
-            border:true,
-            right:e('button',{onClick:googleAccessToken?signOutGoogle:signInWithGoogle,
-              style:{fontSize:12,padding:'6px 14px',borderRadius:8,border:'1px solid '+(googleAccessToken?'#fca5a5':theme.mid),
-                color:googleAccessToken?'#b91c1c':theme.mid,background:'#fff',cursor:'pointer',fontWeight:500}},
-              googleAccessToken?'Disconnect':'Sign in')
+      e(SettingsGroup,{title:'The Band'},
+        e(Section,{icon:'🎸',iconBg:'#FFEDD5',title:'Stage plot',summary:stagePlotSummary,isOpen:openSections.has('stageplot'),onToggle:()=>toggleSection('stageplot')},
+          e(StagePlotSection,{settings,setSettings,theme})
+        ),
+        e(Section,{icon:'📤',iconBg:'#F3F4F6',title:'Share schedule',isOpen:openSections.has('data'),onToggle:()=>toggleSection('data')},
+          e(Row,{label:'Share schedule',sub:'A clean, printable view of upcoming shows to send to friends, family, or fans',border:false,
+            right:e('button',{onClick:()=>setShowSchedulePreview(true),style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'View')
           })
         ),
-        e(Row,{label:'Sync now',sub:lastSynced?'Last synced: '+lastSynced:'Pulls the latest events from the shared calendar',border:false,
-          right:e('button',{onClick:()=>syncFromGoogleCalendar(),disabled:calSyncing,
-            style:{fontSize:12,padding:'6px 14px',borderRadius:8,border:'1px solid '+theme.mid,
-              color:theme.mid,background:'#fff',cursor:calSyncing?'default':'pointer',fontWeight:500}},
-            calSyncing?'Syncing…':'🔄 Sync')
-        }),
-        googleAuthError&&e('div',{style:{padding:'0 14px 12px',fontSize:12,color:'#b91c1c'}},googleAuthError)
-      ),
-      e(Section,{icon:'🚗',iconBg:'#DCFCE7',title:'Mileage',
-          summary:`${toDisplayDistance(totalMiles).toFixed(1)} ${mileageUnit} · $${totalDeduction} deduction`,
-          isOpen:openSections.has('mileage'),onToggle:()=>toggleSection('mileage')},
-        e('div',{style:{padding:'10px 14px',display:'flex',justifyContent:'flex-end',borderBottom:'1px solid #e5e7eb'}},
-          e('div',{style:{display:'flex',background:theme.pale,borderRadius:9,padding:3,gap:2,flexShrink:0}},
-            e('button',{onClick:()=>setMileageUnit('mi'),
-              style:{border:'none',fontFamily:'inherit',fontSize:12,fontWeight:600,padding:'6px 11px',borderRadius:7,cursor:'pointer',whiteSpace:'nowrap',
-                background:mileageUnit==='mi'?'#fff':'transparent',color:mileageUnit==='mi'?theme.primary:'#6b7280',
-                boxShadow:mileageUnit==='mi'?'0 1px 2px rgba(0,0,0,.08)':'none'}},'Miles'),
-            e('button',{onClick:()=>setMileageUnit('km'),
-              style:{border:'none',fontFamily:'inherit',fontSize:12,fontWeight:600,padding:'6px 11px',borderRadius:7,cursor:'pointer',whiteSpace:'nowrap',
-                background:mileageUnit==='km'?'#fff':'transparent',color:mileageUnit==='km'?theme.primary:'#6b7280',
-                boxShadow:mileageUnit==='km'?'0 1px 2px rgba(0,0,0,.08)':'none'}},'Km')
-          )
-        ),
-        e('div',null,
-          e('div',{style:{display:'flex',borderBottom:'1px solid #e5e7eb'}},
-            e('div',{style:{flex:1,padding:'14px',textAlign:'center',borderRight:'1px solid #e5e7eb'}},
-              e('div',{style:{fontSize:10,color:'#6b7280',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4}},mileageUnit==='km'?'Total km':'Total miles'),
-              e('div',{style:{fontSize:26,fontWeight:500,color:theme.primary}},toDisplayDistance(totalMiles).toFixed(1)),
-              e('div',{style:{fontSize:11,color:'#9ca3af',marginTop:2}},today.getFullYear()+' season')
-            ),
-            e('div',{style:{flex:1,padding:'14px',textAlign:'center'}},
-              e('div',{style:{fontSize:10,color:'#6b7280',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4}},'Tax deduction'),
-              e('div',{style:{fontSize:26,fontWeight:500,color:theme.primary}},'$'+totalDeduction),
-              e('div',{style:{fontSize:11,color:'#9ca3af',marginTop:2}},'@ $0.67/mile')
-            )
+        // Tapping this opens Band Stats directly — isOpen is always false (no
+        // expand step, no separate View button to hunt for) since there's
+        // nothing to show inline; the whole point of the row is the tap.
+        e(Section,{icon:'📊',iconBg:'#E1F5EE',title:'Band stats',isOpen:false,onToggle:()=>setShowBandStatsModal(true)}),
+        e(Section,{icon:'📅',iconBg:'#EDE9FE',title:'Calendar connection',summary:calendarSummary,isOpen:openSections.has('calendar'),onToggle:()=>toggleSection('calendar')},
+          e(Row,{label:'Show past gigs on Calendar',border:true,right:e(Toggle,{on:settings.showPast,onToggle:()=>setSettings(s=>({...s,showPast:!s.showPast}))})}),
+          e(Row,{label:'Show past gigs on Shows list',border:true,right:e(Toggle,{on:settings.showPastShows,onToggle:()=>setSettings(s=>({...s,showPastShows:!s.showPastShows}))})}),
+          e('div',{ref:googleCalendarRowRef},
+            e(Row,{label:googleAccessToken?'Connected to Google Calendar':'Connect Google Calendar',
+              sub:googleAccessToken?'Gigs you add/edit/delete now write directly to the shared calendar':'Sign in to make "+ Add gig" write to the real shared calendar instead of just this device',
+              border:true,
+              right:e('button',{onClick:googleAccessToken?signOutGoogle:signInWithGoogle,
+                style:{fontSize:12,padding:'6px 14px',borderRadius:8,border:'1px solid '+(googleAccessToken?'#fca5a5':theme.mid),
+                  color:googleAccessToken?'#b91c1c':theme.mid,background:'#fff',cursor:'pointer',fontWeight:500}},
+                googleAccessToken?'Disconnect':'Sign in')
+            })
           ),
-          !addingTrip&&e('div',{onClick:()=>setAddingTrip(true),
-            style:{padding:'10px 14px',borderBottom:'1px solid #e5e7eb',display:'flex',alignItems:'center',justifyContent:'center',gap:6,cursor:'pointer',color:theme.mid,fontSize:13,fontWeight:600}},
-            '＋ Add trip manually'),
-          addingTrip&&e('div',{style:{padding:14,borderBottom:'1px solid #e5e7eb',background:'#fbfefd'}},
-            e('div',{style:{display:'flex',gap:8,marginBottom:10}},
-              e('div',{style:{flex:1}},
-                e('label',{style:{display:'block',fontSize:11,color:'#6b7280',marginBottom:4,fontWeight:500}},'Date'),
-                e('input',{type:'date',value:manualDate,onChange:ev=>setManualDate(ev.target.value),
-                  style:{width:'100%',border:'1px solid #d1d5db',borderRadius:8,padding:'8px 10px',fontSize:14,fontFamily:'inherit'}})
-              ),
-              e('div',{style:{flex:1}},
-                e('label',{style:{display:'block',fontSize:11,color:'#6b7280',marginBottom:4,fontWeight:500}},'Miles'),
-                e('input',{type:'number',placeholder:'e.g. 24.5',value:manualMiles,onChange:ev=>setManualMiles(ev.target.value),
-                  style:{width:'100%',border:'1px solid #d1d5db',borderRadius:8,padding:'8px 10px',fontSize:14,fontFamily:'inherit'}})
-              )
-            ),
-            e('div',{style:{marginBottom:10}},
-              e('label',{style:{display:'block',fontSize:11,color:'#6b7280',marginBottom:4,fontWeight:500}},'Label (optional)'),
-              e('input',{type:'text',placeholder:'e.g. The Anchor Bar',value:manualLabel,onChange:ev=>setManualLabel(ev.target.value),
-                style:{width:'100%',border:'1px solid #d1d5db',borderRadius:8,padding:'8px 10px',fontSize:14,fontFamily:'inherit'}})
-            ),
-            e('div',{style:{display:'flex',gap:8}},
-              e('button',{onClick:()=>{setAddingTrip(false);setManualDate(todayStr);setManualMiles('');setManualLabel('');},
-                style:{flex:1,padding:'9px 0',borderRadius:8,border:'1px solid #d1d5db',color:'#374151',background:'#fff',cursor:'pointer',fontSize:13,fontWeight:600}},'Cancel'),
-              e('button',{onClick:saveManualTrip,disabled:!manualDate||!parseFloat(manualMiles),
-                style:{flex:1,padding:'9px 0',borderRadius:8,border:'none',color:'#fff',background:theme.mid,cursor:'pointer',fontSize:13,fontWeight:600,opacity:(!manualDate||!parseFloat(manualMiles))?0.5:1}},'Save trip')
-            )
-          ),
-          mileageLog.length===0&&e('div',{style:{padding:'1.5rem',textAlign:'center',color:'#9ca3af',fontSize:13}},'No trips logged yet — tap Map on a gig to start tracking'),
-          monthGroups.map(group=>e('div',{key:group.key},
-            e('div',{onClick:()=>toggleMonth(group.key),
-              style:{padding:'10px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer',background:'#fbfbfc',borderBottom:'1px solid #e5e7eb'}},
-              e('div',null,
-                e('div',{style:{fontSize:13,fontWeight:600,color:'#111827'}},group.label),
-                e('div',{style:{fontSize:11,color:'#9ca3af'}},`${group.trips.length} trip${group.trips.length!==1?'s':''} · ${toDisplayDistance(group.totalMiles).toFixed(1)} ${mileageUnit}`)
-              ),
-              e('span',{style:{fontSize:14,color:'#9ca3af'}},openMonths.has(group.key)?'∨':'›')
-            ),
-            openMonths.has(group.key)&&group.trips.map((t,gi)=>e('div',{key:t.id||gi,style:{padding:'10px 14px',borderBottom:gi<group.trips.length-1?'1px solid #f1f1f3':'none',display:'flex',justifyContent:'space-between',alignItems:'center'}},
-              e('div',null,
-                e('div',{style:{fontSize:13,fontWeight:500,color:'#111827',display:'flex',alignItems:'center',gap:5}},
-                  t.venue,
-                  t.manual&&e('span',{style:{fontSize:9,background:'#eef2ff',color:'#4338ca',borderRadius:5,padding:'1px 5px',fontWeight:600}},'Manual')
-                ),
-                e('div',{style:{fontSize:11,color:'#9ca3af'}},t.date)
-              ),
-              e('div',{style:{display:'flex',alignItems:'center',gap:10}},
-                e('div',{style:{fontSize:13,fontWeight:500,color:theme.primary}},toDisplayDistance(t.miles).toFixed(1)+' '+mileageUnit),
-                e('button',{onClick:()=>{
-                    setMileageLog(prev=>prev.filter(x=>x!==t));
-                    if(t.id) db.collection('mileageTrips').doc(t.id).delete().catch(()=>alert('Could not delete — check your connection and try again.'));
-                  },
-                  style:{border:'none',background:'none',color:'#d1d5db',fontSize:18,cursor:'pointer',padding:'0 4px',lineHeight:1}},'×')
-              )
-            ))
-          )),
-          mileageLog.length>0&&e('div',{style:{padding:'10px 14px',borderTop:'1px solid #e5e7eb'}},
-            e('button',{onClick:()=>{
-                if(!window.confirm('Clear all mileage logs?'))return;
-                const batch=db.batch();
-                mileageLog.forEach(t=>{if(t.id)batch.delete(db.collection('mileageTrips').doc(t.id));});
-                batch.commit().catch(()=>alert('Could not delete — check your connection and try again.'));
-                setMileageLog([]);
-              },style:{fontSize:12,color:'#b91c1c',borderColor:'#fca5a5',width:'100%',padding:'7px 0'}},'Clear mileage log')
-          )
+          e(Row,{label:'Sync now',sub:lastSynced?'Last synced: '+lastSynced:'Pulls the latest events from the shared calendar',border:false,
+            right:e('button',{onClick:()=>syncFromGoogleCalendar(),disabled:calSyncing,
+              style:{fontSize:12,padding:'6px 14px',borderRadius:8,border:'1px solid '+theme.mid,
+                color:theme.mid,background:'#fff',cursor:calSyncing?'default':'pointer',fontWeight:500}},
+              calSyncing?'Syncing…':'🔄 Sync')
+          }),
+          googleAuthError&&e('div',{style:{padding:'0 14px 12px',fontSize:12,color:'#b91c1c'}},googleAuthError)
         )
       ),
-      e(Section,{icon:'🎸',iconBg:'#FFEDD5',title:'Stage Plot',summary:stagePlotSummary,isOpen:openSections.has('stageplot'),onToggle:()=>toggleSection('stageplot')},
-        e(StagePlotSection,{settings,setSettings,theme})
+      e(SettingsGroup,{title:'Tools'},
+        // Same as Band Stats above — tapping the row opens the tool directly,
+        // isOpen permanently false since there's nothing to show inline.
+        e(Section,{icon:'🎵',iconBg:'#FDF0DC',title:'Metronome',summary:metronomeTempos.length?metronomeTempos.length+' saved tempo'+(metronomeTempos.length===1?'':'s'):'No saved tempos yet',isOpen:false,onToggle:()=>setShowMetronomeModal(true)}),
+        e(Section,{icon:'🎚️',iconBg:'#111827',title:'Stage meter',summary:'SPL + RTA',isOpen:false,onToggle:()=>setShowStageMeterModal(true)})
       ),
-      e(Section,{icon:'📤',iconBg:'#F3F4F6',title:'Share Schedule',isOpen:openSections.has('data'),onToggle:()=>toggleSection('data')},
-        e(Row,{label:'Share schedule',sub:'A clean, printable view of upcoming shows to send to friends, family, or fans',border:false,
-          right:e('button',{onClick:()=>setShowSchedulePreview(true),style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'View')
-        })
+      e(SettingsGroup,{title:'You'},
+        e(Section,{icon:'🔔',iconBg:'#FEF3C7',title:'Reminders',summary:notificationsSummary,isOpen:openSections.has('notifications'),onToggle:()=>toggleSection('notifications')},
+          e(Row,{label:'Push notifications',
+            sub:pushEnabling?'Enabling…':pushToken?reminderSummary():'Get notified on this device when you have upcoming gigs',
+            border:pushToken,
+            right:pushEnabling
+              ?e('span',{style:{fontSize:13,color:'#9ca3af'}},'…')
+              :e(Toggle,{on:!!pushToken,disabled:pushEnabling,label:'Push notifications',
+                  onToggle:()=>{if(pushToken)disablePushNotifications();else enablePushNotifications();}})
+          }),
+          pushError&&e('div',{style:{padding:'0 14px 12px',fontSize:12,color:'#b91c1c'}},pushError),
+          pushToken&&e(Row,{label:'First reminder',sub:'Your early heads-up before a show',border:true,
+            right:e(ReminderTimeSelect,{value:settings.gigReminder1,onChange:v=>setSettings(s=>({...s,gigReminder1:v}))})
+          }),
+          pushToken&&e(Row,{label:'Second reminder',sub:'Closer to showtime · optional',border:true,
+            right:e(ReminderTimeSelect,{value:settings.gigReminder2,onChange:v=>setSettings(s=>({...s,gigReminder2:v}))})
+          }),
+          pushToken&&e(Row,{label:'🔊 Sound gigs need more lead time',
+            sub:'For gigs marked "we\'re bringing the PA" — those usually need more lead time',
+            border:settings.selfPaReminderEnabled,
+            right:e(Toggle,{on:settings.selfPaReminderEnabled,label:'Sound gigs need more lead time',
+              onToggle:()=>setSettings(s=>({...s,selfPaReminderEnabled:!s.selfPaReminderEnabled}))})
+          }),
+          // The reminder-slot picker used to be its own row of two buttons;
+          // folding it into this row's subtitle (tap to flip) keeps the same
+          // capability in one row instead of two.
+          pushToken&&settings.selfPaReminderEnabled&&e(Row,{label:'Remind me instead',
+            sub:e('span',{onClick:()=>setSettings(s=>({...s,selfPaReminderTarget:s.selfPaReminderTarget==='reminder1'?'reminder2':'reminder1'})),
+                style:{cursor:'pointer',textDecoration:'underline',textDecorationStyle:'dotted',textDecorationColor:'#d1d5db'}},
+              'Replaces your '+(settings.selfPaReminderTarget==='reminder1'?'first':'second')+' reminder — tap to change'),
+            border:false,
+            right:e(ReminderTimeSelect,{value:settings.selfPaReminderTime,onChange:v=>{
+              if(v==='off')setSettings(s=>({...s,selfPaReminderEnabled:false}));
+              else setSettings(s=>({...s,selfPaReminderTime:v}));
+            }})
+          })
+        ),
+        e(Section,{icon:'🏠',iconBg:'#E0EFFE',title:'Home address',summary:homeSummary,isOpen:openSections.has('home'),onToggle:()=>toggleSection('home')},
+          e(HomeAddressInput,{settings,setSettings,theme})
+        ),
+        e(Section,{icon:'🚗',iconBg:'#DCFCE7',title:'Mileage',
+            summary:`${toDisplayDistance(totalMiles).toFixed(1)} ${mileageUnit} · $${totalDeduction} deduction`,
+            isOpen:openSections.has('mileage'),onToggle:()=>toggleSection('mileage')},
+          e('div',{style:{padding:'10px 14px',display:'flex',justifyContent:'flex-end',borderBottom:'1px solid #e5e7eb'}},
+            e('div',{style:{display:'flex',background:theme.pale,borderRadius:9,padding:3,gap:2,flexShrink:0}},
+              e('button',{onClick:()=>setMileageUnit('mi'),
+                style:{border:'none',fontFamily:'inherit',fontSize:12,fontWeight:600,padding:'6px 11px',borderRadius:7,cursor:'pointer',whiteSpace:'nowrap',
+                  background:mileageUnit==='mi'?'#fff':'transparent',color:mileageUnit==='mi'?theme.primary:'#6b7280',
+                  boxShadow:mileageUnit==='mi'?'0 1px 2px rgba(0,0,0,.08)':'none'}},'Miles'),
+              e('button',{onClick:()=>setMileageUnit('km'),
+                style:{border:'none',fontFamily:'inherit',fontSize:12,fontWeight:600,padding:'6px 11px',borderRadius:7,cursor:'pointer',whiteSpace:'nowrap',
+                  background:mileageUnit==='km'?'#fff':'transparent',color:mileageUnit==='km'?theme.primary:'#6b7280',
+                  boxShadow:mileageUnit==='km'?'0 1px 2px rgba(0,0,0,.08)':'none'}},'Km')
+            )
+          ),
+          e('div',null,
+            e('div',{style:{display:'flex',borderBottom:'1px solid #e5e7eb'}},
+              e('div',{style:{flex:1,padding:'14px',textAlign:'center',borderRight:'1px solid #e5e7eb'}},
+                e('div',{style:{fontSize:10,color:'#6b7280',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4}},mileageUnit==='km'?'Total km':'Total miles'),
+                e('div',{style:{fontSize:26,fontWeight:500,color:theme.primary}},toDisplayDistance(totalMiles).toFixed(1)),
+                e('div',{style:{fontSize:11,color:'#9ca3af',marginTop:2}},today.getFullYear()+' season')
+              ),
+              e('div',{style:{flex:1,padding:'14px',textAlign:'center'}},
+                e('div',{style:{fontSize:10,color:'#6b7280',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4}},'Tax deduction'),
+                e('div',{style:{fontSize:26,fontWeight:500,color:theme.primary}},'$'+totalDeduction),
+                e('div',{style:{fontSize:11,color:'#9ca3af',marginTop:2}},'@ $0.67/mile')
+              )
+            ),
+            !addingTrip&&e('div',{onClick:()=>setAddingTrip(true),
+              style:{padding:'10px 14px',borderBottom:'1px solid #e5e7eb',display:'flex',alignItems:'center',justifyContent:'center',gap:6,cursor:'pointer',color:theme.mid,fontSize:13,fontWeight:600}},
+              '＋ Add trip manually'),
+            addingTrip&&e('div',{style:{padding:14,borderBottom:'1px solid #e5e7eb',background:'#fbfefd'}},
+              e('div',{style:{display:'flex',gap:8,marginBottom:10}},
+                e('div',{style:{flex:1}},
+                  e('label',{style:{display:'block',fontSize:11,color:'#6b7280',marginBottom:4,fontWeight:500}},'Date'),
+                  e('input',{type:'date',value:manualDate,onChange:ev=>setManualDate(ev.target.value),
+                    style:{width:'100%',border:'1px solid #d1d5db',borderRadius:8,padding:'8px 10px',fontSize:14,fontFamily:'inherit'}})
+                ),
+                e('div',{style:{flex:1}},
+                  e('label',{style:{display:'block',fontSize:11,color:'#6b7280',marginBottom:4,fontWeight:500}},'Miles'),
+                  e('input',{type:'number',placeholder:'e.g. 24.5',value:manualMiles,onChange:ev=>setManualMiles(ev.target.value),
+                    style:{width:'100%',border:'1px solid #d1d5db',borderRadius:8,padding:'8px 10px',fontSize:14,fontFamily:'inherit'}})
+                )
+              ),
+              e('div',{style:{marginBottom:10}},
+                e('label',{style:{display:'block',fontSize:11,color:'#6b7280',marginBottom:4,fontWeight:500}},'Label (optional)'),
+                e('input',{type:'text',placeholder:'e.g. The Anchor Bar',value:manualLabel,onChange:ev=>setManualLabel(ev.target.value),
+                  style:{width:'100%',border:'1px solid #d1d5db',borderRadius:8,padding:'8px 10px',fontSize:14,fontFamily:'inherit'}})
+              ),
+              e('div',{style:{display:'flex',gap:8}},
+                e('button',{onClick:()=>{setAddingTrip(false);setManualDate(todayStr);setManualMiles('');setManualLabel('');},
+                  style:{flex:1,padding:'9px 0',borderRadius:8,border:'1px solid #d1d5db',color:'#374151',background:'#fff',cursor:'pointer',fontSize:13,fontWeight:600}},'Cancel'),
+                e('button',{onClick:saveManualTrip,disabled:!manualDate||!parseFloat(manualMiles),
+                  style:{flex:1,padding:'9px 0',borderRadius:8,border:'none',color:'#fff',background:theme.mid,cursor:'pointer',fontSize:13,fontWeight:600,opacity:(!manualDate||!parseFloat(manualMiles))?0.5:1}},'Save trip')
+              )
+            ),
+            mileageLog.length===0&&e('div',{style:{padding:'1.5rem',textAlign:'center',color:'#9ca3af',fontSize:13}},'No trips logged yet — tap Map on a gig to start tracking'),
+            monthGroups.map(group=>e('div',{key:group.key},
+              e('div',{onClick:()=>toggleMonth(group.key),
+                style:{padding:'10px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer',background:'#fbfbfc',borderBottom:'1px solid #e5e7eb'}},
+                e('div',null,
+                  e('div',{style:{fontSize:13,fontWeight:600,color:'#111827'}},group.label),
+                  e('div',{style:{fontSize:11,color:'#9ca3af'}},`${group.trips.length} trip${group.trips.length!==1?'s':''} · ${toDisplayDistance(group.totalMiles).toFixed(1)} ${mileageUnit}`)
+                ),
+                e('span',{style:{fontSize:14,color:'#9ca3af'}},openMonths.has(group.key)?'∨':'›')
+              ),
+              openMonths.has(group.key)&&group.trips.map((t,gi)=>e('div',{key:t.id||gi,style:{padding:'10px 14px',borderBottom:gi<group.trips.length-1?'1px solid #f1f1f3':'none',display:'flex',justifyContent:'space-between',alignItems:'center'}},
+                e('div',null,
+                  e('div',{style:{fontSize:13,fontWeight:500,color:'#111827',display:'flex',alignItems:'center',gap:5}},
+                    t.venue,
+                    t.manual&&e('span',{style:{fontSize:9,background:'#eef2ff',color:'#4338ca',borderRadius:5,padding:'1px 5px',fontWeight:600}},'Manual')
+                  ),
+                  e('div',{style:{fontSize:11,color:'#9ca3af'}},t.date)
+                ),
+                e('div',{style:{display:'flex',alignItems:'center',gap:10}},
+                  e('div',{style:{fontSize:13,fontWeight:500,color:theme.primary}},toDisplayDistance(t.miles).toFixed(1)+' '+mileageUnit),
+                  e('button',{onClick:()=>{
+                      setMileageLog(prev=>prev.filter(x=>x!==t));
+                      if(t.id) db.collection('mileageTrips').doc(t.id).delete().catch(()=>alert('Could not delete — check your connection and try again.'));
+                    },
+                    style:{border:'none',background:'none',color:'#d1d5db',fontSize:18,cursor:'pointer',padding:'0 4px',lineHeight:1}},'×')
+                )
+              ))
+            )),
+            mileageLog.length>0&&e('div',{style:{padding:'10px 14px',borderTop:'1px solid #e5e7eb'}},
+              e('button',{onClick:()=>{
+                  if(!window.confirm('Clear all mileage logs?'))return;
+                  const batch=db.batch();
+                  mileageLog.forEach(t=>{if(t.id)batch.delete(db.collection('mileageTrips').doc(t.id));});
+                  batch.commit().catch(()=>alert('Could not delete — check your connection and try again.'));
+                  setMileageLog([]);
+                },style:{fontSize:12,color:'#b91c1c',borderColor:'#fca5a5',width:'100%',padding:'7px 0'}},'Clear mileage log')
+            )
+          )
+        ),
+        e(Section,{icon:'🎨',iconBg:'#FEE9F0',title:'Appearance',summary:appearanceSummary,isOpen:openSections.has('appearance'),onToggle:()=>toggleSection('appearance')},
+          e(Row,{label:'Default view',border:true,
+            right:e('select',{value:settings.defaultTab,onChange:ev=>setSettings(s=>({...s,defaultTab:ev.target.value})),
+              style:{padding:'5px 8px',border:'1px solid #d1d5db',borderRadius:8,fontSize:13,width:'auto'}},
+              e('option',{value:'calendar'},'Calendar'),e('option',{value:'list'},'Shows'),e('option',{value:'songs'},'Charts/Sets'),e('option',{value:'checklist'},'Checklists')
+            )
+          }),
+          e(Row,{label:'Band name',border:true,
+            right:editingBandName
+              ?e('div',{style:{display:'flex',alignItems:'center',gap:6}},
+                  e('input',{autoFocus:true,value:bandNameValue,onChange:ev=>setBandNameValue(ev.target.value),
+                    onKeyDown:ev=>{if(ev.key==='Enter')saveBandName();if(ev.key==='Escape')setEditingBandName(false);},
+                    style:{padding:'4px 8px',border:'1px solid #d1d5db',borderRadius:6,fontSize:13,width:160}}),
+                  e('button',{onClick:saveBandName,style:{fontSize:12,padding:'4px 10px',borderRadius:6,border:'none',background:theme.mid,color:'#fff',cursor:'pointer'}},'Save')
+                )
+              :e('div',{style:{display:'flex',alignItems:'center',gap:8}},
+                  e('span',{style:{fontSize:12,color:'#6b7280'}},settings.bandName),
+                  e('button',{onClick:()=>{setBandNameValue(settings.bandName);setEditingBandName(true);},style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #d1d5db',cursor:'pointer'}},'Edit')
+                )
+          }),
+          e(Row,{label:'Color scheme',border:false,
+            right:e('div',{style:{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-end'}},
+              Object.entries(THEMES).map(([k,v])=>
+                e('div',{key:k,onClick:()=>setSettings(s=>({...s,theme:k})),
+                  style:{width:24,height:24,borderRadius:'50%',background:v.primary,cursor:'pointer',
+                    border:settings.theme===k?'3px solid #fff':'3px solid transparent',
+                    boxShadow:settings.theme===k?`0 0 0 2px ${v.primary}`:'none'}})
+              ),
+              e(CustomColorSwatch,{
+                selected:settings.theme==='custom',
+                customColor:settings.customColor,
+                onPick:hex=>setSettings(s=>({...s,theme:'custom',customColor:hex}))
+              })
+            )
+          })
+        ),
+        e(Section,{icon:'🔐',iconBg:'#EEF2FF',title:'Account',summary:authUser?authUser.email:'Not signed in',isOpen:openSections.has('account'),onToggle:()=>toggleSection('account')},
+          e(AccountSection,{authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,onSendReset,onChangePassword,theme})
+        )
       ),
-      // Tapping this opens Band Stats directly — isOpen is always false (no
-      // expand step, no separate View button to hunt for) since there's
-      // nothing to show inline; the whole point of the row is the tap.
-      e(Section,{icon:'📊',iconBg:'#E1F5EE',title:'Band Stats',isOpen:false,onToggle:()=>setShowBandStatsModal(true)}),
-      // Same as Band Stats above — tapping the row opens the tool directly,
-      // isOpen permanently false since there's nothing to show inline.
-      e(Section,{icon:'🎵',iconBg:'#FDF0DC',title:'Metronome',summary:metronomeTempos.length?metronomeTempos.length+' saved tempo'+(metronomeTempos.length===1?'':'s'):'No saved tempos yet',isOpen:false,onToggle:()=>setShowMetronomeModal(true)}),
-      e(Section,{icon:'🎚️',iconBg:'#111827',title:'Stage Meter',summary:'SPL + 32-band RTA, mic-based',isOpen:false,onToggle:()=>setShowStageMeterModal(true)}),
-      e(Section,{icon:'ℹ️',iconBg:'#E5E7EB',title:'About',summary:'v1.0.0',isOpen:openSections.has('about'),onToggle:()=>toggleSection('about')},
-        e(Row,{label:'Version',sub:'1.0.0',border:true,right:null}),
-        e(Row,{label:'Share app',sub:'Coming soon',border:false,right:e('button',{disabled:true,style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #e5e7eb',color:'#9ca3af',cursor:'not-allowed',background:'#f9fafb'}},'Coming soon')})
+      e(SettingsGroup,{title:null},
+        e(Section,{icon:'ℹ️',iconBg:'#E5E7EB',title:'About',summary:'v1.0.0',isOpen:openSections.has('about'),onToggle:()=>toggleSection('about')},
+          e(Row,{label:'Version',sub:'1.0.0',border:true,right:null}),
+          e(Row,{label:'Share app',sub:'Coming soon',border:false,right:e('button',{disabled:true,style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #e5e7eb',color:'#9ca3af',cursor:'not-allowed',background:'#f9fafb'}},'Coming soon')})
+        )
       )
     ),
     showBandStatsModal&&e(BandStatsModal,{
