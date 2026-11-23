@@ -122,6 +122,21 @@ const FUNCTIONS_BASE_URL='https://us-central1-peatmoss-gig-dashboard-4f41b.cloud
 const IRS_RATE=0.67;
 const KM_PER_MILE=1.60934;
 const TYPES=["bar","wedding","private event","other"];
+// A gig that arrives from Google Calendar has no type, so it is guessed from its title: "wedding" means a wedding; a title with
+// a private-event word (a party, a corporate event, a birthday ...) means a private event; anything else is a bar gig. It is
+// only a guess: open the gig in the app and change its type, and that is kept. Whole words only ("Partyka's" is not a party).
+const PRIVATE_EVENT_WORDS=/\b(private|corporate|party|parties|birthday|anniversary|graduation|reunion|fundraiser|mitzvah|retirement)\b/i;
+// A stored date (2026-11-20) as people read it: Fri, Nov 20. Anything that is not a plain date is shown as it is.
+function friendlyDate(iso){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(iso||''))) return iso||'';
+  return new Date(iso+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+}
+function guessGigType(title){
+  const t=String(title||'');
+  if(t.toLowerCase().includes('wedding')) return 'wedding';
+  if(PRIVATE_EVENT_WORDS.test(t)) return 'private event';
+  return 'bar';
+}
 const STATUSES=["confirmed","hold","cancelled"];
 const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const FULL_MONTHS=["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -3083,7 +3098,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
                     t.venue,
                     t.manual&&e('span',{style:{fontSize:9,background:'#eef2ff',color:'#4338ca',borderRadius:5,padding:'1px 5px',fontWeight:600}},'Manual')
                   ),
-                  e('div',{style:{fontSize:11,color:'#9ca3af'}},t.date)
+                  e('div',{style:{fontSize:11,color:'#9ca3af'}},friendlyDate(t.date))
                 ),
                 e('div',{style:{display:'flex',alignItems:'center',gap:10}},
                   e('div',{style:{fontSize:13,fontWeight:500,color:theme.primary}},toDisplayDistance(t.miles).toFixed(1)+' '+mileageUnit),
@@ -3148,8 +3163,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
       ),
       e(SettingsGroup,{title:null},
         e(Section,{icon:'ℹ️',iconBg:'#E5E7EB',title:'About',summary:'v1.0.0',isOpen:openSections.has('about'),onToggle:()=>toggleSection('about')},
-          e(Row,{label:'Version',sub:'1.0.0',border:true,right:null}),
-          e(Row,{label:'Share app',sub:'Coming soon',border:false,right:e('button',{disabled:true,style:{fontSize:12,padding:'5px 12px',borderRadius:8,border:'1px solid #e5e7eb',color:'#9ca3af',cursor:'not-allowed',background:'#f9fafb'}},'Coming soon')})
+          e(Row,{label:'Version',sub:'1.0.0',border:false,right:null})
         )
       )
     ),
@@ -4726,7 +4740,7 @@ function App(){
           // it's free text that could itself contain "·".
           const notesTag=(ev.description||'').match(/Notes:\s*([\s\S]*)$/);
           const notes=notesTag?notesTag[1].trim():'';
-          return{id:ev.id,date,venue,location:ev.location||'',type:venue.toLowerCase().includes('wedding')?'wedding':'bar',status:'confirmed',time,fromCalendar:true,selfPA,notes};
+          return{id:ev.id,date,venue,location:ev.location||'',type:guessGigType(venue),status:'confirmed',time,fromCalendar:true,selfPA,notes};
         }).filter(Boolean);
         // Only replace calendar-sourced gigs; keep manually-added local gigs untouched.
         // Also drop any local gig that matches one just synced (same date+venue) —
@@ -5342,7 +5356,7 @@ function App(){
         e('div',{style:{width:8,height:8,borderRadius:'50%',background:theme.light,flexShrink:0}}),
         e('div',{style:{fontSize:12,color:theme.headerSoft||'#E1F5EE',overflow:'hidden'}},
           'Next up: ',e('span',{style:{fontWeight:500,color:theme.headerText}},(nextGig.selfPA?'🔊 ':'')+nextGig.venue),
-          e('span',{style:{color:theme.headerSoft||theme.accent}},` · ${nextGig.location} · ${nextGig.date}${nextGig.time?' · '+nextGig.time:''}`)
+          e('span',{style:{color:theme.headerSoft||theme.accent}},` · ${nextGig.location} · ${friendlyDate(nextGig.date)}${nextGig.time?' · '+nextGig.time:''}`)
         )
       )
     ),
@@ -5439,7 +5453,12 @@ function App(){
             });
           })
         ),
-        e('div',{style:{marginTop:10,fontSize:13,color:'#6b7280'}},filteredUpcoming.length+' upcoming gig'+(filteredUpcoming.length!==1?'s':''))
+        (()=>{
+          // The list can also hold earlier gigs (flagged unpaid, or all past shows when that is switched on), so count only the
+          // ones that are really upcoming and show the earlier ones separately.
+          const nUp=filteredUpcoming.filter(g=>g.date>=todayStr).length,nPast=filteredUpcoming.length-nUp;
+          return e('div',{style:{marginTop:10,fontSize:13,color:'#6b7280'}},nUp+' upcoming gig'+(nUp!==1?'s':'')+(nPast?' · '+nPast+' earlier':''));
+        })()
       ),
       tab==='songs'&&e('div',null,
         // Charts and Sets as one in-page switch instead of two tabs — the
@@ -5802,7 +5821,7 @@ function App(){
                     e('button',{onClick:()=>renameMember(m.id,editNameValue),style:{padding:'4px 10px',borderRadius:6,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontSize:12}},'Save')
                   )
                 :e('span',{style:{fontWeight:500,fontSize:16,display:'flex',alignItems:'center',gap:6}},
-                    m.name+"'s Checklist",
+                    m.name,
                     e('button',{onClick:()=>{setEditingName(true);setEditNameValue(m.name);},style:{border:'none',background:'none',cursor:'pointer',fontSize:13,color:'#9ca3af',padding:'2px 4px'}},'✏️')
                   ),
               e('button',{onClick:()=>setConfirmDelete(m.id),style:{color:'#b91c1c',borderColor:'#fca5a5'}},'Remove')
@@ -6179,7 +6198,7 @@ function App(){
     confirmDelete&&members.filter(m=>m.id===confirmDelete).map(m=>
       e('div',{key:'confirm',onClick:()=>setConfirmDelete(null),className:'overlay'},
         e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:360}},
-          e('div',{style:{fontSize:16,fontWeight:600,marginBottom:8}},`Remove ${m.name}'s checklist?`),
+          e('div',{style:{fontSize:16,fontWeight:600,marginBottom:8}},`Remove ${m.name}?`),
           e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:20}},`This will permanently delete "${m.name}" and all its items. This cannot be undone.`),
           e('div',{style:{display:'flex',gap:8,justifyContent:'flex-end'}},
             e('button',{onClick:()=>setConfirmDelete(null)},'Cancel'),
