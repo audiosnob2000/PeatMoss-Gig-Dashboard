@@ -122,6 +122,9 @@ Built to the plan above. Choices made along the way:
       Notifications is now Reminders, Calendar is Calendar connection, Home is Home address. The new app's Settings has a
       different layout (it also has the Band panel with members and invites, and Recently deleted), so at the cutover regroup
       it the same way, with Members & invites under The Band. A "Tuner · soon" row was left out on purpose (no tuner exists).
+- [x] *Done:* calendar sync now recognises private events from the title (private, corporate, party, birthday, anniversary,
+      graduation, reunion, fundraiser, mitzvah, retirement; whole words, wedding still wins, unclear stays a bar gig). In both
+      the live app (PR #192) and this branch's new app.
 - [ ] **A startup bug already in the live app (found while testing the picker):** a checklist tick made within about a second
       of opening the app can be lost. The app briefly sets itself up twice after a page load, and a tick that lands before it
       is ready to save is never written, so it is undone. Not caused by the picker (an unmodified copy of main does the same,
