@@ -5821,7 +5821,7 @@ function App(){
                     e('button',{onClick:()=>renameMember(m.id,editNameValue),style:{padding:'4px 10px',borderRadius:6,border:'none',background:theme.mid,color:'#fff',cursor:'pointer',fontSize:12}},'Save')
                   )
                 :e('span',{style:{fontWeight:500,fontSize:16,display:'flex',alignItems:'center',gap:6}},
-                    m.name+"'s Checklist",
+                    m.name,
                     e('button',{onClick:()=>{setEditingName(true);setEditNameValue(m.name);},style:{border:'none',background:'none',cursor:'pointer',fontSize:13,color:'#9ca3af',padding:'2px 4px'}},'✏️')
                   ),
               e('button',{onClick:()=>setConfirmDelete(m.id),style:{color:'#b91c1c',borderColor:'#fca5a5'}},'Remove')
@@ -6198,7 +6198,7 @@ function App(){
     confirmDelete&&members.filter(m=>m.id===confirmDelete).map(m=>
       e('div',{key:'confirm',onClick:()=>setConfirmDelete(null),className:'overlay'},
         e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',style:{maxWidth:360}},
-          e('div',{style:{fontSize:16,fontWeight:600,marginBottom:8}},`Remove ${m.name}'s checklist?`),
+          e('div',{style:{fontSize:16,fontWeight:600,marginBottom:8}},`Remove ${m.name}?`),
           e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:20}},`This will permanently delete "${m.name}" and all its items. This cannot be undone.`),
           e('div',{style:{display:'flex',gap:8,justifyContent:'flex-end'}},
             e('button',{onClick:()=>setConfirmDelete(null)},'Cancel'),
