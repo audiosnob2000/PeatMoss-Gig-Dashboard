@@ -117,6 +117,11 @@ Built to the plan above. Choices made along the way:
       day of tracking onward (kept as `trackFrom`) and not cancelled or on-hold ones. "Paid" is remembered in `paidGigIds`; both
       are saved with the person's unpaid marks. The new app (this branch) still has the old behavior (Paid by default,
       "Mark unpaid"); the cutover prep must carry the change over so launch day does not undo it.
+- [ ] **Port the grouped Settings to the new multi-band app.** Done in the live app (branch `claude/gigday-checklist-picker`):
+      the 12 sections sit under The Band, Tools and You (grouped cards, value on the right), About by itself at the bottom;
+      Notifications is now Reminders, Calendar is Calendar connection, Home is Home address. The new app's Settings has a
+      different layout (it also has the Band panel with members and invites, and Recently deleted), so at the cutover regroup
+      it the same way, with Members & invites under The Band. A "Tuner · soon" row was left out on purpose (no tuner exists).
 - [ ] **A startup bug already in the live app (found while testing the picker):** a checklist tick made within about a second
       of opening the app can be lost. The app briefly sets itself up twice after a page load, and a tick that lands before it
       is ready to save is never written, so it is undone. Not caused by the picker (an unmodified copy of main does the same,
