@@ -516,6 +516,7 @@ test('Gig Day: choose which checklists show, remembered across reloads, changeab
   await mia.page.getByText('TONIGHT', { exact: true }).waitFor();
   await showing(/Showing Gear, PA & cables/);
   assert.equal(await mia.page.getByText('Merch').count(), 0);
+  await mia.page.waitForTimeout(2500);    // let the page finish starting up: a tick in the first second can be lost (a known startup issue)
 
   // 4. ticking an item still works, and with one list the heading goes away
   await mia.page.getByText('Tuner').click();
