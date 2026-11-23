@@ -3495,7 +3495,7 @@ function GigDayScreen({todaysGigs,theme,settings,unpaidGigIds,paidGigIds,onToggl
     const next=now.includes(id)?now.filter(x=>x!==id):[...now,id];
     onSetGigDayLists(members.every(m=>next.includes(m.id))?null:next);
   };
-  // Tonight's gigs count as unpaid until they are marked paid.
+  // Tonight's gigs show as unpaid until they are marked paid.
   const isUnpaid=id=>unpaidGigIds.includes(id)||!paidGigIds.includes(id);
   const stagePlotSet=!!(settings.stagePlotUrl||settings.stagePlotFile);
   const openStagePlot=()=>window.open(settings.stagePlotUrl||settings.stagePlotFile.content,'_blank');
@@ -3637,9 +3637,11 @@ function App(){
   const [gigDayLists,setGigDayLists]=useState(()=>{try{const s=localStorage.getItem('pmtf_gigday_lists');const v=s?JSON.parse(s):null;return Array.isArray(v)?v:null;}catch{return null;}});
   const [mileageLog,setMileageLog]=useState(()=>{try{const s=localStorage.getItem('pmtf_mileage');return s?JSON.parse(s):[];}catch{return [];}});
   const [unpaidGigIds,setUnpaidGigIds]=useState(()=>{try{const s=localStorage.getItem('pmtf_unpaid_gigs');return s?JSON.parse(s):[];}catch{return [];}});
-  // Gigs the person has said are paid. A gig being played today counts as unpaid until it is marked paid (see the effect
-  // below), so "paid" has to be remembered, or marking it paid would be undone the next time the app opens.
+  // Gigs the person has said are paid. Tonight's gig is shown as unpaid on Gig Day until it is marked paid, and a gig that
+  // is still unmarked once its day has passed is flagged unpaid (see the effect below), so "paid" has to be remembered.
   const [paidGigIds,setPaidGigIds]=useState(()=>{try{const s=localStorage.getItem('pmtf_paid_gigs');return s?JSON.parse(s):[];}catch{return [];}});
+  // The first day this tracking was on. Only gigs from that day on are flagged, so the whole past is not marked unpaid.
+  const [unpaidTrackFrom,setUnpaidTrackFrom]=useState(()=>{try{return localStorage.getItem('pmtf_unpaid_track_from')||null;}catch{return null;}});
   const [unpaidReady,setUnpaidReady]=useState(false);   // true once the saved marks have loaded
   const [unpaidMode,setUnpaidMode]=useState(false);
   // Separate storage key from members/checklists — a brand-new feature, so
@@ -4050,16 +4052,19 @@ function App(){
   },[members,gigDayLists]);
   useEffect(()=>{try{localStorage.setItem('pmtf_mileage',JSON.stringify(mileageLog));}catch{}},[mileageLog]);
   useEffect(()=>{
-    try{localStorage.setItem('pmtf_unpaid_gigs',JSON.stringify(unpaidGigIds));localStorage.setItem('pmtf_paid_gigs',JSON.stringify(paidGigIds));}catch{}
-    if(unpaidHydratedRef.current) db.collection('unpaidGigs').doc(getUserId()).set({gigIds:unpaidGigIds,paidGigIds}).catch(reportWriteError('save your unpaid-gig marks'));
-  },[unpaidGigIds,paidGigIds]);
-  // A gig being played today is unpaid until the person says it has been paid. Flag it (once) so it stays on the unpaid
-  // list after tonight; marking it paid is remembered in paidGigIds so it is not flagged again.
+    try{localStorage.setItem('pmtf_unpaid_gigs',JSON.stringify(unpaidGigIds));localStorage.setItem('pmtf_paid_gigs',JSON.stringify(paidGigIds));if(unpaidTrackFrom)localStorage.setItem('pmtf_unpaid_track_from',unpaidTrackFrom);}catch{}
+    if(unpaidHydratedRef.current) db.collection('unpaidGigs').doc(getUserId()).set({gigIds:unpaidGigIds,paidGigIds,trackFrom:unpaidTrackFrom}).catch(reportWriteError('save your unpaid-gig marks'));
+  },[unpaidGigIds,paidGigIds,unpaidTrackFrom]);
+  // Tonight's gig shows as unpaid on Gig Day but is not on the unpaid list yet. Once its day has passed (the next day, or the
+  // next time the app is open) a gig that is still not marked paid is flagged unpaid, so it is not forgotten. Only gigs from
+  // the first day of tracking onward, and not cancelled or on hold.
   useEffect(()=>{
     if(!unpaidReady)return;
-    const need=gigs.filter(g=>g.date===todayStr&&!g.deletedAt&&!unpaidGigIds.includes(g.id)&&!paidGigIds.includes(g.id)).map(g=>g.id);
+    if(!unpaidTrackFrom){setUnpaidTrackFrom(todayStr);return;}
+    const need=gigs.filter(g=>g.date>=unpaidTrackFrom&&g.date<todayStr&&g.status!=='cancelled'&&g.status!=='hold'&&!g.deletedAt
+      &&!unpaidGigIds.includes(g.id)&&!paidGigIds.includes(g.id)).map(g=>g.id);
     if(need.length) setUnpaidGigIds(p=>[...new Set([...p,...need])]);
-  },[unpaidReady,gigs,unpaidGigIds,paidGigIds]);
+  },[unpaidReady,unpaidTrackFrom,gigs,unpaidGigIds,paidGigIds]);
   useEffect(()=>{try{if(pushToken)localStorage.setItem('pmtf_push_token',pushToken);else localStorage.removeItem('pmtf_push_token');}catch{}},[pushToken]);
   // Register the service worker once so it's ready to receive background
   // pushes, and forward foreground pushes (tab open + focused) through the
@@ -4310,7 +4315,7 @@ function App(){
         }).catch(()=>{migrating=false;});
         return;
       }
-      if(doc.exists){setUnpaidGigIds(doc.data().gigIds||[]);setPaidGigIds(doc.data().paidGigIds||[]);}
+      if(doc.exists){setUnpaidGigIds(doc.data().gigIds||[]);setPaidGigIds(doc.data().paidGigIds||[]);if(doc.data().trackFrom)setUnpaidTrackFrom(doc.data().trackFrom);}
       unpaidHydratedRef.current=true;setUnpaidReady(true);
     },err=>{unpaidHydratedRef.current=true;setUnpaidReady(true);onDbError(err);});
     return unsub;
@@ -4887,7 +4892,7 @@ function App(){
 
   const todaysGigs=gigs.filter(g=>g.date===todayStr);
   const gigAfterToday=[...gigs].filter(g=>g.date>todayStr).sort((a,b)=>a.date>b.date?1:-1)[0];
-  // Unpaid means flagged unpaid, or a gig on today's date that has not been marked paid.
+  // Unpaid means flagged unpaid, or a gig on today's date that has not been marked paid (shown that way on Gig Day).
   const isUnpaidNow=id=>unpaidGigIds.includes(id)||(!paidGigIds.includes(id)&&gigs.some(g=>g.id===id&&g.date===todayStr));
   const markPaid=ids=>{setUnpaidGigIds(p=>p.filter(x=>!ids.includes(x)));setPaidGigIds(p=>[...new Set([...p,...ids])]);};
   const markUnpaid=ids=>{setPaidGigIds(p=>p.filter(x=>!ids.includes(x)));setUnpaidGigIds(p=>[...new Set([...p,...ids])]);};
