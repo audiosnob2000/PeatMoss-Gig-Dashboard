@@ -3443,9 +3443,20 @@ function TravelModals({askTrack,setAskTrack,goHome,openMapsChooser,startTracking
     )
   );
 }
-function GigDayScreen({todaysGigs,theme,settings,unpaidGigIds,onToggleUnpaid,mileageLog,openMapsChooser,travelModalsProps,members,onToggleItem,nextGigAfterToday,onClose}){
-  const checklistDone=members.reduce((s,m)=>s+m.items.filter(it=>it.checked).length,0);
-  const checklistTotal=members.reduce((s,m)=>s+m.items.length,0);
+function GigDayScreen({todaysGigs,theme,settings,unpaidGigIds,onToggleUnpaid,mileageLog,openMapsChooser,travelModalsProps,members,onToggleItem,gigDayLists,onSetGigDayLists,nextGigAfterToday,onClose}){
+  // Which packing lists to show. Until the person chooses, all of them (as before). Their choice is remembered and can be
+  // changed any time from "Choose lists"; ticking every box goes back to "all", so lists added later show up by themselves.
+  const [pickOpen,setPickOpen]=useState(false);
+  const chosen=Array.isArray(gigDayLists)?gigDayLists:null;
+  const shownLists=chosen?members.filter(m=>chosen.includes(m.id)):members;
+  const allItems=members.reduce((s,m)=>s+m.items.length,0);
+  const checklistDone=shownLists.reduce((s,m)=>s+m.items.filter(it=>it.checked).length,0);
+  const checklistTotal=shownLists.reduce((s,m)=>s+m.items.length,0);
+  const toggleChosen=id=>{
+    const now=chosen||members.map(m=>m.id);
+    const next=now.includes(id)?now.filter(x=>x!==id):[...now,id];
+    onSetGigDayLists(members.every(m=>next.includes(m.id))?null:next);
+  };
   const stagePlotSet=!!(settings.stagePlotUrl||settings.stagePlotFile);
   const openStagePlot=()=>window.open(settings.stagePlotUrl||settings.stagePlotFile.content,'_blank');
   return e(React.Fragment,null,
@@ -3513,13 +3524,21 @@ function GigDayScreen({todaysGigs,theme,settings,unpaidGigIds,onToggleUnpaid,mil
       stagePlotSet&&e(GigDayCard,{icon:'🎛️',title:'Stage plot',theme,action:'View ›',onAction:openStagePlot},
         e('div',{style:{fontSize:12.5,color:'#6b7280'}},'Tap to open what you saved in Settings.')
       ),
-      e(GigDayCard,{icon:'✅',title:'What to bring',theme},
-        checklistTotal===0
+      e(GigDayCard,{icon:'✅',title:'What to bring',theme,action:members.length>1?'Choose lists ›':undefined,onAction:()=>setPickOpen(true)},
+        allItems===0
           ?e('div',{style:{fontSize:12.5,color:'#6b7280'}},'No lists yet — add one in the Checklist tab')
           :e('div',null,
-            e('div',{style:{fontSize:11.5,color:'#6b7280',marginBottom:8}},`${checklistDone} of ${checklistTotal} packed`),
-            members.map(m=>e('div',{key:m.id,style:{marginBottom:m.items.length?10:0}},
-              members.length>1&&e('div',{style:{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.05em',color:'#9ca3af',marginBottom:4}},m.name),
+            e('div',{style:{fontSize:11.5,color:'#6b7280',marginBottom:8}},
+              members.length>1
+                ?e(React.Fragment,null,'Showing ',
+                    chosen
+                      ?(shownLists.length?shownLists.map((m,i)=>e(React.Fragment,{key:m.id},i>0&&', ',e('b',{style:{color:'#111827',fontWeight:600}},m.name))):'no lists')
+                      :e('b',{style:{color:'#111827',fontWeight:600}},'all lists'),
+                    ` · ${checklistDone} of ${checklistTotal} packed`)
+                :`${checklistDone} of ${checklistTotal} packed`),
+            shownLists.length===0&&e('div',{style:{fontSize:12.5,color:'#6b7280',padding:'4px 0 6px'}},'No lists chosen. Tap Choose lists.'),
+            shownLists.map(m=>e('div',{key:m.id,style:{marginBottom:m.items.length?10:0}},
+              shownLists.length>1&&e('div',{style:{fontSize:10.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.05em',color:'#9ca3af',marginBottom:4}},m.name),
               m.items.map((it,idx)=>e('div',{key:it.id,onClick:()=>onToggleItem(m.id,it.id),
                 style:{display:'flex',alignItems:'center',gap:9,padding:'6px 0',borderTop:idx>0?'1px solid #f1f2f1':'none',cursor:'pointer'}},
                 e('span',{style:{width:16,height:16,borderRadius:5,border:it.checked?'none':'1.5px solid #cbd5d1',background:it.checked?theme.mid:'transparent',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}},
@@ -3538,6 +3557,23 @@ function GigDayScreen({todaysGigs,theme,settings,unpaidGigIds,onToggleUnpaid,mil
       )
     )
   ),
+  pickOpen&&e('div',{onClick:()=>setPickOpen(false),className:'overlay',style:{alignItems:'flex-end',padding:0}},
+    e('div',{onClick:ev=>ev.stopPropagation(),className:'modal',role:'dialog','aria-label':'Choose lists',
+      style:{borderRadius:'20px 20px 0 0',width:'min(480px,100%)',padding:'12px 18px 18px',maxHeight:'85vh',overflowY:'auto'}},
+      e('div',{style:{width:36,height:4,borderRadius:2,background:'#d1d5db',margin:'0 auto 10px'}}),
+      e('div',{style:{fontSize:16,fontWeight:700}},'Which lists show on Gig Day?'),
+      e('div',{style:{fontSize:12.5,color:'#6b7280',margin:'2px 0 8px'}},'Only these show on Gig Day. Your Checklist tab keeps all of them.'),
+      members.map(m=>{
+        const d=m.items.filter(it=>it.checked).length,t=m.items.length;
+        const on=!chosen||chosen.includes(m.id);
+        return e('label',{key:m.id,style:{display:'flex',alignItems:'center',gap:10,padding:'10px 2px',borderTop:'1px solid #eef0f0',cursor:'pointer'}},
+          e('input',{type:'checkbox',checked:on,onChange:()=>toggleChosen(m.id),style:{width:18,height:18,margin:0,accentColor:theme.mid,flexShrink:0}}),
+          e('span',{style:{flex:1,fontSize:14,fontWeight:600}},m.name),
+          e('span',{style:{fontSize:11.5,color:'#6b7280'}},t===0?'No items':`${d} of ${t} packed`));
+      }),
+      e('div',{style:{fontSize:12,color:'#6b7280',margin:'12px 0'}},'We remember your choice for every gig until you change it. ',
+        e('button',{onClick:()=>onSetGigDayLists(null),style:{border:'none',background:'none',color:theme.mid,fontWeight:700,fontSize:12,padding:0,cursor:'pointer'}},'Show all lists')),
+      e('button',{onClick:()=>setPickOpen(false),style:{width:'100%',border:'none',background:theme.mid,color:theme.midText||'#fff',borderRadius:10,padding:'11px 0',fontSize:14,fontWeight:700,cursor:'pointer'}},'Done'))),
   e(TravelModals,travelModalsProps)
   );
 }
@@ -4207,6 +4243,9 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
   });
   const [gigs,setGigs]=useState(()=>{try{const s=localStorage.getItem(lsKey('gigs'));return s?JSON.parse(s):[];}catch{return [];}});
   const [members,setMembers]=useState(()=>{try{const s=localStorage.getItem(lsKey('members'));return s?JSON.parse(s):[];}catch{return [];}});
+  // Which packing lists the Gig Day "What to bring" card shows. null (the default) means all of them; otherwise the list
+  // of chosen list ids, remembered for every gig until changed. Kept with the lists themselves, so it is per band and syncs.
+  const [gigDayLists,setGigDayLists]=useState(()=>{try{const s=localStorage.getItem(lsKey('gigday_lists'));const v=s?JSON.parse(s):null;return Array.isArray(v)?v:null;}catch{return null;}});
   const [mileageLog,setMileageLog]=useState(()=>{try{const s=localStorage.getItem(lsUserKey('mileage'));return s?JSON.parse(s):[];}catch{return [];}});
   const [unpaidGigIds,setUnpaidGigIds]=useState(()=>{try{const s=localStorage.getItem(lsKey('unpaid_gigs'));return s?JSON.parse(s):[];}catch{return [];}});
   const [unpaidMode,setUnpaidMode]=useState(false);
@@ -4542,9 +4581,9 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
   useEffect(()=>{try{localStorage.setItem(lsKey('gigs'),JSON.stringify(gigs));}catch{}},[gigs]);
   useEffect(()=>{try{const{bandName,calendarId,stagePlotUrl,stagePlotFile,...personal}=settings;localStorage.setItem('pmtf_settings',JSON.stringify(personal));}catch{}},[settings]);
   useEffect(()=>{
-    try{localStorage.setItem(lsKey('members'),JSON.stringify(members));}catch{}
-    if(checklistHydratedRef.current) bc('checklists').doc(getUserId()).set({members}).catch(reportWriteError('save your packing list'));
-  },[members]);
+    try{localStorage.setItem(lsKey('members'),JSON.stringify(members));localStorage.setItem(lsKey('gigday_lists'),JSON.stringify(gigDayLists));}catch{}
+    if(checklistHydratedRef.current) bc('checklists').doc(getUserId()).set({members,gigDayLists}).catch(reportWriteError('save your packing list'));
+  },[members,gigDayLists]);
   useEffect(()=>{try{localStorage.setItem(lsUserKey('mileage'),JSON.stringify(mileageLog));}catch{}},[mileageLog]);
   useEffect(()=>{
     try{localStorage.setItem(lsKey('unpaid_gigs'),JSON.stringify(unpaidGigIds));}catch{}
@@ -4728,7 +4767,16 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
   useEffect(()=>{
     const myId=getUserId();
     const unsub=bc('checklists').doc(myId).onSnapshot(doc=>{
-      if(doc.exists) setMembers(doc.data().members||[]);
+      if(doc.exists){
+        setMembers(doc.data().members||[]);
+        // Our own save comes straight back as a "pending write" snapshot. Taking the choice from it could put back an
+        // older value over a change the person just made, so only a snapshot that is not our own pending write counts
+        // (the first load, or a change made on another device).
+        if(!doc.metadata.hasPendingWrites){
+          const g=doc.data().gigDayLists;
+          setGigDayLists(Array.isArray(g)?g:null);
+        }
+      }
       checklistHydratedRef.current=true;
     },err=>{checklistHydratedRef.current=true;onDbError(err);});
     return unsub;
@@ -5733,7 +5781,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
 
   if(gigDayOpen&&todaysGigs.length>0)return e(GigDayScreen,{
     todaysGigs,theme,settings,unpaidGigIds,onToggleUnpaid:toggleUnpaidGig,mileageLog,
-    openMapsChooser,travelModalsProps,members,onToggleItem:toggleItem,
+    openMapsChooser,travelModalsProps,members,onToggleItem:toggleItem,gigDayLists,onSetGigDayLists:setGigDayLists,
     nextGigAfterToday:gigAfterToday,
     onClose:()=>setGigDayOpen(false)
   });

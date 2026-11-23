@@ -479,6 +479,69 @@ test('Gig Day: Navigate then "Yes, track" starts mileage tracking and then offer
   noProblems();
 });
 
+test('Gig Day: choose which checklists show, remembered across reloads, changeable, and Show all lists goes back', async () => {
+  const { mia, id, miaUid } = await twoPeople();
+  const item = (i, text, checked = false) => ({ id: 'i' + i, text, checked });
+  await db.doc(`bands/${id}/checklists/${miaUid}`).set({ members: [
+    { id: 'l1', name: 'Gear', items: [item(1, 'Guitar', true), item(2, 'Tuner'), item(3, 'Capo')] },
+    { id: 'l2', name: 'PA & cables', items: [item(4, 'XLR cables'), item(5, 'Power strip', true)] },
+    { id: 'l3', name: 'Merch', items: [item(6, 'T-shirts'), item(7, 'Card reader')] },
+  ] });
+  await db.doc(`bands/${id}/gigs/today1`).set({ venue: 'Tonight Venue', date: inDays(0), time: '7:30 PM', type: 'gig', status: 'confirmed' });
+  await mia.page.getByText('TONIGHT', { exact: true }).waitFor();
+  const showing = re => mia.page.getByText(re).waitFor();
+  // Closing the picker: wait until it has really gone, so nothing in the picker is mistaken for the card.
+  const done = async () => { await mia.page.getByRole('button', { name: 'Done' }).click(); await mia.page.getByText('Which lists show on Gig Day?').waitFor({ state: 'detached' }); };
+  const stored = async () => (await db.doc(`bands/${id}/checklists/${miaUid}`).get()).data().gigDayLists;
+
+  // 1. until she chooses, everything shows, exactly as before
+  await showing(/Showing all lists · 2 of 7 packed/);
+  for (const t of ['Gear', 'PA & cables', 'Merch']) await mia.page.getByText(t, { exact: true }).waitFor();
+  await shot(mia, '23_gigday_all_lists');
+
+  // 2. open the picker and drop Merch
+  await mia.page.getByText('Choose lists ›').click();
+  await mia.page.getByText('Which lists show on Gig Day?').waitFor();
+  await mia.page.getByText('1 of 3 packed').waitFor();                       // Gear
+  await shot(mia, '24_gigday_picker');
+  await mia.page.getByRole('checkbox', { name: /Merch/ }).uncheck();
+  await done();
+  await showing(/Showing Gear, PA & cables · 2 of 5 packed/);
+  assert.equal(await mia.page.getByText('Merch').count(), 0, 'the dropped list is gone from the card');
+  assert.equal(await mia.page.getByText('T-shirts').count(), 0);
+  assert.deepEqual(await poll(async () => { const v = await stored(); return Array.isArray(v) ? v : null; }), ['l1', 'l2'], 'saved with her lists');
+
+  // 3. remembered: a reload shows the same choice
+  await mia.page.reload();
+  await mia.page.getByText('TONIGHT', { exact: true }).waitFor();
+  await showing(/Showing Gear, PA & cables/);
+  assert.equal(await mia.page.getByText('Merch').count(), 0);
+
+  // 4. ticking an item still works, and with one list the heading goes away
+  await mia.page.getByText('Tuner').click();
+  await showing(/Showing Gear, PA & cables · 3 of 5 packed/);
+  await mia.page.getByText('Choose lists ›').click();
+  await mia.page.getByRole('checkbox', { name: /PA & cables/ }).uncheck();
+  await done();
+  await showing(/Showing Gear · 2 of 3 packed/);
+  assert.equal(await mia.page.getByText('Gear', { exact: true }).count(), 1, 'only the name in the summary line; no list heading for a single list');
+  assert.equal(await mia.page.getByText('XLR cables').count(), 0);
+
+  // 5. no lists chosen is allowed and says so
+  await mia.page.getByText('Choose lists ›').click();
+  await mia.page.getByRole('checkbox', { name: /Gear/ }).uncheck();
+  await done();
+  await mia.page.getByText('No lists chosen. Tap Choose lists.').waitFor();
+
+  // 6. change it back: Show all lists
+  await mia.page.getByText('Choose lists ›').click();
+  await mia.page.getByRole('button', { name: 'Show all lists' }).click();
+  await done();
+  await showing(/Showing all lists · 3 of 7 packed/);
+  assert.equal(await poll(async () => ((await stored()) === null ? true : null)), true, 'back to the default (all lists)');
+  noProblems();
+});
+
 test('a second band gets no free time: its owner meets the subscribe screen straight away, and the first band is untouched', async () => {
   const olive = await person('olive@example.com');
   await signUp(olive); await startBand(olive, 'Band One');
@@ -881,6 +944,8 @@ test('restoring a show while signed in to Google puts it back on the band calend
   await row.getByText(/puts it back on the band.s Google Calendar too/).waitFor();
   await row.getByRole('button', { name: 'Restore' }).click();
   await row.waitFor({ state: 'detached' });
+  // The row leaves the screen at once; the Google call and the database writes follow a moment later, so wait for them.
+  assert.equal(await poll(async () => (olive.google.calls.length >= 1 ? true : null)), true, 'the calendar was asked to create the event');
   assert.equal(olive.google.calls.length, 1);                                                     // one event created on the calendar
   const sent = olive.google.calls[0].body;
   assert.equal(sent.summary, 'Back On Calendar');
@@ -892,13 +957,13 @@ test('restoring a show while signed in to Google puts it back on the band calend
   assert.equal(restored.venue, 'Back On Calendar');
   assert.equal(restored.fromCalendar, true);                                                     // saved under the new calendar event id
   assert.equal(restored.deletedAt, undefined);
-  const old = (await db.doc(`bands/${id}/gigs/oldgig1`).get()).data();
+  const old = await poll(async () => { const d = (await db.doc(`bands/${id}/gigs/oldgig1`).get()).data(); return d && d.restoredAs ? d : null; });
   assert.equal(old.restoredAs, 'evt1000');                                                       // the old trashed copy is marked, not brought back twice
   assert.ok(old.deletedAt);
   await olive.page.getByRole('button', { name: /Back/ }).click(); await inApp(olive);
   await tab(olive, 'Shows');
   await olive.page.getByText('Back On Calendar').first().waitFor();
-  assert.equal((await db.collection(`bands/${id}/gigs`).get()).docs.filter(d => !d.data().deletedAt).length, 1);
+  assert.equal(await poll(async () => ((await db.collection(`bands/${id}/gigs`).get()).docs.filter(d => !d.data().deletedAt).length === 1 ? true : null)), true, 'exactly one live copy of the show');
   noProblems();
 });
 

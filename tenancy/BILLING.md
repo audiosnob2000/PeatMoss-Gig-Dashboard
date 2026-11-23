@@ -104,18 +104,26 @@ Built to the plan above. Choices made along the way:
   cancellation pending, band free time ending, and a confirmation after paying), and Manage billing in Settings > Account.
 - **Tests:** `npm test` (121, incl. `test/billing.test.js` with a stand-in Stripe and locally signed webhook checks),
   `npm run test:stripe` (real test-mode API: prices, Checkout, portal, a real trialing subscription and the same-card
-  refusal; cleans up after itself), `npm run e2e` (36 in a browser).
+  refusal; cleans up after itself), `npm run e2e` (39 in a browser).
 
 ### Other app items to come back to (not billing)
 - [ ] **Gig Day: the two buttons next to each other now do the same thing.** "Navigate" was changed to ask "Track miles for
       this trip?" first (like the calendar), so the "Track miles" button beside it is a duplicate (it already opened that
       question, and Skip went to the maps chooser). Decide: (1) remove "Track miles", or (2) make it start tracking only,
       with no maps (for someone already driving or not needing directions). Recommended: option 2.
-- [ ] **A flaky browser test:** "restoring a show while signed in to Google puts it back on the band calendar too" failed
-      once in about six runs of `npm run e2e` and then passed twice in a row. Looks like timing, unrelated to any change;
-      look into it if it fails again.
+- [x] **The flaky browser test** ("restoring a show while signed in to Google ...") failed in a few runs. The test checked
+      for the Google call and the database writes the instant the row left the screen, before they had happened. It now waits
+      for them. Fixed; look again only if it fails again.
 - [ ] **The Gig Dashboard Review's "Fix now" list** (11 items: calendar sync dates, reminders for calendar gigs, cancelled
       gigs, mileage rate, large PDFs and more) has not been worked on in this session. Check what is still open.
+
+### Built since: Gig Day checklist picker
+The Gig Day "What to bring" card has **Choose lists ›**. Until a person chooses, it shows all their lists (as before). The
+choice is remembered for every gig (kept in the same saved checklist document, so it is per band and syncs to their other
+devices) and can be changed any time; **Show all lists** goes back. With one list chosen, its heading goes away. Not built, on
+purpose: a different choice per gig, and tagging a list with a gig type so it appears by itself (see the mock-up page).
+One bug found while testing and fixed: the app could take its own earlier save as news and put an old choice back over a
+quick change, so the saved choice is now only read from a snapshot that is not the app's own pending save.
 
 ### Launch checklist (owner, in order; tick them off here)
 - [ ] 1. **Stripe reminder emails and the live portal.** In the Stripe Dashboard turn on the trial-ending reminder and the
