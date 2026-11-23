@@ -107,6 +107,16 @@ Built to the plan above. Choices made along the way:
   refusal; cleans up after itself), `npm run e2e` (39 in a browser).
 
 ### Other app items to come back to (not billing)
+- [ ] **The Gig Day checklist picker is also on its own branch for the LIVE app:** `claude/gigday-checklist-picker`, one
+      commit on top of main (only `index.html` changes, no rules or server changes). It is NOT live until that branch is merged
+      into main (a pull request is the easy way; merge it on a day without a gig, then close and reopen the app on the phone).
+      The same feature is also in this branch's new multi-band app, so the cutover prep must reconcile the two.
+- [ ] **A startup bug already in the live app (found while testing the picker):** a checklist tick made within about a second
+      of opening the app can be lost. The app briefly sets itself up twice after a page load, and a tick that lands before it
+      is ready to save is never written, so it is undone. Not caused by the picker (an unmodified copy of main does the same,
+      2 times in 3 in the test). A simple guard did not fix it; the real fix is in how the app starts up and saves. Decide
+      whether it is worth fixing, and check whether the new multi-band app behaves the same way.
+
 - [ ] **Gig Day: the two buttons next to each other now do the same thing.** "Navigate" was changed to ask "Track miles for
       this trip?" first (like the calendar), so the "Track miles" button beside it is a duplicate (it already opened that
       question, and Skip went to the maps chooser). Decide: (1) remove "Track miles", or (2) make it start tracking only,
