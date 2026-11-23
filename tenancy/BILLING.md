@@ -125,6 +125,8 @@ Built to the plan above. Choices made along the way:
 - [x] *Done:* calendar sync now recognises private events from the title (private, corporate, party, birthday, anniversary,
       graduation, reunion, fundraiser, mitzvah, retirement; whole words, wedding still wins, unclear stays a bar gig). In both
       the live app (PR #192) and this branch's new app.
+- [x] *Done:* the Shows tab footer counts only upcoming gigs ("2 upcoming gigs · 1 earlier"), and the Next up banner and the
+      mileage log show dates as Fri, Nov 20 instead of 2026-11-20. In both the live app (PR #192) and this branch's new app.
 - [ ] **A startup bug already in the live app (found while testing the picker):** a checklist tick made within about a second
       of opening the app can be lost. The app briefly sets itself up twice after a page load, and a tick that lands before it
       is ready to save is never written, so it is undone. Not caused by the picker (an unmodified copy of main does the same,

@@ -126,6 +126,11 @@ const TYPES=["bar","wedding","private event","other"];
 // a private-event word (a party, a corporate event, a birthday ...) means a private event; anything else is a bar gig. It is
 // only a guess: open the gig in the app and change its type, and that is kept. Whole words only ("Partyka's" is not a party).
 const PRIVATE_EVENT_WORDS=/\b(private|corporate|party|parties|birthday|anniversary|graduation|reunion|fundraiser|mitzvah|retirement)\b/i;
+// A stored date (2026-11-20) as people read it: Fri, Nov 20. Anything that is not a plain date is shown as it is.
+function friendlyDate(iso){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(iso||''))) return iso||'';
+  return new Date(iso+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+}
 function guessGigType(title){
   const t=String(title||'');
   if(t.toLowerCase().includes('wedding')) return 'wedding';
@@ -3062,7 +3067,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
                   t.venue,
                   t.manual&&e('span',{style:{fontSize:9,background:'#eef2ff',color:'#4338ca',borderRadius:5,padding:'1px 5px',fontWeight:600}},'Manual')
                 ),
-                e('div',{style:{fontSize:11,color:'#9ca3af'}},t.date)
+                e('div',{style:{fontSize:11,color:'#9ca3af'}},friendlyDate(t.date))
               ),
               e('div',{style:{display:'flex',alignItems:'center',gap:10}},
                 e('div',{style:{fontSize:13,fontWeight:500,color:theme.primary}},toDisplayDistance(t.miles).toFixed(1)+' '+mileageUnit),
@@ -5844,7 +5849,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
         e('div',{style:{width:8,height:8,borderRadius:'50%',background:theme.light,flexShrink:0}}),
         e('div',{style:{fontSize:12,color:theme.headerSoft||'#E1F5EE',overflow:'hidden'}},
           'Next up: ',e('span',{style:{fontWeight:500,color:theme.headerText}},(nextGig.selfPA?'🔊 ':'')+nextGig.venue),
-          e('span',{style:{color:theme.headerSoft||theme.accent}},` · ${nextGig.location} · ${nextGig.date}${nextGig.time?' · '+nextGig.time:''}`)
+          e('span',{style:{color:theme.headerSoft||theme.accent}},` · ${nextGig.location} · ${friendlyDate(nextGig.date)}${nextGig.time?' · '+nextGig.time:''}`)
         )
       )
     ),
@@ -5942,7 +5947,12 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
             });
           })
         ),
-        e('div',{style:{marginTop:10,fontSize:13,color:'#6b7280'}},filteredUpcoming.length+' upcoming gig'+(filteredUpcoming.length!==1?'s':''))
+        (()=>{
+          // The list can also hold earlier gigs (flagged unpaid, or all past shows when that is switched on), so count only the
+          // ones that are really upcoming and show the earlier ones separately.
+          const nUp=filteredUpcoming.filter(g=>g.date>=todayStr).length,nPast=filteredUpcoming.length-nUp;
+          return e('div',{style:{marginTop:10,fontSize:13,color:'#6b7280'}},nUp+' upcoming gig'+(nUp!==1?'s':'')+(nPast?' · '+nPast+' earlier':''));
+        })()
       ),
       tab==='songs'&&e('div',null,
         // Charts and Sets as one in-page switch instead of two tabs — the
