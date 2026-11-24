@@ -107,6 +107,13 @@ Built to the plan above. Choices made along the way:
   refusal; cleans up after itself), `npm run e2e` (39 in a browser).
 
 ### Other app items to come back to (not billing)
+- [ ] **Look into Firestore cost and scale as more bands join.** The owner wants this investigated before many bands use the app.
+      Known starting point from the review: the gig-reminder service reads EVERY gig (`collection('gigs').get()`) on each run, so
+      reads grow with the total number of gigs across all bands; charts and files are also stored in the database rather than in
+      file storage. To do: estimate reads/writes/storage per active band, find the heavy spots (reminder job, live listeners on
+      whole collections, large chart/file documents), and decide fixes (query only upcoming gigs, move files to Cloud Storage, add a
+      budget alert). The new multi-band app already scopes data per band; check it the same way. (The day-change check added in
+      the small-fix release runs only on the phone and costs nothing.)
 - [ ] **Small-fix release (live app branch `claude/calendar-sync-range`, also mirrored in this branch's new app):** calendar sync
       reaches through the end of next year; a cancelled gig is not "tonight's show" on Gig Day and an on-hold one shows with an
       "On hold" tag; Share schedule lists only upcoming, confirmed gigs; the app notices when the date changes overnight; the
