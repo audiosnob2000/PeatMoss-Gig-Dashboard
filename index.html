@@ -2841,8 +2841,8 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
 
   // Groups upcoming gigs by month, preserving date order, for the schedule
   // preview/print/share feature.
-  // Only upcoming gigs that are happening: no past (unpaid) gigs, nothing cancelled, nothing still on hold ('pending' is the old name for hold).
-  const scheduleGigs=gigs.filter(g=>g.date>=todayStr&&g.status!=='cancelled'&&g.status!=='hold'&&g.status!=='pending').sort((a,b)=>a.date>b.date?1:-1);
+  // What gets listed and sent as text: upcoming gigs only. On-hold gigs are included (they may still happen); cancelled ones never are.
+  const scheduleGigs=gigs.filter(g=>g.date>=todayStr&&g.status!=='cancelled').sort((a,b)=>a.date>b.date?1:-1);
   const scheduleByMonth=[];
   scheduleGigs.forEach(g=>{
     const label=new Date(g.date+'T12:00:00').toLocaleDateString('en-US',{month:'long'});
@@ -2870,9 +2870,11 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
   // the list view about which gigs are upcoming.
   const scheduleGigsByDate=useMemo(()=>{
     const m={};
-    scheduleGigs.forEach(g=>{if(!m[g.date])m[g.date]=[];m[g.date].push(g);});
+    // The calendar can also show past gigs that are still unpaid (red dot), but only when the $ button is on.
+    const pastUnpaid=scheduleShowUnpaid?gigs.filter(g=>g.date<todayStr&&g.status!=='cancelled'&&(unpaidGigIds||[]).includes(g.id)):[];
+    scheduleGigs.concat(pastUnpaid).forEach(g=>{if(!m[g.date])m[g.date]=[];m[g.date].push(g);});
     return m;
-  },[scheduleGigs]);
+  },[scheduleGigs,scheduleShowUnpaid,gigs,unpaidGigIds]);
   const scheduleCalFirstDay=new Date(scheduleCalYear,scheduleCalMonth,1).getDay();
   const scheduleCalDaysInMonth=new Date(scheduleCalYear,scheduleCalMonth+1,0).getDate();
   const scheduleCalCells=Array(scheduleCalFirstDay).fill(null).concat(Array.from({length:scheduleCalDaysInMonth},(_,i)=>i+1));

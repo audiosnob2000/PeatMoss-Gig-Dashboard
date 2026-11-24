@@ -116,7 +116,7 @@ Built to the plan above. Choices made along the way:
       the small-fix release runs only on the phone and costs nothing.)
 - [ ] **Small-fix release (live app branch `claude/calendar-sync-range`, also mirrored in this branch's new app):** calendar sync
       reaches through the end of next year; a cancelled gig is not "tonight's show" on Gig Day and an on-hold one shows with an
-      "On hold" tag; Share schedule lists only upcoming, confirmed gigs; the app notices when the date changes overnight; the
+      "On hold" tag; Share schedule lists only upcoming gigs (on hold included, cancelled never; past unpaid gigs only on the calendar with the $ button on); the app notices when the date changes overnight; the
       mileage "season" totals count the current year only. Still open from the review: the mileage rate (IRS_RATE 0.67 is
       hard-coded; owner to pick) and the ~22 buttons that ignore the color theme (mock-up first).
 - [ ] **Write an instructions / help page** (for the website and to link from the app) so people know how to do things: connect
