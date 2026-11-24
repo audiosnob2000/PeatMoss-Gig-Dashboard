@@ -107,6 +107,11 @@ Built to the plan above. Choices made along the way:
   refusal; cleans up after itself), `npm run e2e` (39 in a browser).
 
 ### Other app items to come back to (not billing)
+- [ ] **Tell people the Google Calendar sync needs a Location.** The sync only brings in calendar events that have a location
+      filled in (it skips events with a blank location so personal notes like "Jim is off" don't become fake gigs). Gigs the app
+      wrote itself are exempt. This is not written down anywhere a user would see it. Put it in the instructions: the website /
+      help text and the Calendar settings screen in the app ("Events need a Location to sync as gigs"). A gig that is in range
+      but missing is usually this.
 - [ ] **The Gig Day checklist picker is also on its own branch for the LIVE app:** `claude/gigday-checklist-picker`, one
       commit on top of main (only `index.html` changes, no rules or server changes). It is NOT live until that branch is merged
       into main (a pull request is the easy way; merge it on a day without a gig, then close and reopen the app on the phone).
