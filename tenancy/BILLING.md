@@ -107,6 +107,11 @@ Built to the plan above. Choices made along the way:
   refusal; cleans up after itself), `npm run e2e` (39 in a browser).
 
 ### Other app items to come back to (not billing)
+- [ ] **Small-fix release (live app branch `claude/calendar-sync-range`, also mirrored in this branch's new app):** calendar sync
+      reaches through the end of next year; a cancelled gig is not "tonight's show" on Gig Day and an on-hold one shows with an
+      "On hold" tag; Share schedule lists only upcoming, confirmed gigs; the app notices when the date changes overnight; the
+      mileage "season" totals count the current year only. Still open from the review: the mileage rate (IRS_RATE 0.67 is
+      hard-coded; owner to pick) and the ~22 buttons that ignore the color theme (mock-up first).
 - [ ] **Write an instructions / help page** (for the website and to link from the app) so people know how to do things: connect
       the Google Calendar, add a gig, make checklists, track mileage, invite bandmates, cancel. It should include "calendar
       events need a Location to sync as gigs". The owner said this is definitely needed at some point; not started.
