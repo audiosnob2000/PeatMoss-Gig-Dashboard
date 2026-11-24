@@ -131,6 +131,14 @@ function friendlyDate(iso){
   if(!/^\d{4}-\d{2}-\d{2}$/.test(String(iso||''))) return iso||'';
   return new Date(iso+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
 }
+// Which stretch of the calendar the sync asks Google for: January 1 of this
+// year through the end of NEXT year. The window is worked out fresh on every
+// sync, so it keeps moving forward by itself (on Jan 1, 2027 it reaches the end
+// of 2028) and gigs booked far ahead, or on December 31, are never cut off.
+function calendarSyncRange(now){
+  const y=now.getFullYear();
+  return{start:new Date(y,0,1).toISOString(),end:new Date(y+2,0,1).toISOString()};
+}
 function guessGigType(title){
   const t=String(title||'');
   if(t.toLowerCase().includes('wedding')) return 'wedding';
@@ -4688,9 +4696,7 @@ function App(){
     }
     setCalSyncing(true);
     try{
-      const now=new Date();
-      const start=new Date(now.getFullYear(),0,1).toISOString();
-      const end=new Date(now.getFullYear(),11,31).toISOString();
+      const {start,end}=calendarSyncRange(new Date());
       const base=`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(settings.calendarId)}/events?key=${GOOGLE_API_KEY}&timeMin=${start}&timeMax=${end}&singleEvents=true&orderBy=startTime&maxResults=100`;
       // A full year can hold more than 100 events once personal
       // "unavailable" notices pile up alongside real gigs — a single page
