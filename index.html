@@ -131,6 +131,14 @@ function friendlyDate(iso){
   if(!/^\d{4}-\d{2}-\d{2}$/.test(String(iso||''))) return iso||'';
   return new Date(iso+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
 }
+// Which stretch of the calendar the sync asks Google for: January 1 of this
+// year through the end of NEXT year. The window is worked out fresh on every
+// sync, so it keeps moving forward by itself (on Jan 1, 2027 it reaches the end
+// of 2028) and gigs booked far ahead, or on December 31, are never cut off.
+function calendarSyncRange(now){
+  const y=now.getFullYear();
+  return{start:new Date(y,0,1).toISOString(),end:new Date(y+2,0,1).toISOString()};
+}
 function guessGigType(title){
   const t=String(title||'');
   if(t.toLowerCase().includes('wedding')) return 'wedding';
@@ -227,7 +235,7 @@ const US_STATE_ABBR={
 };
 const STATUS_STYLE={
   confirmed:{bg:"#d1fae5",color:"#065f46",label:"Confirmed"},
-  hold: {bg:"#f1f5f9",color:"#475569",label:"Hold"},
+  hold: {bg:"#f1f5f9",color:"#475569",label:"On hold"},
   cancelled:{bg:"#fee2e2",color:"#b91c1c",label:"Cancelled"},
 };
 // Chord transposition for typed/text charts. Chart text is free-form (no
@@ -269,8 +277,11 @@ function transposeChart(text,steps){
     lineIsChordLine(line)?line.replace(/\S+/g,tok=>transposeChordToken(tok,steps)):line
   ).join('\n');
 }
-const today=new Date();
-const todayStr=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+function dateKey(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+// These two are updated by the app when the date changes (see the day-change check in App), so a phone left open
+// overnight does not keep thinking it is still yesterday.
+let today=new Date();
+let todayStr=dateKey(today);
 const yr=today.getFullYear();
 // First-run placeholder shown only until a real gig list loads (from
 // Firestore, or from this device's own localStorage cache once it has one).
@@ -2848,7 +2859,9 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
   const notificationsSummary=pushEnabling?'Enabling…':pushToken?reminderSummary():'Off';
   const calendarSummary=googleAccessToken?'Connected':'Not connected';
   const stagePlotSummary=settings.stagePlotUrl?'Link saved':settings.stagePlotFile?'File uploaded':'Not set';
-  const totalMiles=mileageLog.reduce((s,t)=>s+t.miles,0);
+  // The "season" totals are this year's trips only (the month list below still shows every trip).
+  const seasonLog=mileageLog.filter(t=>String(t.date||'').startsWith(String(today.getFullYear())));
+  const totalMiles=seasonLog.reduce((s,t)=>s+t.miles,0);
   const totalDeduction=(totalMiles*IRS_RATE).toFixed(2);
   // Trips are always stored in miles; mileageUnit only controls how they're
   // displayed. Defaults to miles for everyone who hasn't chosen km.
@@ -2878,7 +2891,8 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
 
   // Groups upcoming gigs by month, preserving date order, for the schedule
   // preview/print/share feature.
-  const scheduleGigs=gigs.filter(g=>g.date>=todayStr||(unpaidGigIds||[]).includes(g.id)).sort((a,b)=>a.date>b.date?1:-1);
+  // What gets listed and sent as text: upcoming gigs only. On-hold gigs are included (they may still happen); cancelled ones never are.
+  const scheduleGigs=gigs.filter(g=>g.date>=todayStr&&g.status!=='cancelled').sort((a,b)=>a.date>b.date?1:-1);
   const scheduleByMonth=[];
   scheduleGigs.forEach(g=>{
     const label=new Date(g.date+'T12:00:00').toLocaleDateString('en-US',{month:'long'});
@@ -2906,9 +2920,11 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
   // the list view about which gigs are upcoming.
   const scheduleGigsByDate=useMemo(()=>{
     const m={};
-    scheduleGigs.forEach(g=>{if(!m[g.date])m[g.date]=[];m[g.date].push(g);});
+    // The calendar can also show past gigs that are still unpaid (red dot), but only when the $ button is on.
+    const pastUnpaid=scheduleShowUnpaid?gigs.filter(g=>g.date<todayStr&&g.status!=='cancelled'&&(unpaidGigIds||[]).includes(g.id)):[];
+    scheduleGigs.concat(pastUnpaid).forEach(g=>{if(!m[g.date])m[g.date]=[];m[g.date].push(g);});
     return m;
-  },[scheduleGigs]);
+  },[scheduleGigs,scheduleShowUnpaid,gigs,unpaidGigIds]);
   const scheduleCalFirstDay=new Date(scheduleCalYear,scheduleCalMonth,1).getDay();
   const scheduleCalDaysInMonth=new Date(scheduleCalYear,scheduleCalMonth+1,0).getDate();
   const scheduleCalCells=Array(scheduleCalFirstDay).fill(null).concat(Array.from({length:scheduleCalDaysInMonth},(_,i)=>i+1));
@@ -2971,7 +2987,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
                 googleAccessToken?'Disconnect':'Sign in')
             })
           ),
-          e(Row,{label:'Sync now',sub:lastSynced?'Last synced: '+lastSynced:'Pulls the latest events from the shared calendar',border:false,
+          e(Row,{label:'Sync now',sub:(lastSynced?'Last synced: '+lastSynced:'Pulls the latest events from the shared calendar')+'. Events need a Location filled in to show up as gigs.',border:false,
             right:e('button',{onClick:()=>syncFromGoogleCalendar(),disabled:calSyncing,
               style:{fontSize:12,padding:'6px 14px',borderRadius:8,border:'1px solid '+theme.mid,
                 color:theme.mid,background:'#fff',cursor:calSyncing?'default':'pointer',fontWeight:500}},
@@ -4093,7 +4109,18 @@ function App(){
     const need=gigs.filter(g=>g.date>=unpaidTrackFrom&&g.date<todayStr&&g.status!=='cancelled'&&g.status!=='hold'&&!g.deletedAt
       &&!unpaidGigIds.includes(g.id)&&!paidGigIds.includes(g.id)).map(g=>g.id);
     if(need.length) setUnpaidGigIds(p=>[...new Set([...p,...need])]);
-  },[unpaidReady,unpaidTrackFrom,gigs,unpaidGigIds,paidGigIds]);
+  },[unpaidReady,unpaidTrackFrom,gigs,unpaidGigIds,paidGigIds,todayStr]);
+  // Notice when the date changes while the app stays open (midnight, or the phone waking up the next day).
+  const [,setDayTick]=useState(0);
+  useEffect(()=>{
+    const check=()=>{
+      const n=new Date(),k=dateKey(n);
+      if(k!==todayStr){today=n;todayStr=k;setDayTick(t=>t+1);}
+    };
+    const id=setInterval(check,30000);
+    document.addEventListener('visibilitychange',check);
+    return()=>{clearInterval(id);document.removeEventListener('visibilitychange',check);};
+  },[]);
   useEffect(()=>{try{if(pushToken)localStorage.setItem('pmtf_push_token',pushToken);else localStorage.removeItem('pmtf_push_token');}catch{}},[pushToken]);
   // Register the service worker once so it's ready to receive background
   // pushes, and forward foreground pushes (tab open + focused) through the
@@ -4688,9 +4715,7 @@ function App(){
     }
     setCalSyncing(true);
     try{
-      const now=new Date();
-      const start=new Date(now.getFullYear(),0,1).toISOString();
-      const end=new Date(now.getFullYear(),11,31).toISOString();
+      const {start,end}=calendarSyncRange(new Date());
       const base=`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(settings.calendarId)}/events?key=${GOOGLE_API_KEY}&timeMin=${start}&timeMax=${end}&singleEvents=true&orderBy=startTime&maxResults=100`;
       // A full year can hold more than 100 events once personal
       // "unavailable" notices pile up alongside real gigs — a single page
@@ -4919,10 +4944,10 @@ function App(){
   };
   // ────────────────────────────────────────────────────────────────────────
 
-  const todaysGigs=gigs.filter(g=>g.date===todayStr);
-  const gigAfterToday=[...gigs].filter(g=>g.date>todayStr).sort((a,b)=>a.date>b.date?1:-1)[0];
+  const todaysGigs=gigs.filter(g=>g.date===todayStr&&g.status!=='cancelled');
+  const gigAfterToday=[...gigs].filter(g=>g.date>todayStr&&g.status!=='cancelled').sort((a,b)=>a.date>b.date?1:-1)[0];
   // Unpaid means flagged unpaid, or a gig on today's date that has not been marked paid (shown that way on Gig Day).
-  const isUnpaidNow=id=>unpaidGigIds.includes(id)||(!paidGigIds.includes(id)&&gigs.some(g=>g.id===id&&g.date===todayStr));
+  const isUnpaidNow=id=>unpaidGigIds.includes(id)||(!paidGigIds.includes(id)&&gigs.some(g=>g.id===id&&g.date===todayStr&&g.status!=='cancelled'));
   const markPaid=ids=>{setUnpaidGigIds(p=>p.filter(x=>!ids.includes(x)));setPaidGigIds(p=>[...new Set([...p,...ids])]);};
   const markUnpaid=ids=>{setPaidGigIds(p=>p.filter(x=>!ids.includes(x)));setUnpaidGigIds(p=>[...new Set([...p,...ids])]);};
   const toggleUnpaidGig=id=>isUnpaidNow(id)?markPaid([id]):markUnpaid([id]);
@@ -4941,7 +4966,7 @@ function App(){
   const upcoming=useMemo(()=>[...listGigs].sort((a,b)=>{
     const va=a[sort.col]||'',vb=b[sort.col]||'';
     return va<vb?-sort.dir:va>vb?sort.dir:0;
-  }),[gigs,sort,settings.showPastShows,unpaidGigIds]);
+  }),[gigs,sort,settings.showPastShows,unpaidGigIds,todayStr]);
   const filteredUpcoming=useMemo(()=>{
     const q=showsSearch.trim().toLowerCase();
     if(!q)return upcoming;
@@ -4958,7 +4983,7 @@ function App(){
     return{month:m,count:mg.length,weddings:mg.filter(g=>g.type==='wedding').length,private:mg.filter(g=>g.type==='private event').length,regular:mg.filter(g=>g.type==='bar'||g.type==='other').length};
   }),[gigs,chartYear,chartShowPast,upcomingGigsAll]);
 
-  const gigsByDate=useMemo(()=>{const m={};(settings.showPast?gigs:gigs.filter(g=>g.date>=todayStr||unpaidGigIds.includes(g.id))).forEach(g=>{if(!m[g.date])m[g.date]=[];m[g.date].push(g);});return m;},[gigs,settings.showPast,unpaidGigIds]);
+  const gigsByDate=useMemo(()=>{const m={};(settings.showPast?gigs:gigs.filter(g=>g.date>=todayStr||unpaidGigIds.includes(g.id))).forEach(g=>{if(!m[g.date])m[g.date]=[];m[g.date].push(g);});return m;},[gigs,settings.showPast,unpaidGigIds,todayStr]);
   const unavailableByDate=useMemo(()=>{const m={};unavailable.forEach(u=>{if(!m[u.date])m[u.date]=[];m[u.date].push(u);});return m;},[unavailable]);
   const unavailId=date=>date+'__'+getUserId();
   const markUnavailable=(date,name)=>{
