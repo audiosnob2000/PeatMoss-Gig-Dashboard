@@ -119,7 +119,7 @@ Built to the plan above. Choices made along the way:
       "On hold" tag; Share schedule lists only upcoming gigs (on hold included, cancelled never; past unpaid gigs only on the calendar with the $ button on); the app notices when the date changes overnight; the
       mileage "season" totals count the current year only. Mileage rate: now by trip date from the `IRS_RATES` table at the top of
       index.html (72.5 cents Jan 1-Jun 30 2026, 76 cents from Jul 1 2026; branch `claude/mileage-rates` for the live app). **Add one line there
-      whenever the IRS announces a new rate.** Still open from the review: the ~22 buttons that ignore the color theme (mock-up first).
+      whenever the IRS announces a new rate.** Buttons and switches now follow the color theme (live app branch `claude/theme-buttons`; the Band Stats chart colors, red Delete and the blue Map button are left alone).
 - [ ] **Write an instructions / help page** (for the website and to link from the app) so people know how to do things: connect
       the Google Calendar, add a gig, make checklists, track mileage, invite bandmates, cancel. It should include "calendar
       events need a Location to sync as gigs". The owner said this is definitely needed at some point; not started.

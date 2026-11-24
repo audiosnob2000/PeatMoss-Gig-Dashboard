@@ -28,7 +28,7 @@ html,body{overflow-x:hidden;width:100%}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f4f6f8;min-height:100vh}
 #root{width:100%;max-width:100vw;overflow-x:hidden}
 input,select{font-family:inherit;font-size:14px;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;width:100%;outline:none;background:#fff}
-input:focus,select:focus{border-color:#1D9E75;box-shadow:0 0 0 3px rgba(29,158,117,0.15)}
+input:focus,select:focus{border-color:var(--t-mid,#1D9E75);box-shadow:0 0 0 3px rgba(29,158,117,0.15);box-shadow:0 0 0 3px color-mix(in srgb,var(--t-mid,#1D9E75) 15%,transparent)}
 button{font-family:inherit;cursor:pointer;border-radius:8px;font-size:13px;padding:7px 14px;border:1px solid #d1d5db;background:#fff;color:#374151}
 button:hover{background:#f3f4f6}
 .badge{font-size:11px;font-weight:500;padding:2px 10px;border-radius:99px;white-space:nowrap;display:inline-block}
@@ -885,7 +885,7 @@ function SwipeableGigRow({g,bg,border,tc,onOpen,onDelete,onMap,pastUnpaid}){
 
 function Toggle({on,onToggle,disabled,label}){
   return e('div',{onClick:disabled?undefined:onToggle,role:'switch','aria-checked':on,'aria-label':label,
-    style:{width:44,height:26,borderRadius:99,background:on?'#1D9E75':'#e5e7eb',cursor:disabled?'default':'pointer',opacity:disabled?0.6:1,position:'relative',flexShrink:0,transition:'background 0.2s'}},
+    style:{width:44,height:26,borderRadius:99,background:on?'var(--t-mid,#1D9E75)':'#e5e7eb',cursor:disabled?'default':'pointer',opacity:disabled?0.6:1,position:'relative',flexShrink:0,transition:'background 0.2s'}},
     e('div',{style:{width:20,height:20,borderRadius:'50%',background:'#fff',position:'absolute',top:3,left:on?21:3,transition:'left 0.2s'}})
   );
 }
@@ -1103,7 +1103,7 @@ function MetronomeList({tempos,onStart,onDelete,onAdd,onClose}){
       ?e('div',{style:{flex:1,display:'flex',alignItems:'center',justifyContent:'center',color:'#9ca3af',fontSize:14}},'No saved tempos yet.')
       :e('div',{style:{display:'flex',flexDirection:'column',gap:10,marginBottom:14,flex:1,overflowY:'auto'}},
           tempos.map(t=>e('div',{key:t.id,style:{display:'flex',alignItems:'center',gap:13,background:'#f9fafb',border:'1px solid #e5e7eb',borderRadius:13,padding:'12px 13px'}},
-            e('div',{onClick:()=>onStart(t),style:{width:58,height:58,borderRadius:12,background:'#E1F5EE',color:'#085041',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',flexShrink:0,cursor:'pointer'}},
+            e('div',{onClick:()=>onStart(t),style:{width:58,height:58,borderRadius:12,background:'var(--t-pale,#E1F5EE)',color:'var(--t-primary,#085041)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',flexShrink:0,cursor:'pointer'}},
               e('b',{style:{fontSize:18,fontWeight:700,lineHeight:1}},t.bpm),
               e('span',{style:{fontSize:8,fontWeight:600,letterSpacing:'0.04em',textTransform:'uppercase',opacity:.75}},'bpm')
             ),
@@ -1111,11 +1111,11 @@ function MetronomeList({tempos,onStart,onDelete,onAdd,onClose}){
               e('div',{style:{fontSize:15.5,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},t.name),
               e('div',{style:{fontSize:12,color:'#9ca3af',marginTop:2}},t.lastUsed?('Last used '+timeAgo(new Date(t.lastUsed).toISOString())):'Never used yet')
             ),
-            e('div',{onClick:()=>onStart(t),style:{width:42,height:42,borderRadius:'50%',background:'#0F6E56',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0,cursor:'pointer'}},'▶'),
+            e('div',{onClick:()=>onStart(t),style:{width:42,height:42,borderRadius:'50%',background:'var(--t-mid,#0F6E56)',color:'var(--t-mid-text,#fff)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0,cursor:'pointer'}},'▶'),
             e('span',{onClick:()=>{if(window.confirm('Delete "'+t.name+'"?'))onDelete(t.id);},style:{fontSize:13,color:'#9ca3af',cursor:'pointer',padding:'0 4px',flexShrink:0}},'✕')
           ))
         ),
-    e('button',{onClick:onAdd,style:{width:'100%',padding:'13px 0',borderRadius:12,border:'1.5px dashed #5DCAA5',background:'#F4FBF8',color:'#0F6E56',fontWeight:600,fontSize:14,cursor:'pointer',flexShrink:0}},'+ Save a tempo')
+    e('button',{onClick:onAdd,style:{width:'100%',padding:'13px 0',borderRadius:12,border:'1.5px dashed var(--t-light,#5DCAA5)',background:'var(--t-pale,#F4FBF8)',color:'var(--t-mid,#0F6E56)',fontWeight:600,fontSize:14,cursor:'pointer',flexShrink:0}},'+ Save a tempo')
   );
 }
 function MetronomeAdd({name,setName,bpm,setBpm,onTap,onSave,onBack,theme,volume,tapClickOn,setTapClickOn}){
@@ -1174,7 +1174,7 @@ function MetronomeAdd({name,setName,bpm,setBpm,onTap,onSave,onBack,theme,volume,
     // easier to keep a steady rhythm going while tapping. onPointerDown,
     // not onClick — see handlePointerDown above.
     e('button',{onPointerDown:handlePointerDown,style:{flex:1,minHeight:110,width:'100%',borderRadius:18,cursor:'pointer',marginBottom:18,touchAction:'manipulation',
-      border:'2px dashed '+(tapped?'#0F6E56':'#5DCAA5'),background:tapped?'#DCF5E9':'#F4FBF8',color:'#0F6E56',fontWeight:600,
+      border:'2px dashed '+(tapped?theme.mid:theme.light),background:tapped?`color-mix(in srgb,${theme.pale} 75%,${theme.mid})`:theme.pale,color:theme.mid,fontWeight:600,
       display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:8,
       transform:tapped?'scale(0.97)':'scale(1)',transition:'transform 0.08s ease, background 0.08s ease'}},
       e('span',{style:{fontSize:34}},'👆'),
@@ -2253,10 +2253,10 @@ function Modal({gig,prefillDate,onSave,onDelete,onClose,calendarLocked}){
           e('input',{type:'text',value:form.time||'',onChange:ev=>set('time',ev.target.value),style:{flex:1}}),
           e('button',{type:'button',onClick:()=>setAmPm('AM'),
             style:{padding:'0 12px',fontSize:12,fontWeight:600,flexShrink:0,
-              background:isAM?'#1D9E75':'#fff',color:isAM?'#fff':'#374151',borderColor:isAM?'#1D9E75':'#d1d5db'}},'AM'),
+              background:isAM?'var(--t-mid,#1D9E75)':'#fff',color:isAM?'var(--t-mid-text,#fff)':'#374151',borderColor:isAM?'var(--t-mid,#1D9E75)':'#d1d5db'}},'AM'),
           e('button',{type:'button',onClick:()=>setAmPm('PM'),
             style:{padding:'0 12px',fontSize:12,fontWeight:600,flexShrink:0,
-              background:isPM?'#1D9E75':'#fff',color:isPM?'#fff':'#374151',borderColor:isPM?'#1D9E75':'#d1d5db'}},'PM')
+              background:isPM?'var(--t-mid,#1D9E75)':'#fff',color:isPM?'var(--t-mid-text,#fff)':'#374151',borderColor:isPM?'var(--t-mid,#1D9E75)':'#d1d5db'}},'PM')
         )
       ),
       e('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginTop:12}},
@@ -2285,7 +2285,7 @@ function Modal({gig,prefillDate,onSave,onDelete,onClose,calendarLocked}){
         !isNew&&e('button',{onClick:()=>onDelete(gig.id),style:{marginRight:'auto',color:'#b91c1c',borderColor:'#fca5a5'}},'Delete'),
         e('button',{onClick:onClose},'Cancel'),
         e('button',{onClick:()=>{if(form.date&&form.venue)onSave({...form,id:gig?.id||Date.now()})},
-          style:{background:'#1D9E75',color:'#fff',border:'none',fontWeight:500}},isNew?'Add gig':'Save changes')
+          style:{background:'var(--t-mid,#1D9E75)',color:'var(--t-mid-text,#fff)',border:'none',fontWeight:500}},isNew?'Add gig':'Save changes')
       )
     )
   );
@@ -4601,6 +4601,15 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
       midText:needsDarkText(base.mid)?'#1a1a2e':'#fff'
     };
   },[settings.theme,settings.customColor]);
+
+  // Share the theme colours with every part of the page (including the pieces that don't receive `theme`), and tint the phone's
+  // top bar to match.
+  useEffect(()=>{
+    const r=document.documentElement.style;
+    r.setProperty('--t-primary',theme.primary);r.setProperty('--t-mid',theme.mid);r.setProperty('--t-light',theme.light);
+    r.setProperty('--t-pale',theme.pale);r.setProperty('--t-mid-text',theme.midText);
+    const m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',theme.primary);
+  },[theme]);
 
   // Leaving the Charts/Sets tab should always close whatever add/edit form
   // was open there, so coming back later starts clean instead of dropping
