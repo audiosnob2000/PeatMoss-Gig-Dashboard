@@ -2979,7 +2979,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
                 googleAccessToken?'Disconnect':'Sign in')
             })
           ),
-          e(Row,{label:'Sync now',sub:lastSynced?'Last synced: '+lastSynced:'Pulls the latest events from the shared calendar',border:false,
+          e(Row,{label:'Sync now',sub:(lastSynced?'Last synced: '+lastSynced:'Pulls the latest events from the shared calendar')+'. Events need a Location filled in to show up as gigs.',border:false,
             right:e('button',{onClick:()=>syncFromGoogleCalendar(),disabled:calSyncing,
               style:{fontSize:12,padding:'6px 14px',borderRadius:8,border:'1px solid '+theme.mid,
                 color:theme.mid,background:'#fff',cursor:calSyncing?'default':'pointer',fontWeight:500}},
