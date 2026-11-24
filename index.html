@@ -5169,9 +5169,10 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
     }
     setCalSyncing(true);
     try{
-      const now=new Date();
-      const start=new Date(now.getFullYear(),0,1).toISOString();
-      const end=new Date(now.getFullYear(),11,31).toISOString();
+      // Jan 1 this year through the end of NEXT year, worked out fresh each sync.
+      const nowY=new Date().getFullYear();
+      const start=new Date(nowY,0,1).toISOString();
+      const end=new Date(nowY+2,0,1).toISOString();
       const base=`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(settings.calendarId)}/events?key=${GOOGLE_API_KEY}&timeMin=${start}&timeMax=${end}&singleEvents=true&orderBy=startTime&maxResults=100`;
       // A full year can hold more than 100 events once personal
       // "unavailable" notices pile up alongside real gigs — a single page
