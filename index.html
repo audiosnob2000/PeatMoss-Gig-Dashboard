@@ -119,7 +119,18 @@ const GOOGLE_CLIENT_ID='675499838790-l0lgct7rbkbc7u4lttqkpjta3vm9qrvi.apps.googl
 const GOOGLE_REDIRECT_URI='https://audiosnob2000.github.io/PeatMoss-Gig-Dashboard/';
 const CALENDAR_WRITE_SCOPE='https://www.googleapis.com/auth/calendar.events';
 const FUNCTIONS_BASE_URL='https://us-central1-peatmoss-gig-dashboard-4f41b.cloudfunctions.net';
-const IRS_RATE=0.67;
+// IRS business standard mileage rate (dollars per mile), by the date a trip was taken. Newest first.
+// When the IRS announces a new rate, add one line at the top with the date it starts. A trip uses the first line whose
+// start date is on or before the trip's date; a trip older than every line uses the oldest one.
+const IRS_RATES=[
+  {from:'2026-07-01',rate:0.76},
+  {from:'2026-01-01',rate:0.725},
+];
+function irsRateFor(date){
+  const d=String(date||'');
+  const hit=IRS_RATES.find(r=>d>=r.from);
+  return (hit||IRS_RATES[IRS_RATES.length-1]).rate;
+}
 const KM_PER_MILE=1.60934;
 const TYPES=["bar","wedding","private event","other"];
 // A gig that arrives from Google Calendar has no type, so it is guessed from its title: "wedding" means a wedding; a title with
@@ -2862,7 +2873,10 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
   // The "season" totals are this year's trips only (the month list below still shows every trip).
   const seasonLog=mileageLog.filter(t=>String(t.date||'').startsWith(String(today.getFullYear())));
   const totalMiles=seasonLog.reduce((s,t)=>s+t.miles,0);
-  const totalDeduction=(totalMiles*IRS_RATE).toFixed(2);
+  // Each trip is priced at the IRS rate for the date it was taken (the rate changed during 2026).
+  const totalDeduction=seasonLog.reduce((s,t)=>s+t.miles*irsRateFor(t.date),0).toFixed(2);
+  const seasonRates=[...new Set(seasonLog.map(t=>irsRateFor(t.date)))].sort((a,b)=>a-b);
+  const rateNote='@ $'+(seasonRates.length?seasonRates:[irsRateFor(todayStr)]).join(' & $')+'/mile';
   // Trips are always stored in miles; mileageUnit only controls how they're
   // displayed. Defaults to miles for everyone who hasn't chosen km.
   const mileageUnit=settings.mileageUnit==='km'?'km':'mi';
@@ -3067,7 +3081,7 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
               e('div',{style:{flex:1,padding:'14px',textAlign:'center'}},
                 e('div',{style:{fontSize:10,color:'#6b7280',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4}},'Tax deduction'),
                 e('div',{style:{fontSize:26,fontWeight:500,color:theme.primary}},'$'+totalDeduction),
-                e('div',{style:{fontSize:11,color:'#9ca3af',marginTop:2}},'@ $0.67/mile')
+                e('div',{style:{fontSize:11,color:'#9ca3af',marginTop:2}},rateNote)
               )
             ),
             !addingTrip&&e('div',{onClick:()=>setAddingTrip(true),
