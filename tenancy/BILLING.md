@@ -178,6 +178,18 @@ quick change, so the saved choice is now only read from a snapshot that is not t
       would hold the two pages (Terms and Privacy) as files and the questions to ask: sales tax, New York's automatic-renewal
       rules, whether a P.O. box is acceptable as the address, the refund and governing-law wording, and whether the pages are
       enough for your situation. You hand them the pages and ask them to say what to change.
+- [ ] 3d. **Decide how to run the business (look at these later; bring them to the accountant session).** The answer fills in the
+      "operator name and address" blank on the Terms and Privacy pages, and decides what the app brand is registered as. Three
+      options, from the owner's notes:
+      1. **Launch as a sole proprietor.** Costs nothing, and an assumed name (a DBA, "doing business as Gig Dashboard") can be
+         added for the app brand. The downside: **no liability shield**, so personal assets are exposed if something goes wrong.
+      2. **Sole proprietor plus insurance.** Small business or cyber liability insurance can cost less than the LLC process and
+         covers some of the same risks. Worth getting a quote.
+      3. **Form an LLC.** The safest of the three, but it comes with the **publication cost**. (New York LLCs have to publish a
+         notice in newspapers, and the cost varies a lot by county. Ask the accountant for the real number for your county.)
+      Questions to ask: what the assumed-name filing involves and costs in your county, a real quote for the LLC publication,
+      what an insurance policy would cover and cost, and whether launching under option 1 or 2 first and forming the LLC later
+      is sensible.
 - [ ] 3c. **Give Stripe the page addresses** (Dashboard > Settings > Public details, or the terms and privacy fields):
       the pages live next to the app, at `<where the app is hosted>/terms.html` and `/privacy.html`.
 - [ ] After about a month live: the trial and repeat-card review (see "To check after the first month live").
