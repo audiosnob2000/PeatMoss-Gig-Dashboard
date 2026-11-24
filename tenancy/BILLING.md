@@ -107,7 +107,11 @@ Built to the plan above. Choices made along the way:
   refusal; cleans up after itself), `npm run e2e` (39 in a browser).
 
 ### Other app items to come back to (not billing)
-- [ ] **Tell people the Google Calendar sync needs a Location.** The sync only brings in calendar events that have a location
+- [ ] **Write an instructions / help page** (for the website and to link from the app) so people know how to do things: connect
+      the Google Calendar, add a gig, make checklists, track mileage, invite bandmates, cancel. It should include "calendar
+      events need a Location to sync as gigs". The owner said this is definitely needed at some point; not started.
+- [ ] **Tell people the Google Calendar sync needs a Location.** (The one-line note is now on the Settings "Sync now" row in the
+      live app, branch `claude/calendar-sync-range`, and in the new app. The instructions page above still needs it.) The sync only brings in calendar events that have a location
       filled in (it skips events with a blank location so personal notes like "Jim is off" don't become fake gigs). Gigs the app
       wrote itself are exempt. This is not written down anywhere a user would see it. Put it in the instructions: the website /
       help text and the Calendar settings screen in the app ("Events need a Location to sync as gigs"). A gig that is in range
