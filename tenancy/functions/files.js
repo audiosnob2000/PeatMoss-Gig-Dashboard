@@ -1,4 +1,5 @@
 'use strict';
+const crypto = require('crypto');
 // Chart files in file storage (see storage.rules). The database entry for a chart or set list holds a reference (fileId); the
 // file itself is at bands/{band}/files/{fileId} (band charts, set lists) or users/{uid}/files/{fileId} (a person's private
 // library). The app never erases a band file (the storage rules forbid it); the daily clean-up job and account deletion do,
@@ -9,7 +10,11 @@ function makeStorageFiles(bucket) {
   return {
     remove: path => bucket.file(path).delete({ ignoreNotFound: true }),
     removePrefix: prefix => bucket.deleteFiles({ prefix, force: true }),
-    put: (path, buffer, contentType) => bucket.file(path).save(buffer, { contentType, resumable: false }),
+    // A file the app uploads gets a download token automatically; one written with the Admin SDK does not, and without one the app
+    // cannot get an address for it (getDownloadURL fails). So the migration's files are given a token here.
+    put: (path, buffer, contentType) => bucket.file(path).save(buffer, {
+      contentType, resumable: false, metadata: { metadata: { firebaseStorageDownloadTokens: crypto.randomUUID() } },
+    }),
     size: async path => Number((await bucket.file(path).getMetadata())[0].size),
     list: async prefix => {
       const [files] = await bucket.getFiles({ prefix });

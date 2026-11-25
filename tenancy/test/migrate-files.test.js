@@ -89,4 +89,12 @@ test('against the real Storage emulator: the migrated photo is a real file with 
   const [bytes] = await bucket.file('bands/first-band/files/m-pic').download();
   assert.deepEqual(bytes, Buffer.from(PNG_B64, 'base64'));
   assert.equal((await bucket.file('users/mia/files/m-priv').exists())[0], true);
+  const [meta] = await bucket.file('bands/first-band/files/m-pic').getMetadata();
+  assert.ok(meta.metadata && meta.metadata.firebaseStorageDownloadTokens, 'it has a download token, so the app can get an address for it');
+});
+
+test('options left out on the command line (undefined) fall back to their defaults instead of breaking the run', async () => {
+  const r = await migrate(db, { ...base, bandId: undefined, timeZone: undefined, files: fakeFiles() });
+  assert.equal(r.done, true); assert.equal(r.bandId, 'first-band');
+  assert.equal((await db.doc('bands/first-band').get()).data().timeZone, 'America/New_York');
 });

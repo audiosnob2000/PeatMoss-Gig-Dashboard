@@ -141,7 +141,9 @@ const deepEqual = (a, b) => JSON.stringify(stable(a)) === JSON.stringify(stable(
 async function migrate(db, o) {
   const opts = {
     bandId: 'first-band', timeZone: 'America/New_York', adminUids: [], memberUids: [],
-    dryRun: false, allowOrphans: false, complimentary: true, trialDays: 30, now: Date.now(), profiles: {}, ...o,
+    dryRun: false, allowOrphans: false, complimentary: true, trialDays: 30, now: Date.now(), profiles: {},
+    // An option that was not given on the command line arrives as undefined; it must not wipe out the default above.
+    ...Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)),
   };
   if (!opts.ownerUid) throw new Error('--owner <uid> is required.');
   if (!opts.bandName) throw new Error('--band-name is required.');

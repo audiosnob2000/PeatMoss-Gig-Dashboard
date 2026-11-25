@@ -5899,8 +5899,8 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
     setEditSetlistContent(sl.type==='text'||sl.type==='link'?sl.content:'');
   };
   const formatSetlistDate=dateStr=>{
-    const [y,m,d]=dateStr.split('-').map(Number);
-    return MONTHS[m-1]+' '+d+', '+y;
+    const [y,m,d]=String(dateStr||'').split('-').map(Number);
+    return MONTHS[m-1]?MONTHS[m-1]+' '+d+', '+y:'';
   };
   const shareSetlist=async sl=>{
     try{
@@ -6428,7 +6428,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
                 e('div',{style:{fontSize:13.5,fontWeight:500,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},sg.name),
                 e('div',{style:{fontSize:11,color:'#9ca3af'}},
                   sg.key&&e('span',{style:{color:theme.primary,fontWeight:600}},sg.key+' · '),
-                  [sg.tempo?sg.tempo+' bpm':null,sg.tag,({image:'Photo',html:'HTML file',link:'Link',file:'File',text:'Text'}[sg.type]||'Text'),'updated '+formatSetlistDate(sg.updatedAt),sg.scope==='mine'?'🔒 My charts':null].filter(Boolean).join(' · ')
+                  [sg.tempo?sg.tempo+' bpm':null,sg.tag,({image:'Photo',html:'HTML file',link:'Link',file:'File',text:'Text'}[sg.type]||'Text'),(formatSetlistDate(sg.updatedAt)?'updated '+formatSetlistDate(sg.updatedAt):null),sg.scope==='mine'?'🔒 My charts':null].filter(Boolean).join(' · ')
                 )
               ),
               !songSelectMode&&sg.scope==='mine'&&(()=>{
@@ -6598,7 +6598,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
                 e('div',{style:{width:30,height:30,borderRadius:8,background:tileBg,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}},icon),
                 e('div',{onClick:()=>setViewingSetlist(sl),style:{flex:1,minWidth:0,cursor:'pointer'}},
                   e('div',{style:{fontSize:13.5,fontWeight:500,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},sl.name,tag),
-                  e('div',{style:{fontSize:11,color:'#9ca3af'}},({image:'Photo',html:'HTML file',link:'Link',file:'File',text:'Text'}[sl.type]||'Text')+' · updated '+formatSetlistDate(sl.updatedAt))
+                  e('div',{style:{fontSize:11,color:'#9ca3af'}},({image:'Photo',html:'HTML file',link:'Link',file:'File',text:'Text'}[sl.type]||'Text')+(formatSetlistDate(sl.updatedAt)?' · updated '+formatSetlistDate(sl.updatedAt):''))
                 ),
                 e('button',{onClick:()=>startEditSetlist(sl),style:{fontSize:12,padding:'5px 12px',flexShrink:0}},'Edit'),
                 e('button',{onClick:()=>{if(window.confirm('Remove "'+sl.name+'"? You can restore it from Settings › Recently deleted for 30 days.'))deleteSetlist(sl.id);},style:{border:'none',background:'none',color:'#d1d5db',fontSize:16,cursor:'pointer',padding:'0 4px',flexShrink:0}},'×')

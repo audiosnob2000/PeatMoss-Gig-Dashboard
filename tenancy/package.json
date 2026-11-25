@@ -5,7 +5,8 @@
   "scripts": {
     "test": "firebase emulators:exec --only firestore,storage --project demo-peatmoss \"node --test --test-concurrency=1 test/rules.test.js test/storage-rules.test.js test/files.test.js test/migrate-files.test.js test/band.test.js test/migrate.test.js test/trash.test.js test/reminders.test.js test/billing.test.js test/legal.test.js test/account.test.js\"",
     "e2e": "firebase emulators:exec --only auth,firestore,functions,storage --project demo-peatmoss \"node --test --test-concurrency=1 ${E2E_FILES:-e2e/e2e.test.js}\"",
-    "test:stripe": "firebase emulators:exec --only firestore --project demo-peatmoss \"NODE_USE_ENV_PROXY=1 NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt node --no-warnings --test --test-concurrency=1 test/stripe-api.test.js\""
+    "test:stripe": "firebase emulators:exec --only firestore --project demo-peatmoss \"NODE_USE_ENV_PROXY=1 NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt node --no-warnings --test --test-concurrency=1 test/stripe-api.test.js\"",
+    "rehearse": "firebase emulators:exec --only auth,firestore,functions,storage --project demo-peatmoss \"node --test --test-concurrency=1 rehearsal/rehearsal.test.js\""
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.0",
