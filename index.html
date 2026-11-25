@@ -4408,6 +4408,11 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
   const performToastRef=useRef(null);
   const performShiftRef=useRef({});                     // key changes kept per song until the viewer is exited
   const performSwipeRef=useRef({x:0,y:0,swiped:false});
+  // Pinch-to-zoom on a picture chart: 1 = fits the screen. Two fingers pinch; one finger then pans the zoomed picture.
+  const [chartZoom,setChartZoom]=useState(1);
+  const chartPtrsRef=useRef(new Map());
+  const chartPinchRef=useRef(null);
+  const chartLastTapRef=useRef(0);
   const [autoScrollSpeed,setAutoScrollSpeed]=useState(1);
   // Font size for typed charts only — a photo chart's text is baked into
   // the image, nothing here to resize. Persisted like other personal
@@ -4458,9 +4463,24 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
   useEffect(()=>{
     setTransposeSteps(performCtx?(performShiftRef.current[viewingSong&&viewingSong.id]||0):0);
     setAutoScrollOn(false);
+    setChartZoom(1);
     if(songViewerScrollRef.current)songViewerScrollRef.current.scrollTop=0;
   },[viewingSong&&viewingSong.id]);
-  useEffect(()=>{if(!viewingSong){setPerformMetro(false);setPerformMore(false);setPerformEnded(false);}},[!!viewingSong]);
+  useEffect(()=>{if(!viewingSong){setPerformMetro(false);setPerformMore(false);setPerformEnded(false);setChartZoom(1);}},[!!viewingSong]);
+  // Safari would otherwise zoom the whole page on a pinch; the chart handles its own zoom.
+  useEffect(()=>{
+    if(!viewingSong)return;
+    const el=songViewerScrollRef.current;if(!el)return;
+    const stop=ev=>ev.preventDefault();
+    ['gesturestart','gesturechange','gestureend'].forEach(n=>el.addEventListener(n,stop));
+    return()=>['gesturestart','gesturechange','gestureend'].forEach(n=>el.removeEventListener(n,stop));
+  },[!!viewingSong]);
+  // While pinching, keep the spot between the two fingers where it was.
+  React.useLayoutEffect(()=>{
+    const pn=chartPinchRef.current,el=songViewerScrollRef.current;
+    if(!pn||!el)return;
+    el.scrollLeft=pn.fx*el.scrollWidth-pn.mx;el.scrollTop=pn.fy*el.scrollHeight-pn.my;
+  },[chartZoom]);
   // Keep the screen awake while a chart is open on stage — a dark screen
   // mid-song is the whole problem this exists to prevent. The lock is
   // released automatically by the browser when the tab goes to the
@@ -5885,28 +5905,31 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
   const liveViewingChartSetlist=viewingChartSetlist&&(setlists.find(s=>s.id===viewingChartSetlist.id)||viewingChartSetlist);
 
   // ---- Perform mode ----
-  const performSl=performCtx?setlists.find(s=>s.id===performCtx.setlistId):null;
+  const performSl=performCtx&&performCtx.setlistId?setlists.find(s=>s.id===performCtx.setlistId):null;
+  const performLib=!!(performCtx&&performCtx.ids&&!performCtx.setlistId);   // opened from the Charts list: move through that list
   // every song of the running set list that still exists in the library, in order
   const performFlat=[];
   if(performSl&&performSl.sets)performSl.sets.forEach((st,si)=>(st.songs||[]).forEach((id,pos)=>{const sg=songs.find(x=>x.id===id);if(sg)performFlat.push({si,pos,song:sg});}));
+  else if(performLib)performCtx.ids.forEach((id,pos)=>{const sg=songs.find(x=>x.id===id);if(sg)performFlat.push({si:0,pos,song:sg});});
   const performIdx=performCtx&&viewingSong?performFlat.findIndex(x=>x.si===performCtx.si&&x.pos===performCtx.pos&&x.song.id===viewingSong.id):-1;
   const performSetSongs=performIdx>=0?performFlat.filter(x=>x.si===performCtx.si):[];
   const performInSet=performIdx>=0?performSetSongs.findIndex(x=>x.pos===performCtx.pos):-1;
-  const performPosLabel=performIdx>=0?((performSl.structure==='sets'?'Set '+(performCtx.si+1)+' \u00b7 ':'')+(performInSet+1)+' of '+performSetSongs.length):'';
+  const performPosLabel=performIdx>=0?((performSl&&performSl.structure==='sets'?'Set '+(performCtx.si+1)+' \u00b7 ':'')+(performInSet+1)+' of '+performSetSongs.length):'';
   const performPrev=performIdx>0?performFlat[performIdx-1]:null;
   const performNext=performIdx>=0&&performIdx<performFlat.length-1?performFlat[performIdx+1]:null;
-  const performEntryLabel=(x,cur)=>(performSl.structure==='sets'&&x.si!==cur.si?'Set '+(x.si+1)+': ':'')+x.song.name;
+  const performEntryLabel=(x,cur)=>(performSl&&performSl.structure==='sets'&&x.si!==cur.si?'Set '+(x.si+1)+': ':'')+x.song.name;
   const showPerformToast=t=>{setPerformToast(t);clearTimeout(performToastRef.current);performToastRef.current=setTimeout(()=>setPerformToast(''),1500);};
   const performGo=d=>{
     if(performIdx<0)return;
     const i=performIdx+d;
     if(i<0)return;
     performShiftRef.current[viewingSong.id]=transposeSteps;
-    if(i>=performFlat.length){setAutoScrollOn(false);setPerformEnded(true);return;}
+    if(i>=performFlat.length){if(!performLib){setAutoScrollOn(false);setPerformEnded(true);}return;}
     const t=performFlat[i];
-    if(t.si!==performFlat[performIdx].si&&performSl.structure==='sets')showPerformToast('Now Set '+(t.si+1));
+    if(t.si!==performFlat[performIdx].si&&performSl&&performSl.structure==='sets')showPerformToast('Now Set '+(t.si+1));
     setPerformCtx(c=>({...c,si:t.si,pos:t.pos}));
     setTransposeSteps(performShiftRef.current[t.song.id]||0);   // in the same update, so the old song's key change never flashes on the new one
+    setChartZoom(1);
     setViewingSong(t.song);
   };
   const exitViewer=()=>{
@@ -6166,7 +6189,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
                 ?e('div',{style:{width:30,height:30,borderRadius:8,flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,color:'#fff',
                     border:'1.5px solid '+(selected?theme.mid:'#d1d5db'),background:selected?theme.mid:'#fff'}},selected?'✓':'')
                 :e('div',{style:{width:30,height:30,borderRadius:8,background:theme.pale,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}},icon),
-              e('div',{onClick:songSelectMode?undefined:()=>{setPerformCtx(null);setViewingSong(sg);},style:{flex:1,minWidth:0,cursor:songSelectMode?'default':'pointer'}},
+              e('div',{onClick:songSelectMode?undefined:()=>{setPerformCtx({ids:arr.map(x=>x.id),si:0,pos:idx});setPerformEnded(false);setViewingSong(sg);},style:{flex:1,minWidth:0,cursor:songSelectMode?'default':'pointer'}},
                 e('div',{style:{fontSize:13.5,fontWeight:500,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},sg.name),
                 e('div',{style:{fontSize:11,color:'#9ca3af'}},
                   sg.key&&e('span',{style:{color:theme.primary,fontWeight:600}},sg.key+' · '),
@@ -6568,7 +6591,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
       // Top bar: Exit, which set list, where you are in it, and a "more" row for the less-used tools.
       e('div',{className:'no-print',style:{display:'flex',alignItems:'center',gap:8,padding:'10px 14px',borderBottom:'1px solid #302C24',flexShrink:0}},
         e('button',{onClick:exitViewer,style:{...performBtn,flexShrink:0}},'✕ Exit'),
-        e('div',{style:{flex:1,minWidth:0,textAlign:'center',fontSize:12.5,color:'#9C9483',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},performIdx>=0&&performSl?performSl.name:''),
+        e('div',{style:{flex:1,minWidth:0,textAlign:'center',fontSize:12.5,color:'#9C9483',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},performIdx>=0?(performSl?performSl.name:'Charts'):''),
         performPosLabel&&e('div',{style:{fontWeight:700,fontSize:12.5,color:'#FFB020',whiteSpace:'nowrap'}},performPosLabel),
         e('button',{onClick:()=>setPerformMore(v=>!v),title:'More',style:{...performBtn,flexShrink:0,padding:'8px 11px',background:performMore?'#FFB020':'#1D1B17',color:performMore?'#141311':'#F1EDE3'}},'⋯')
       ),
@@ -6593,7 +6616,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
           e('option',{value:0.5},'Scroll: Slow'),e('option',{value:1},'Scroll: Normal'),e('option',{value:1.75},'Scroll: Fast'))
       ),
       // Dots for the current set.
-      performIdx>=0&&performSetSongs.length>1&&e('div',{className:'no-print','aria-hidden':'true',style:{display:'flex',gap:5,justifyContent:'center',paddingTop:8,flexShrink:0}},
+      performIdx>=0&&performSetSongs.length>1&&performSetSongs.length<=14&&e('div',{className:'no-print','aria-hidden':'true',style:{display:'flex',gap:5,justifyContent:'center',paddingTop:8,flexShrink:0}},
         performSetSongs.map((x,i)=>e('i',{key:i,style:{width:7,height:7,borderRadius:'50%',display:'block',background:i===performInSet?'#FFB020':i<performInSet?'#6b6657':'#302C24'}}))
       ),
       // What song this is.
@@ -6615,16 +6638,43 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
       ),
       // The chart. Scrolls as its own unit. A tap starts/stops auto-scroll (as before); a sideways swipe moves to the next / previous song.
       e('div',{ref:songViewerScrollRef,
-        onPointerDown:ev=>{performSwipeRef.current.x=ev.clientX;performSwipeRef.current.y=ev.clientY;performSwipeRef.current.swiped=false;},
+        onPointerDown:ev=>{
+          const ptrs=chartPtrsRef.current;ptrs.set(ev.pointerId,{x:ev.clientX,y:ev.clientY});
+          if(ptrs.size===1){performSwipeRef.current.x=ev.clientX;performSwipeRef.current.y=ev.clientY;performSwipeRef.current.swiped=false;}
+          else if(ptrs.size===2&&!chartPinchRef.current&&liveViewingSong.type==='image'&&!liveViewingSong.rotated){
+            const [a,b]=[...ptrs.values()],el=songViewerScrollRef.current,r=el.getBoundingClientRect();
+            const mx=(a.x+b.x)/2-r.left,my=(a.y+b.y)/2-r.top;
+            chartPinchRef.current={d0:Math.hypot(a.x-b.x,a.y-b.y)||1,zoom0:chartZoom,mx,my,fx:(el.scrollLeft+mx)/el.scrollWidth,fy:(el.scrollTop+my)/el.scrollHeight};
+            performSwipeRef.current.swiped=true;   // a pinch is never a tap or a swipe
+          }
+        },
+        onPointerMove:ev=>{
+          const ptrs=chartPtrsRef.current;if(!ptrs.has(ev.pointerId))return;
+          ptrs.set(ev.pointerId,{x:ev.clientX,y:ev.clientY});
+          const pn=chartPinchRef.current;
+          if(pn&&ptrs.size===2){
+            const [a,b]=[...ptrs.values()];
+            setChartZoom(Math.min(5,Math.max(1,Math.round(pn.zoom0*Math.hypot(a.x-b.x,a.y-b.y)/pn.d0*100)/100)));
+          }
+        },
+        onPointerCancel:ev=>{chartPtrsRef.current.delete(ev.pointerId);if(chartPtrsRef.current.size===0)chartPinchRef.current=null;},
         onPointerUp:ev=>{
+          const ptrs=chartPtrsRef.current;ptrs.delete(ev.pointerId);
+          if(chartPinchRef.current){if(ptrs.size===0)chartPinchRef.current=null;return;}   // end of a pinch: not a swipe, not a tap
           const dx=ev.clientX-performSwipeRef.current.x,dy=ev.clientY-performSwipeRef.current.y;
-          if(performIdx>=0&&Math.abs(dx)>60&&Math.abs(dx)>Math.abs(dy)*1.6){performSwipeRef.current.swiped=true;performGo(dx<0?1:-1);}
+          if(chartZoom<=1&&performIdx>=0&&Math.abs(dx)>60&&Math.abs(dx)>Math.abs(dy)*1.6){performSwipeRef.current.swiped=true;performGo(dx<0?1:-1);return;}
+          // a quick double tap on a zoomed picture puts it back to full size
+          if(chartZoom>1&&Math.abs(dx)<10&&Math.abs(dy)<10){
+            const now=Date.now();
+            if(now-chartLastTapRef.current<320){chartLastTapRef.current=0;setChartZoom(1);performSwipeRef.current.swiped=true;}
+            else chartLastTapRef.current=now;
+          }
         },
         onClick:(liveViewingSong.type==='text'||liveViewingSong.type==='image')?()=>{
           if(performSwipeRef.current.swiped){performSwipeRef.current.swiped=false;return;}
           setAutoScrollOn(v=>!v);
         }:undefined,
-        style:{flex:'1 1 auto',minHeight:0,overflowY:'auto',touchAction:'pan-y',WebkitOverflowScrolling:'touch',
+        style:{flex:'1 1 auto',minHeight:0,overflow:'auto',touchAction:chartZoom>1?'pan-x pan-y':'pan-y',WebkitOverflowScrolling:'touch',
           cursor:(liveViewingSong.type==='text'||liveViewingSong.type==='image')?'pointer':'default'}},
         e('div',{className:'schedule-print-area song-viewer-print',style:{padding:liveViewingSong.type==='image'?'12px':'8px 18px 24px',maxWidth:900,margin:'0 auto'}},
           // The on-screen title is up above; paper still gets one.
@@ -6632,10 +6682,12 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
           (liveViewingSong.key||liveViewingSong.tempo||liveViewingSong.tag)&&e('div',{className:'print-only',style:{fontSize:12,marginBottom:14}},
             [liveViewingSong.key,liveViewingSong.tempo?liveViewingSong.tempo+' bpm':null,liveViewingSong.tag].filter(Boolean).join('  ·  ')),
           liveViewingSong.type==='text'&&e('div',{style:{fontSize:songFontSize,color:'#F1EDE3',whiteSpace:'pre-wrap',lineHeight:1.6,fontFamily:'monospace'}},transposeChart(liveViewingSong.content,transposeSteps)),
-          liveViewingSong.type==='image'&&e('div',{style:{display:'flex',justifyContent:'center'}},
-            e('img',{src:liveViewingSong.content,style:{
+          liveViewingSong.type==='image'&&e('div',{style:{display:'flex',justifyContent:(chartZoom>1&&!liveViewingSong.rotated)?'flex-start':'center'}},
+            e('img',{src:liveViewingSong.content,draggable:false,style:{
               // Rotated stays capped (its rotated width is really the photo's original height, which has to fit on screen after the transform).
-              maxWidth:liveViewingSong.rotated?'min(92vh,92vw)':'100%',maxHeight:liveViewingSong.rotated?'min(92vh,92vw)':'none',
+              // Zoom (not offered on a rotated picture) just makes the picture wider than the screen; the chart area then scrolls both ways.
+              maxWidth:liveViewingSong.rotated?'min(92vh,92vw)':(chartZoom>1?'none':'100%'),maxHeight:liveViewingSong.rotated?'min(92vh,92vw)':'none',
+              width:(chartZoom>1&&!liveViewingSong.rotated)?(chartZoom*100)+'%':undefined,flexShrink:0,
               transform:liveViewingSong.rotated?'rotate(90deg)':'none',transition:'transform .2s',borderRadius:8,display:'block'
             }})
           ),
@@ -6678,13 +6730,13 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
         e('button',{onClick:()=>performGo(-1),disabled:!performPrev,
           style:{...performBtn,display:'flex',flexDirection:'column',gap:2,textAlign:'left',borderRadius:12,padding:'11px 13px',minHeight:64,minWidth:0,opacity:performPrev?1:0.35,cursor:performPrev?'pointer':'default'}},
           e('small',{style:{fontSize:11,color:'#9C9483',fontWeight:600}},'‹ Previous'),
-          e('b',{style:{fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},performPrev?performEntryLabel(performPrev,performFlat[performIdx]):'Start of the show')
+          e('b',{style:{fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},performPrev?performEntryLabel(performPrev,performFlat[performIdx]):(performLib?'Start of the list':'Start of the show'))
         ),
         e('button',{onClick:()=>performGo(1),
           style:{display:'flex',flexDirection:'column',gap:2,textAlign:'right',borderRadius:12,padding:'11px 13px',minHeight:64,minWidth:0,cursor:'pointer',background:'#FFB020',color:'#141311',border:'1px solid #FFB020',fontFamily:'inherit'}},
           e('small',{style:{fontSize:11,color:'#4a3500',fontWeight:600}},'Next ›'),
           e('b',{style:{fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},
-            performNext?performEntryLabel(performNext,performFlat[performIdx])+(performNext.song.key&&performNext.song.key.trim()?' · '+performNext.song.key.trim():''):'End of the show')
+            performNext?performEntryLabel(performNext,performFlat[performIdx])+(performNext.song.key&&performNext.song.key.trim()?' · '+performNext.song.key.trim():''):(performLib?'End of the list':'End of the show'))
         )
       ),
       performToast&&e('div',{role:'status',style:{position:'absolute',left:'50%',top:'calc(env(safe-area-inset-top,0px) + 64px)',transform:'translateX(-50%)',background:'#1D1B17',border:'1px solid #FFB020',color:'#F1EDE3',borderRadius:99,padding:'6px 14px',fontSize:12,fontWeight:600,whiteSpace:'nowrap',pointerEvents:'none'}},performToast),

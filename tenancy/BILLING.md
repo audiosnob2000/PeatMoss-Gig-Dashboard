@@ -113,7 +113,9 @@ Built to the plan above. Choices made along the way:
       button that runs the metronome at the song's bpm; Exit returns to the set list. A song opened from the Charts list uses the
       same screen without Previous / Next. **Needs a real-phone check** (audio click, screen staying awake, swipe feel, notch
       spacing); only tested in an automated phone-sized browser. Not done: "attach a set to a gig so Gig Day opens straight into it"
-      (also in the review's "Also worth adding").
+      (also in the review's "Also worth adding"). Follow-up (branch `claude/chart-zoom`): pinch-to-zoom on picture charts (pan with one
+      finger, double-tap to reset; not offered on a rotated picture) and a chart opened from the Charts list now swipes / Previous / Next
+      through that list in the order shown (search filter included).
 - [ ] **Look into Firestore cost and scale as more bands join.** The owner wants this investigated before many bands use the app.
       Known starting point from the review: the gig-reminder service reads EVERY gig (`collection('gigs').get()`) on each run, so
       reads grow with the total number of gigs across all bands; charts and files are also stored in the database rather than in
