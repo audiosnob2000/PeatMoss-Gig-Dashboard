@@ -107,6 +107,11 @@ Built to the plan above. Choices made along the way:
   refusal; cleans up after itself), `npm run e2e` (39 in a browser).
 
 ### Other app items to come back to (not billing)
+- [ ] **Post-launch polish: replace the grey pop-up boxes (Fable section 4, "50 pop-up alerts").** The app uses the phone's plain `alert()` / `confirm()` box for errors and
+      confirmations (about 50 in the live app, 59 `alert(` and 12 `confirm(` in the new app). They stop everything, look like a website, and cannot offer Undo. Replace
+      with one reusable in-app message that slides in at the bottom and fades (with Undo after a delete), and swap each pop-up for it. The most common one ("Could not save,
+      check your connection", 10 times) needs care now that the app works offline: saves queue and sync later, so an error there is often wrong. Do it on the new app only,
+      after launch work (not worth doing twice). Not needed to launch.
 - [ ] **Reminder service re-reads every gig (Fable section 4). Decision: leave the live one as it is.** The live `sendGigReminders` reads the whole `gigs` collection every
       5 minutes (288 times a day) and filters afterwards, so reads grow with every gig ever. About 150 gigs is roughly 43,000 reads a day, near the free 50,000. The new
       multi-band reminder (`tenancy/functions/reminders.js`) already asks each band only for gigs from yesterday on, so the fix arrives with the cutover. Only revisit the
