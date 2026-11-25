@@ -23,7 +23,8 @@ async function cancelSubscription(db, stripe, uid) {
 // other people in it must be handed over first; a band with only them in it is deleted with them.
 // Nothing is deleted until the checks and the subscription cancel have succeeded, so a failure leaves a working
 // account behind and it is safe to try again.
-async function deleteAccount(db, auth, getStripe, uid, { confirm } = {}) {
+// `files` (optional, see files.js) erases the person's chart files too.
+async function deleteAccount(db, auth, getStripe, uid, { confirm } = {}, files = null) {
   if (!uid) throw new BandError('unauthenticated', 'Sign in first.');
   if (confirm !== 'DELETE') throw new BandError('invalid-argument', 'Type DELETE to confirm.');
 
@@ -64,12 +65,14 @@ async function deleteAccount(db, auth, getStripe, uid, { confirm } = {}) {
     const codes = await db.collection('inviteCodes').where('bandId', '==', id).get();
     await Promise.all(codes.docs.map(d => d.ref.delete()));
     await db.recursiveDelete(db.collection('bands').doc(id));
+    if (files) await files.removePrefix(`bands/${id}/files/`);
   }
 
   // 3. Personal data: mileage, private charts, memberships, billing records, private settings.
   const cust = (await privateRef(db, uid).get()).data();
   if (cust && cust.customerId) await db.collection('stripeCustomers').doc(cust.customerId).delete();
   await db.recursiveDelete(db.collection('users').doc(uid));
+  if (files) await files.removePrefix(`users/${uid}/files/`);
 
   // 4. The sign-in account, last. Already gone is fine (a repeat attempt).
   try { await auth.deleteUser(uid); } catch (e) { if (e.code !== 'auth/user-not-found') throw e; }

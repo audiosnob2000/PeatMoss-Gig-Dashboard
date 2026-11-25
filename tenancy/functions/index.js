@@ -13,12 +13,15 @@ const trash = require('./trash');
 const reminders = require('./reminders');
 const billing = require('./billing');
 const account = require('./account');
+const { makeStorageFiles } = require('./files');
 const { makeResendMailer } = require('./mailer');
 const billingConfig = require('./billing-config.json');
 const Stripe = require('stripe');
 
 if (!admin.apps.length) admin.initializeApp();
 const db = () => admin.firestore();
+// The project's file storage (chart photos, PDFs and HTML files). The default bucket must be the one the app uses (its storageBucket).
+const files = () => makeStorageFiles(admin.storage().bucket());
 
 // Who is calling, from the sign-in account itself. Used to label members in a band.
 async function profileOf(uid) {
@@ -54,7 +57,8 @@ exports.transferOwnership = wrap(band.transferOwnership);
 
 // Once a day: erase anything that has sat in Recently deleted for 30 days.
 exports.purgeTrash = onSchedule({ schedule: 'every day 04:00', timeZone: 'America/New_York' }, async () => {
-  const counts = await trash.purgeTrash(db());
+  const counts = await trash.purgeTrash(db(), Date.now(), trash.TRASH_DAYS, files());
+  counts.orphanFiles = await trash.sweepOrphanFiles(db(), files());
   console.log('purgeTrash', JSON.stringify(counts));
 });
 
@@ -97,7 +101,7 @@ exports.openBillingPortal = billingCall(billing.openPortal);
 // Leaving. cancelSubscription stops renewal at the end of the paid period. deleteAccount removes the person (it only
 // reaches for Stripe if they have a live subscription, so the key is fetched lazily).
 exports.cancelSubscription = wrap((db, uid) => account.cancelSubscription(db, stripeClient(), uid), { secrets: [STRIPE_SECRET_KEY] });
-exports.deleteAccount = wrap((db, uid, data) => account.deleteAccount(db, admin.auth(), () => stripeClient(), uid, data), { secrets: [STRIPE_SECRET_KEY] });
+exports.deleteAccount = wrap((db, uid, data) => account.deleteAccount(db, admin.auth(), () => stripeClient(), uid, data, files()), { secrets: [STRIPE_SECRET_KEY] });
 
 // The only writer of subscription state. Stripe signs every delivery; anything unsigned is refused.
 exports.stripeWebhook = onRequest({ secrets: [STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, RESEND_API_KEY] }, async (req, res) => {

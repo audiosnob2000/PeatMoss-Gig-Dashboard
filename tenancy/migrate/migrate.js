@@ -17,6 +17,7 @@
 
 const admin = require('firebase-admin');
 const { profileFields } = require('../functions/band');
+const { decodeInline, hasInlineFile, bandFilePath, userFilePath } = require('../functions/files');
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -86,6 +87,32 @@ function plan(source, opts) {
   return { out, personal, library, orphans, skipped, calendarId };
 }
 
+// A chart or set list that carries its whole file inside the entry (photo, PDF, HTML) gets the file moved into file storage, and the
+// copied entry keeps only a reference, the way the new app saves them. Mutates the maps `plan` made (never the source documents).
+// With no `files` given the entries are copied as they are (the new app still reads them). With dryRun nothing is uploaded.
+async function moveInlineFiles(out, library, bandId, files, dryRun) {
+  const result = { moved: 0, bytes: 0, undecodable: [] };
+  const groups = [
+    ...['songs', 'setlists'].filter(c => out[c]).map(c => [out[c], id => bandFilePath(bandId, id)]),
+    ...Object.entries(library).map(([uid, m]) => [m, id => userFilePath(uid, id)]),
+  ];
+  for (const [map, pathOf] of groups) {
+    for (const [id, d] of [...map]) {
+      if (!hasInlineFile(d)) continue;
+      const decoded = decodeInline(d);
+      if (!decoded) { result.undecodable.push(`${d.name || id} (${id})`); continue; }
+      const fileId = 'm-' + id;                       // the same on a re-run, so a re-run overwrites instead of piling up
+      result.moved++; result.bytes += decoded.buffer.length;
+      if (dryRun) continue;
+      await files.put(pathOf(fileId), decoded.buffer, decoded.contentType);
+      if (files.size && (await files.size(pathOf(fileId))) !== decoded.buffer.length) throw new Error(`Verify failed: the stored file for ${id} is not the size it should be.`);
+      const { content, ...rest } = d;
+      map.set(id, { ...rest, fileId, fileSize: decoded.buffer.length, fileVersion: 1 });
+    }
+  }
+  return result;
+}
+
 async function readAll(db) {
   const names = [...COPY_AS_IS, ...KEYED_BY_UID, 'songs', 'mileageTrips', 'bandSettings', 'fcmTokens', 'googleAuthTokens', 'sentReminders'];
   const source = {};
@@ -135,6 +162,11 @@ async function migrate(db, o) {
     report.blocked = `${orphans.length} document(s) belong to someone who is not in the member list. ` +
       'Find those people (they have not signed in yet) and add them, or re-run with --allow-orphans to copy them anyway.';
     return report;
+  }
+  if (opts.files) {
+    const moved = await moveInlineFiles(out, library, opts.bandId, opts.files, opts.dryRun);
+    report.files = { [opts.dryRun ? 'wouldMove' : 'moved']: moved.moved, bytes: moved.bytes, undecodable: moved.undecodable };
+    if (moved.undecodable.length) report.files.note = 'These kept their file inside the entry (could not be read as a file); the app still opens them.';
   }
   if (opts.dryRun) return report;
 
@@ -189,7 +221,7 @@ function parseArgs(argv) {
     const k = argv[i];
     if (!k.startsWith('--')) { a._.push(k); continue; }
     const name = k.slice(2);
-    if (['dry-run', 'live', 'allow-orphans'].includes(name)) a[name] = true;
+    if (['dry-run', 'live', 'allow-orphans', 'keep-inline'].includes(name)) a[name] = true;
     else a[name] = argv[++i];
   }
   return a;
@@ -204,7 +236,15 @@ async function main() {
     throw new Error('No emulator is set (FIRESTORE_EMULATOR_HOST), so this would run against a REAL project. ' +
       'Rehearse on the emulator or a scratch project. Add --live only on cutover day.');
   }
-  admin.initializeApp({ projectId: a.project });
+  // Chart files go into file storage. On the emulator that means the Storage emulator; on a real project the bucket must be named
+  // (--bucket) so nothing is ever written to a bucket by guesswork. --keep-inline copies charts as they are instead.
+  let files = null;
+  if (!a['keep-inline']) {
+    if (onEmulator && !process.env.FIREBASE_STORAGE_EMULATOR_HOST) throw new Error('Set FIREBASE_STORAGE_EMULATOR_HOST=127.0.0.1:9199 (or pass --keep-inline) so chart files do not go to a real bucket.');
+    if (!onEmulator && !a.bucket) throw new Error('--bucket <the project\'s storage bucket> is required with --live (or pass --keep-inline).');
+  }
+  admin.initializeApp({ projectId: a.project, ...(a.bucket ? { storageBucket: a.bucket } : (onEmulator ? { storageBucket: a.project + '.appspot.com' } : {})) });
+  if (!a['keep-inline']) files = require('../functions/files').makeStorageFiles(admin.storage().bucket());
   // Names and emails for the Members list come from each person's sign-in account.
   const profiles = {};
   for (const uid of [a.owner, ...list(a.admins), ...list(a.members)]) {
@@ -215,11 +255,11 @@ async function main() {
     profiles,
     bandId: a['band-id'], bandName: a['band-name'], timeZone: a['time-zone'],
     ownerUid: a.owner, adminUids: list(a.admins), memberUids: list(a.members),
-    dryRun: !!a['dry-run'], allowOrphans: !!a['allow-orphans'], complimentary: !a.paid,
+    dryRun: !!a['dry-run'], allowOrphans: !!a['allow-orphans'], complimentary: !a.paid, files,
   });
   console.log(JSON.stringify(report, null, 2));
   if (report.blocked) process.exitCode = 2;
 }
 
-module.exports = { migrate, plan };
+module.exports = { migrate, plan, moveInlineFiles };
 if (require.main === module) main().catch(e => { console.error('ERROR:', e.message); process.exit(1); });

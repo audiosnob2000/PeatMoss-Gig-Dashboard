@@ -1,0 +1,8 @@
+[
+  {
+    "origin": ["https://audiosnob2000.github.io"],
+    "method": ["GET"],
+    "responseHeader": ["Content-Type"],
+    "maxAgeSeconds": 3600
+  }
+]

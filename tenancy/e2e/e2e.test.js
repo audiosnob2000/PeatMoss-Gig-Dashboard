@@ -950,6 +950,43 @@ test('chart files: a private library photo lives in the person\'s own storage; s
   noProblems();
 });
 
+test('offline charts: set-list charts are saved on the phone by themselves, the Settings button saves the rest, and they all open with no signal', async () => {
+  const { mia, id, miaUid } = await twoPeople();
+  const bucket = admin.storage().bucket(BUCKET);
+  for (const n of ['a', 'b', 'c']) {
+    await bucket.file(`bands/${id}/files/f-${n}`).save(PNG, { contentType: 'image/png' });
+    await db.doc(`bands/${id}/songs/${n}`).set({ name: `Chart ${n.toUpperCase()}`, type: 'image', fileId: `f-${n}`, fileSize: PNG.length, fileVersion: 1, shared: true, uid: miaUid, updatedAt: '2026-11-01' });
+  }
+  await db.doc(`bands/${id}/setlists/set1`).set({ name: 'Saturday', type: 'charts', structure: 'flat', sets: [{ songs: ['a', 'b'] }], updatedAt: '2026-11-02' });   // C is in no set list
+  const savedFiles = () => mia.page.evaluate(async () => { const c = await caches.open('gigdash-files-v1'); return (await c.keys()).length; });
+  // 1. by themselves: the two charts in the set list, not the third
+  await poll(async () => (await savedFiles()) === 2 ? true : null);
+  await mia.page.waitForTimeout(1500);
+  assert.equal(await savedFiles(), 2, 'only the set list\'s charts were saved ahead of time');
+  // 2. the Settings button saves the rest
+  await mia.page.getByText('⚙️', { exact: true }).click();
+  await mia.page.getByText('Charts for offline', { exact: true }).click();
+  await mia.page.getByText('2 of 3 charts are on this phone.').waitFor();
+  await mia.page.getByRole('button', { name: 'Save all charts on this phone' }).click();
+  await mia.page.getByText('3 of 3 charts are on this phone.').waitFor({ timeout: 20000 });
+  await mia.page.getByRole('button', { name: 'All charts are on this phone' }).waitFor();
+  assert.equal(await savedFiles(), 3);
+  // 3. no signal: every chart opens
+  await mia.page.waitForFunction(async () => { if (!navigator.serviceWorker.controller) return false; const c = await caches.open('gigdash-shell-v1'); return (await c.keys()).length >= 12; }, null, { timeout: 20000 });
+  try {
+    control.down = true; await mia.ctx.setOffline(true);
+    await mia.page.reload();
+    await mia.page.getByRole('button', { name: '+ Add gig' }).waitFor({ timeout: 20000 });
+    await tab(mia, 'Charts/Sets');
+    for (const n of ['A', 'C']) {
+      await mia.page.getByText(`Chart ${n}`, { exact: true }).click();
+      await mia.page.waitForFunction(() => { const i = document.querySelector('.perform-screen img'); return i && i.naturalWidth > 0; });
+      await mia.page.getByRole('button', { name: /Exit/ }).click();
+    }
+  } finally { control.down = false; await mia.ctx.setOffline(false); }
+  noProblems();
+});
+
 test('library: adding a library chart to a set shares it with the band first', async () => {
   const { mia, id } = await twoPeople();
   await addChart(mia, 'Opener', false);

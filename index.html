@@ -786,6 +786,48 @@ function useFileSource(d){
   return st;
 }
 
+// Keeping charts on the phone for use with no signal. A chart that has been opened is already kept (getFileBlob). On top of that, with
+// a signal, the charts in the band's set lists (newest set list first) are saved in the background a few seconds after the app loads,
+// and "Save all charts on this phone" in Settings saves the rest. Charts saved the old way (the file inside the entry) are already on the
+// phone with the rest of the data, so they are not counted. Nothing here is ever required of anyone.
+function useOfflineCharts(songs,setlists,offline){
+  const [saved,setSaved]=useState(0);
+  const [running,setRunning]=useState(false);
+  const runningRef=useRef(false);
+  const fileSongs=useMemo(()=>songs.filter(sg=>needsFile(sg)&&sg.fileId),[songs]);
+  const priority=useMemo(()=>{
+    const seen=new Set(),ids=[];
+    setlists.filter(l=>l.type==='charts'&&!l.deletedAt)
+      .sort((a,b)=>String(b.updatedAt||'').localeCompare(String(a.updatedAt||'')))
+      .forEach(l=>(l.sets||[]).forEach(st=>(st.songs||[]).forEach(id=>{if(!seen.has(id)){seen.add(id);ids.push(id);}})));
+    return ids.map(id=>fileSongs.find(sg=>sg.id===id)).filter(Boolean);
+  },[setlists,fileSongs]);
+  const count=useCallback(async()=>{
+    let n=0;
+    for(const sg of fileSongs){if(await fileCacheHas(fileKeyOf(sg)))n++;}
+    setSaved(n);
+  },[fileSongs]);
+  useEffect(()=>{count();},[count]);
+  const saveList=useCallback(async list=>{
+    if(runningRef.current)return;
+    runningRef.current=true;setRunning(true);
+    try{
+      for(const sg of list){
+        if(!navigator.onLine)break;
+        if(await fileCacheHas(fileKeyOf(sg)))continue;
+        try{await getFileBlob(sg);}catch{}
+        await count();
+      }
+    }finally{runningRef.current=false;setRunning(false);await count();}
+  },[count]);
+  useEffect(()=>{
+    if(offline||!priority.length)return;
+    const t=setTimeout(()=>saveList(priority),3000);
+    return()=>clearTimeout(t);
+  },[offline,priority,saveList]);
+  return {total:fileSongs.length,saved,running,offline,saveAll:()=>saveList(fileSongs)};
+}
+
 // "Scan cleanup" for a handwritten chart photo — grayscale + a contrast/
 // brightness push, so a phone photo of paper reads like a clean scan
 // instead of a photo (whiter background, darker ink). Not perspective
@@ -2876,7 +2918,7 @@ function CustomColorSwatch({selected,customColor,onPick}){
   );
 }
 
-function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar,onAutoScrolled,syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,onSendReset,onChangePassword,canManage,bandPanelProps,trashProps}){
+function SettingsPage({offlineCharts,gigs,setGigs,settings,setSettings,onClose,theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar,onAutoScrolled,syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,authUser,authBusy,authError,onSignUp,onSignIn,onSignOut,onSendReset,onChangePassword,canManage,bandPanelProps,trashProps}){
   const googleCalendarRowRef=useRef(null);
   const [showBandStatsModal,setShowBandStatsModal]=useState(false);
   // Metronome: per-device, same reasoning as mileage/checklist — a saved
@@ -3173,6 +3215,15 @@ function SettingsPage({gigs,setGigs,settings,setSettings,onClose,theme,mileageLo
         }),
         googleAuthError&&e('div',{style:{padding:'0 14px 12px',fontSize:12,color:'#b91c1c'}},googleAuthError)
       ),
+      e(Section,{icon:'📥',iconBg:'#E0F2FE',title:'Charts for offline',
+          summary:offlineCharts.total?`${offlineCharts.saved} of ${offlineCharts.total} on this phone`:'Photo and PDF charts',
+          isOpen:openSections.has('offlinecharts'),onToggle:()=>toggleSection('offlinecharts')},
+        e('div',{style:{padding:'12px 14px'}},
+          e('div',{style:{fontSize:13,color:'#374151',marginBottom:8,lineHeight:1.45}},'Photo and PDF charts you open stay on this phone, and the charts in your set lists are saved ahead of time whenever you have a signal, so they open with no signal.'),
+          e('div',{style:{fontSize:12,color:'#6b7280',marginBottom:10}},offlineCharts.total===0?'No photo or PDF charts are kept in file storage yet.':`${offlineCharts.saved} of ${offlineCharts.total} charts are on this phone.`),
+          e('button',{onClick:offlineCharts.saveAll,disabled:offlineCharts.running||offlineCharts.offline||offlineCharts.saved>=offlineCharts.total,
+            style:{width:'100%',padding:'10px 0',borderRadius:10,border:'none',background:(offlineCharts.running||offlineCharts.offline||offlineCharts.saved>=offlineCharts.total)?'#9ca3af':theme.mid,color:theme.midText||'#fff',fontWeight:600,fontSize:13,cursor:'pointer'}},
+            offlineCharts.running?'Saving…':offlineCharts.offline?'No signal right now':offlineCharts.saved>=offlineCharts.total&&offlineCharts.total>0?'All charts are on this phone':'Save all charts on this phone'))),
       e(Section,{icon:'🚗',iconBg:'#DCFCE7',title:'Mileage',
           summary:`${toDisplayDistance(totalMiles).toFixed(1)} ${mileageUnit} · $${totalDeduction} deduction`,
           isOpen:openSections.has('mileage'),onToggle:()=>toggleSection('mileage')},
@@ -6063,6 +6114,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
   const liveViewingSong=viewingSong&&(songs.find(s=>s.id===viewingSong.id)||viewingSong);
   const liveViewingChartSetlist=viewingChartSetlist&&(setlists.find(s=>s.id===viewingChartSetlist.id)||viewingChartSetlist);
   const songFile=useFileSource(liveViewingSong);
+  const offlineCharts=useOfflineCharts(songs,setlists,offline);
   const setlistFile=useFileSource(viewingSetlist);
 
   // ---- Perform mode ----
@@ -6109,7 +6161,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
   const performBtn={background:'#1D1B17',color:'#F1EDE3',border:'1px solid #302C24',borderRadius:8,padding:'8px 12px',fontSize:12.5,fontWeight:600,cursor:'pointer'};
 
 
-  if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,authUser,authBusy,authError,onSignUp:signUpWithEmail,onSignIn:signInWithEmail,onSignOut:signOutOfAccount,onSendReset:sendPasswordReset,onChangePassword:changePassword,canManage,trashProps:{theme,canManage,bandMembers,onRestoreGig:restoreGig,googleConnected:!!googleAccessToken},bandPanelProps:{theme,band,myRole,myUid:authUser&&authUser.uid,bandMembers,invites:bandInvites,onCall:callBandAlert,onRename:renameBand,onSetCalendarId:setBandCalendarId,onSwitch:onSwitchBand,onLeaving:onLeavingBand,onLeft:onLeftBand}});
+  if(showSettings)return e(SettingsPage,{offlineCharts,gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,authUser,authBusy,authError,onSignUp:signUpWithEmail,onSignIn:signInWithEmail,onSignOut:signOutOfAccount,onSendReset:sendPasswordReset,onChangePassword:changePassword,canManage,trashProps:{theme,canManage,bandMembers,onRestoreGig:restoreGig,googleConnected:!!googleAccessToken},bandPanelProps:{theme,band,myRole,myUid:authUser&&authUser.uid,bandMembers,invites:bandInvites,onCall:callBandAlert,onRename:renameBand,onSetCalendarId:setBandCalendarId,onSwitch:onSwitchBand,onLeaving:onLeavingBand,onLeft:onLeftBand}});
 
   const travelModalsProps={askTrack,setAskTrack,goHome,openMapsChooser,startTracking,askHomeAddress,setAskHomeAddress,homeAddressDraft,setHomeAddressDraft,saveHomeAddressAndGo,mapsChoice,setMapsChoice,theme,trackingMiles,stopTracking,gpsStandaloneHelp,dismissGpsStandaloneHelp};
 

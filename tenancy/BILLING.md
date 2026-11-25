@@ -107,17 +107,17 @@ Built to the plan above. Choices made along the way:
   refusal; cleans up after itself), `npm run e2e` (39 in a browser).
 
 ### Other app items to come back to (not billing)
-- [ ] **Move chart files out of the database into file storage** (Fable's review, section 4, "Every phone downloads every chart photo, every time"). Chart photos,
-      PDFs and set-list files are stored inside the database entries, so the app downloads every chart's file whenever it re-reads the list (any time it is
-      opened after ~30 minutes away). Cost to the owner is small (the database bills per entry, not per size); the real costs are slow opens on weak signal,
-      growing phone data use, and bug #8: a multi-page PDF over about 0.75 MB cannot be saved and blames the connection. Fix: files in Firebase file storage,
-      only name / key / tempo in the database, fetch a chart when it is opened; migrate existing photos; add storage rules. Medium-to-large. Do it after the
-      cutover prep and **before a second band uploads its chart book**. The new multi-band app already keeps private charts in each person's own library.
-      **Must also include (owner approved this reminder): the app saves charts on the phone automatically so they still open with no signal.** Today every chart is
-      on the phone automatically because it arrives with the database copy; after this fix a never-opened chart would not be. Build it so that, with a signal, the
-      app quietly saves in the background (a) the charts in tonight's and the next few gigs' set lists, and (b) any chart that has been opened; optionally a
-      "Save everything for offline" button in Settings. Test it the way the offline opening was tested: connection off, tonight's charts must still open. Nothing
-      for the user to do by hand.
+- [ ] **Chart files in file storage: BUILT in this branch's new app (not deployed, not set up on the real project).** Photos, PDFs and HTML files for band charts,
+      set lists and private library charts now go to Firebase file storage; the database entry keeps only a reference. Old inline charts keep working.
+      Done and tested on the emulators: storage rules, uploads and viewing, replacing a file, library chart copied into a band with its own file,
+      files kept on the phone (open with no signal), automatic background saving of the charts in set lists plus a Settings "Charts for offline"
+      button, the daily clean-up (`purgeTrash` erases a chart's file; `sweepOrphanFiles`), `deleteAccount` erasing files, and the migration moving
+      existing inline files into storage. See `tenancy/README.md` "Chart files in file storage" for the cutover steps. **Owner steps at cutover:**
+      enable Storage in the Firebase console (check the cost and the bucket name first: it must match `storageBucket` in `index.html`), deploy
+      `storage.rules`, apply `tenancy/storage-cors.json` to the bucket with `gsutil cors set`, run the migration with `--bucket`, deploy the functions.
+      **Left out on purpose:** (1) the band's stage plot is still stored inside its settings entry; (2) "tonight's set" cannot be known yet because a
+      gig has no set attached (Fable's "also worth adding"), so automatic saving covers the charts in every set list, newest first, plus anything
+      opened, plus the optional button; (3) no per-band storage limit yet. Not tested on a real phone or on the real Storage service.
 - [ ] **Offline (review section 4, "It can't open without a signal") is built** in the live app on branch `claude/offline-app` (not live until
       merged) and mirrored in this branch's new app. A service worker (`firebase-messaging-sw.js`) saves the app files on each phone: the page
       itself is network-first with a 4-second fall-back to the saved copy (so an update shows straight away on a good signal, and one bar of

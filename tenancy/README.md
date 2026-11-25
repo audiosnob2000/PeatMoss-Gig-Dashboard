@@ -13,12 +13,35 @@ branch only.
 | Migration | `migrate/migrate.js` | Copies today's flat collections under `bands/{id}` (mileage goes to each person's own area), translating `deviceId` to `uid`; a chart the live app calls shared (a missing flag counts as shared) becomes the band's, a private one goes to its owner's library. Never changes the originals. Refuses a real project without `--live`. |
 | App | `../index.html` | New `Root` (sign-in, band picker, start/join, removed and locked-out screens), band-scoped data layer, Band section in Settings (members, invite codes, roles, hand over, leave), "My charts" library with Share with band, and Settings > Recently deleted. |
 
+## Chart files in file storage
+
+Photos, PDFs and HTML files for band charts, set lists and private library charts are kept in Firebase file storage, not
+inside the database entry. The entry keeps the name, key, tempo and a reference (`fileId`, `fileSize`, `fileVersion`); a chart
+saved the old way (the whole file in `content`) is still read as before.
+
+| Piece | Where |
+|---|---|
+| Rules | `storage.rules`: `bands/{band}/files/{id}` for a band's paid-up players (read the member list in Firestore), `users/{uid}/files/{id}` for the owner only. Photos, PDFs and plain text up to 15 MB; HTML is stored as plain text. The app can never erase a band file. |
+| App | `../index.html`: "Chart files" block (`uploadChartFile`, `getFileBlob`, `useFileSource`, `prepareChartFile`), `useOfflineCharts`, the Settings "Charts for offline" row. Opened files are kept on the phone (Cache API `gigdash-files-v1`). |
+| Clean-up | `functions/files.js`, `functions/trash.js` (`purgeTrash` erases a chart's file with it; `sweepOrphanFiles` erases files nothing points to, after a day), `functions/account.js` (`deleteAccount` erases the person's files and a deleted band's files). |
+| Migration | `migrate/migrate.js` moves existing inline photos, PDFs and HTML into storage as it copies (`m-<id>` file ids, safe to re-run; the originals are never touched). On the emulator it needs `FIREBASE_STORAGE_EMULATOR_HOST=127.0.0.1:9199`; with `--live` it needs `--bucket <name>`. `--keep-inline` copies charts as they are. |
+
+**Not converted yet:** the band's stage plot (one file in `settings/stagePlot`).
+
+**Cutover steps for file storage** (not done: Storage is not set up on the real project yet):
+1. In the Firebase console, enable Storage for the project (needs the Blaze plan, which the project is on). Note the bucket name: it must match
+   `storageBucket` in `index.html` and the default bucket the functions use.
+2. Deploy `storage.rules` (`firebase deploy --only storage`).
+3. Apply the browser-access (CORS) setting so the app can fetch files: `gsutil cors set storage-cors.json gs://<bucket>`.
+4. Run the migration with `--bucket <bucket>`; check its `files.moved` count against the number of photo/PDF/HTML charts.
+5. Deploy the functions (`purgeTrash` and `deleteAccount` now erase files).
+
 ## Tests
 
 ```
 npm install
-npm test        # 80: rules, band functions, migration (Firestore emulator)
-npm run e2e     # 26: the real index.html in a phone-sized browser against the real rules and functions
+npm test        # rules (Firestore + Storage), band functions, files, migration (emulators)
+npm run e2e     # the real index.html in a phone-sized browser against the real rules, functions and storage
 ```
 
 `npm run e2e` needs Playwright available (`require('playwright')`). If your shell forces an outbound proxy (`https_proxy`), run it as `env -u https_proxy -u HTTPS_PROXY npm run e2e`: the Functions emulator registers the set-added trigger over a local call that a proxy can intercept and block. Set `E2E_SHOTS=/some/dir` to save screenshots,
