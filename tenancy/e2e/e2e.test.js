@@ -987,6 +987,32 @@ test('offline charts: set-list charts are saved on the phone by themselves, the 
   noProblems();
 });
 
+test('chart files: replacing a stored file overwrites it (same file, next version), leaving no stray file; an old-style chart with its photo inside the entry still opens', async () => {
+  const { olive, mia, id, miaUid } = await twoPeople();
+  // an old-style chart: the whole photo inside the database entry
+  const dataUrl = 'data:image/png;base64,' + PNG.toString('base64');
+  await db.doc(`bands/${id}/songs/legacy`).set({ name: 'Old Style Photo', type: 'image', content: dataUrl, shared: true, uid: miaUid, updatedAt: '2026-01-01' });
+  await tab(olive, 'Charts/Sets');
+  await olive.page.getByText('Old Style Photo', { exact: true }).click();
+  await olive.page.waitForFunction(() => { const i = document.querySelector('.perform-screen img'); return i && i.naturalWidth > 0; });
+  await olive.page.getByRole('button', { name: /Exit/ }).click();
+  // a stored chart, then replaced by Mia with a different (bigger) file
+  await addPhotoChart(mia, 'Replace Me', true);
+  const doc = await poll(async () => { const q = await db.collection(`bands/${id}/songs`).where('name', '==', 'Replace Me').get(); return q.size ? q.docs[0] : null; });
+  const before = doc.data();
+  await mia.page.getByRole('button', { name: 'Edit' }).last().click();
+  await mia.page.getByRole('button', { name: /Replace Photo or File/ }).click({ trial: true }).catch(() => {});
+  const [chooser] = await Promise.all([mia.page.waitForEvent('filechooser'), mia.page.getByRole('button', { name: /Replace Photo or File/ }).click()]);
+  const bigger = Buffer.concat([PNG, Buffer.alloc(2000)]);
+  await chooser.setFiles({ name: 'new.pdf', mimeType: 'application/pdf', buffer: bigger });
+  const after = await poll(async () => { const d = (await db.doc(`bands/${id}/songs/${doc.id}`).get()).data(); return d.fileVersion === 2 ? d : null; });
+  assert.equal(after.fileId, before.fileId, 'the same file is overwritten, nothing left behind');
+  assert.equal(after.type, 'file'); assert.equal(after.fileSize, bigger.length); assert.equal(after.content, undefined);
+  const files = (await admin.storage().bucket(BUCKET).getFiles({ prefix: `bands/${id}/files/` }))[0].map(f => f.name);
+  assert.deepEqual(files, [`bands/${id}/files/${before.fileId}`], 'one file for the chart');
+  noProblems();
+});
+
 test('library: adding a library chart to a set shares it with the band first', async () => {
   const { mia, id } = await twoPeople();
   await addChart(mia, 'Opener', false);
