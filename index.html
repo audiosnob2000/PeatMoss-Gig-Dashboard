@@ -110,7 +110,12 @@ firebase.initializeApp(firebaseConfig);
 const db=firebase.firestore();
 const auth=firebase.auth();
 const fns=firebase.functions();
-try{db.enablePersistence({synchronizeTabs:true});}catch(err){}
+// Keep the database's copy on the phone (gigs, charts, checklists) so the app still shows them with no signal. No size cap:
+// the default 40 MB limit would start throwing away older picture charts. `merge` keeps any settings already made above.
+db.settings({cacheSizeBytes:firebase.firestore.CACHE_SIZE_UNLIMITED,merge:true});
+db.enablePersistence({synchronizeTabs:true}).catch(()=>{});
+// Save the app itself on the phone so it opens with no signal (see firebase-messaging-sw.js).
+if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('firebase-messaging-sw.js').catch(()=>{});});}
 const messagingSupported=typeof window!=='undefined'&&'serviceWorker' in navigator&&'Notification' in window;
 const GOOGLE_CLIENT_ID='675499838790-l0lgct7rbkbc7u4lttqkpjta3vm9qrvi.apps.googleusercontent.com';
 // Fixed rather than derived from window.location — the app can be reached via

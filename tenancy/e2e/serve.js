@@ -16,8 +16,12 @@ function rewrite(html) {
   return out;
 }
 
+// A test can set control.down = true to make the server drop every request (a phone with no signal, as the service worker sees it).
+const control = { down: false };
+
 function start(port = 8099) {
   const server = http.createServer((req, res) => {
+    if (control.down) return req.socket.destroy();
     let p = decodeURIComponent(req.url.split('?')[0]);
     if (p === '/') p = '/index.html';
     const file = path.join(ROOT, p);
@@ -29,5 +33,5 @@ function start(port = 8099) {
   });
   return new Promise(r => server.listen(port, '127.0.0.1', () => r(server)));
 }
-module.exports = { start, rewrite };
+module.exports = { start, rewrite, control };
 if (require.main === module) start().then(() => console.log('serving on http://127.0.0.1:8099'));

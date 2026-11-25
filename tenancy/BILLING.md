@@ -107,6 +107,15 @@ Built to the plan above. Choices made along the way:
   refusal; cleans up after itself), `npm run e2e` (39 in a browser).
 
 ### Other app items to come back to (not billing)
+- [ ] **Offline (review section 4, "It can't open without a signal") is built** in the live app on branch `claude/offline-app` (not live until
+      merged) and mirrored in this branch's new app. A service worker (`firebase-messaging-sw.js`) saves the app files on each phone: the page
+      itself is network-first with a 4-second fall-back to the saved copy (so an update shows straight away on a good signal, and one bar of
+      signal still opens the app); scripts and icons are served from the saved copy and refreshed quietly. Gigs, charts and checklists come from
+      Firestore's own copy on the phone, now with no size cap (the default 40 MB would start dropping older picture charts). The start-up
+      "couldn't move your history" alert no longer fires when there is just no signal. To make every phone drop its saved files, change
+      `SHELL_CACHE` (`gigdash-shell-v1`) in that file. Needs a real-phone check (airplane mode, home-screen app on an iPhone). Not tested: adding
+      or editing things offline (Firestore queues those writes until the signal returns). When charts move out of the database into file storage
+      (section 4's biggest item), tonight's charts will need to be saved on the phone on purpose; today every chart already is.
 - [ ] **Perform mode (Fable's review, Change 2) is built** in the live app on branch `claude/perform-mode` (not merged until a pull request
       is opened and merged) and mirrored in this branch's new app. A song opened from a built set list now opens a full-screen
       viewer with the set position, Previous / Next (with the next song's key), swipe, the key / text size / scroll tools, and a tempo

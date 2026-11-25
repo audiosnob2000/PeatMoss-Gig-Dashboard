@@ -10,7 +10,7 @@ process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:8085';
 process.env.FIREBASE_AUTH_EMULATOR_HOST = '127.0.0.1:9099';
 const admin = require('firebase-admin');
 const { chromium } = require('playwright');
-const { start } = require('./serve');
+const { start, control } = require('./serve');
 
 const BASE = 'http://127.0.0.1:8099/';
 const SHOTS = process.env.E2E_SHOTS || '';
@@ -862,6 +862,26 @@ test('perform mode: a band member runs a set from the full-screen viewer (previo
   await screen.getByRole('button', { name: /Exit/ }).click();
   await screen.waitFor({ state: 'detached' });
   await mia.page.getByText('Charlie Song', { exact: true }).waitFor();                      // back in the set list, on Set 2
+  noProblems();
+});
+
+test('offline: with no signal the app still opens, inside the band, and a picture chart opens', async () => {
+  const { mia, id, miaUid } = await twoPeople();
+  const svg = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="500"><rect width="400" height="500" fill="#fff"/><text x="20" y="60" font-size="30">Sheet music</text></svg>');
+  await db.doc(`bands/${id}/songs/pic`).set({ name: 'Picture Chart', type: 'image', content: svg, key: 'G', tempo: '100', shared: true, uid: miaUid, updatedAt: '2026-11-01' });
+  await tab(mia, 'Charts/Sets');
+  await mia.page.getByText('Picture Chart', { exact: true }).waitFor();
+  await mia.page.waitForFunction(async () => { if (!navigator.serviceWorker.controller) return false; const c = await caches.open('gigdash-shell-v1'); return (await c.keys()).length >= 12; }, null, { timeout: 20000 });
+  await mia.page.waitForTimeout(1500);
+  try {
+    control.down = true; await mia.ctx.setOffline(true);
+    await mia.page.reload();
+    await mia.page.getByRole('button', { name: '+ Add gig' }).waitFor({ timeout: 20000 });      // opened inside the band, no sign-in or subscribe screen
+    await tab(mia, 'Charts/Sets');
+    await mia.page.getByText('Picture Chart', { exact: true }).click();
+    await mia.page.waitForFunction(() => { const i = document.querySelector('img[src^="data:image/svg"]'); return i && i.naturalWidth > 0; });
+    assert.deepEqual(mia.dialogs, [], 'no alert pop-ups while offline');
+  } finally { control.down = false; await mia.ctx.setOffline(false); }
   noProblems();
 });
 
