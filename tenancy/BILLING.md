@@ -107,6 +107,10 @@ Built to the plan above. Choices made along the way:
   refusal; cleans up after itself), `npm run e2e` (39 in a browser).
 
 ### Other app items to come back to (not billing)
+- [ ] **Reminder service re-reads every gig (Fable section 4). Decision: leave the live one as it is.** The live `sendGigReminders` reads the whole `gigs` collection every
+      5 minutes (288 times a day) and filters afterwards, so reads grow with every gig ever. About 150 gigs is roughly 43,000 reads a day, near the free 50,000. The new
+      multi-band reminder (`tenancy/functions/reminders.js`) already asks each band only for gigs from yesterday on, so the fix arrives with the cutover. Only revisit the
+      live one if the cutover is far off and the Firebase usage page shows reads well past the free daily limit.
 - [ ] **(Optional, owner said leave it for now) Live app: a chart or set list with no "updated" date blanks the Charts screen.** The date line on each chart row reads
       `updatedAt` without checking it exists. The live app always saves one, so it does not affect the band today. Already fixed in the new app (`formatSetlistDate`
       tolerates a missing date). If a live-app pull request comes up anyway, include the same four-line guard.
