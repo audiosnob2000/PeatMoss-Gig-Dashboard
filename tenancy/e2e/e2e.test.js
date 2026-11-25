@@ -130,6 +130,7 @@ test('owner makes a code; a second person joins with it and is in at once; both 
   await signUp(mia);
   await joinWithCode(mia, code);
   await openBandSettings(mia);
+  await mia.page.getByText('MEMBERS (2)').waitFor();                                           // the list fills in a moment after the section opens
   await shot(mia, '04_member_view');
   const text = await mia.page.locator('body').innerText();
   assert.match(text, /Olive/); assert.match(text, /Mia \(you\)/);
