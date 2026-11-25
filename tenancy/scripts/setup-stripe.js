@@ -29,7 +29,7 @@ const PRICES = [
     productId = (await stripe.products.create({ name: 'Gig Dashboard subscription', description: 'One subscription covers every band you play in.', metadata: { app: 'gigdashboard' } })).id;
   }
 
-  const out = { productId, prices: {} };
+  const out = { mode: bal.livemode ? 'live' : 'test', productId, prices: {} };
   for (const p of PRICES) {
     let price = existing.find(x => x.lookup_key === p.lookup_key);
     if (!price) price = await stripe.prices.create({ product: productId, currency: 'usd', unit_amount: p.unit_amount, recurring: { interval: p.interval }, lookup_key: p.lookup_key, nickname: p.nickname });

@@ -107,6 +107,12 @@ Built to the plan above. Choices made along the way:
   refusal; cleans up after itself), `npm run e2e` (39 in a browser).
 
 ### Other app items to come back to (not billing)
+- [ ] **Cutover prep (status).** Done and committed: Unpaid / Mark paid ported to the new app (2 tests); local dress rehearsal `npm run rehearse` (11 checks:
+      live-shaped data, the real migration command, files byte-for-byte, the new rules per role, the app as owner and as member, and the way back);
+      `scripts/stage-cutover.js` (builds the exact files and merged functions and lists blockers); the runbook `tenancy/CUTOVER.md`. The rehearsal found and
+      fixed three real bugs (migration command broke without `--time-zone`; migrated files had no download token; a chart with no date blanked the Charts
+      screen). **Still open:** grouped Settings in the new app (mock-up waiting for the owner's OK); the practice Firebase project rehearsal; every
+      blocker the staging script lists (live Stripe ids, Terms/Privacy blanks); the owner steps in CUTOVER.md. No launch date is set.
 - [ ] **Chart files in file storage: BUILT in this branch's new app (not deployed, not set up on the real project).** Photos, PDFs and HTML files for band charts,
       set lists and private library charts now go to Firebase file storage; the database entry keeps only a reference. Old inline charts keep working.
       Done and tested on the emulators: storage rules, uploads and viewing, replacing a file, library chart copied into a band with its own file,

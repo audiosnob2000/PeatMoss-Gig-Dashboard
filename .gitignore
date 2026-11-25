@@ -5,3 +5,4 @@ functions/.env
 tenancy/node_modules/
 tenancy/*.log
 tenancy/functions/node_modules/
+tenancy/cutover-staging/

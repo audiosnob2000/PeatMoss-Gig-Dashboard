@@ -50,6 +50,11 @@ including `FAIL_*.png` if the cutover test fails.
 The end-to-end suite fails a test if the app logs any Firestore permission error, so it proves every query and write
 the app makes is allowed for that role.
 
+## Cutover
+
+The step-by-step runbook is **[CUTOVER.md](CUTOVER.md)** (prepared and rehearsed locally, not done). `npm run rehearse` is the dress rehearsal, and
+`node scripts/stage-cutover.js` builds the staging folder. The older outline below is kept for the reasoning behind the order.
+
 ## Cutover order (from the Opus plan, adjusted)
 
 1. Everyone in the band signs in on the **current** live app, so their data is keyed to a real account id.
