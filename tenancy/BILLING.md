@@ -107,6 +107,11 @@ Built to the plan above. Choices made along the way:
   refusal; cleans up after itself), `npm run e2e` (39 in a browser).
 
 ### Other app items to come back to (not billing)
+- [ ] **Post-launch polish: small text, small tap targets, and screen-reader labels (Fable section 4).** On the Calendar tab the review counted 41 of 76 text items at 10 px or
+      smaller, 12 of 42 tappable things smaller than a fingertip (about 44 px is the guideline), and almost nothing labelled for screen readers. It matters for reading in a dim
+      bar between songs, for bandmates with older eyes, and for accessibility questions from schools or organizations. Gig Day and Perform mode are already large; the Calendar
+      screen is the main offender (gig names inside days, stat-tile labels, the legend, the small x buttons and dots). Plan: (1) raise the smallest text to a readable size,
+      (2) enlarge the tap spots, (3) add `aria-label`s to the buttons. New app only, after launch work. Not needed to launch.
 - [ ] **Post-launch polish: replace the grey pop-up boxes (Fable section 4, "50 pop-up alerts").** The app uses the phone's plain `alert()` / `confirm()` box for errors and
       confirmations (about 50 in the live app, 59 `alert(` and 12 `confirm(` in the new app). They stop everything, look like a website, and cannot offer Undo. Replace
       with one reusable in-app message that slides in at the bottom and fades (with Undo after a delete), and swap each pop-up for it. The most common one ("Could not save,
