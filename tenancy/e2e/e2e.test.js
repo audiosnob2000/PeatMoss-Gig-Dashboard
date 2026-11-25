@@ -8,6 +8,7 @@ const path = require('path');
 const fs = require('fs');
 process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:8085';
 process.env.FIREBASE_AUTH_EMULATOR_HOST = '127.0.0.1:9099';
+process.env.FIREBASE_STORAGE_EMULATOR_HOST = '127.0.0.1:9199';
 const admin = require('firebase-admin');
 const { chromium } = require('playwright');
 const { start, control } = require('./serve');
@@ -883,6 +884,69 @@ test('offline: with no signal the app still opens, inside the band, and a pictur
     assert.deepEqual(mia.dialogs, [], 'no alert pop-ups while offline');
     await mia.page.getByRole('status').filter({ hasText: 'Offline' }).waitFor();                    // the amber tag
   } finally { control.down = false; await mia.ctx.setOffline(false); }
+  noProblems();
+});
+
+// A tiny valid PNG, picked through the real file input.
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+const BUCKET = 'peatmoss-gig-dashboard-4f41b.firebasestorage.app';
+const storageHas = async p => (await admin.storage().bucket(BUCKET).file(p).exists())[0];
+async function addPhotoChart(p, name, share) {
+  await tab(p, 'Charts/Sets');
+  await p.page.getByRole('button', { name: '+ Add song' }).click();
+  await p.page.getByPlaceholder('e.g. Mustang Sally').fill(name);
+  const [chooser] = await Promise.all([p.page.waitForEvent('filechooser'), p.page.getByRole('button', { name: /Choose Photo or File/ }).click()]);
+  await chooser.setFiles({ name: 'chart.png', mimeType: 'image/png', buffer: PNG });
+  await p.page.locator('img[src^="blob:"]').waitFor();                                         // the picked photo is previewed
+  if (share) { await p.page.getByText('+ Add key, tempo, tag & sharing').click(); await p.page.getByRole('switch').click(); }
+  await p.page.getByRole('button', { name: 'Add song', exact: true }).click();
+  await p.page.getByText(name).first().waitFor();
+}
+
+test('chart files: a photo chart goes to file storage, the database entry only keeps a reference, and the band can open it, online and offline', async () => {
+  const { olive, mia, id } = await twoPeople();
+  await addPhotoChart(mia, 'Picture Tune', true);
+  const doc = await poll(async () => { const q = await db.collection(`bands/${id}/songs`).get(); return q.size ? q.docs[0] : null; });
+  const d = doc.data();
+  assert.equal(d.type, 'image'); assert.ok(d.fileId, 'a file reference'); assert.ok(d.fileSize > 0); assert.equal(d.fileVersion, 1);
+  assert.equal(d.content, undefined, 'the photo is not stored inside the database entry');
+  assert.ok(await storageHas(`bands/${id}/files/${d.fileId}`), 'the photo is in file storage');
+  // another member opens it
+  await tab(olive, 'Charts/Sets');
+  await olive.page.getByText('Picture Tune', { exact: true }).click();
+  await olive.page.waitForFunction(() => { const i = document.querySelector('.perform-screen img'); return i && i.naturalWidth > 0; });
+  // and, once seen, it still opens with no signal
+  await olive.page.getByRole('button', { name: /Exit/ }).click();
+  await olive.page.waitForFunction(async () => { if (!navigator.serviceWorker.controller) return false; const c = await caches.open('gigdash-shell-v1'); return (await c.keys()).length >= 12; }, null, { timeout: 20000 });
+  await olive.page.waitForTimeout(1500);
+  try {
+    control.down = true; await olive.ctx.setOffline(true);
+    await olive.page.reload();
+    await olive.page.getByRole('button', { name: '+ Add gig' }).waitFor({ timeout: 20000 });
+    await tab(olive, 'Charts/Sets');
+    await olive.page.getByText('Picture Tune', { exact: true }).click();
+    await olive.page.waitForFunction(() => { const i = document.querySelector('.perform-screen img'); return i && i.naturalWidth > 0; });
+  } finally { control.down = false; await olive.ctx.setOffline(false); }
+  noProblems();
+});
+
+test('chart files: a private library photo lives in the person\'s own storage; sharing it with a band gives the band its own copy', async () => {
+  const { olive, mia, id, miaUid } = await twoPeople();
+  await addPhotoChart(mia, 'Private Picture', false);
+  const lib = await poll(async () => { const q = await db.collection(`users/${miaUid}/charts`).get(); return q.size ? q.docs[0] : null; });
+  assert.ok(lib.data().fileId); assert.equal(lib.data().content, undefined);
+  assert.ok(await storageHas(`users/${miaUid}/files/${lib.data().fileId}`));
+  assert.equal((await db.collection(`bands/${id}/songs`).get()).size, 0, 'not in the band yet');
+  // add it to a set: the band gets its own copy of the file
+  await mia.page.getByRole('button', { name: 'Select' }).click();
+  await mia.page.getByText('Private Picture').first().click();
+  await mia.page.getByRole('button', { name: /Add to Set/ }).click();
+  const copy = await poll(async () => { const q = await db.collection(`bands/${id}/songs`).get(); return q.size ? q.docs[0] : null; });
+  const c = copy.data();
+  assert.ok(c.fileId && c.fileId !== lib.data().fileId, 'its own file');
+  assert.equal(c.content, undefined);
+  assert.ok(await poll(() => storageHas(`bands/${id}/files/${c.fileId}`)), 'copied into the band\'s storage');
+  assert.ok(await storageHas(`users/${miaUid}/files/${lib.data().fileId}`), 'her private original is still hers');
   noProblems();
 });
 

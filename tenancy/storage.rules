@@ -1,0 +1,43 @@
+rules_version = '2';
+// File storage for charts: photos, PDFs and HTML files for band charts and set lists, and the files of each person's private
+// chart library. The database keeps only the name, key, tempo and a reference to the file here.
+//   bands/{bandId}/files/{fileId}   readable and writable by the band's players (the same people who can use the band's
+//                                   charts in the database: a member whose own subscription is current). Never deleted by
+//                                   the app: a chart in Recently deleted must still have its file. The daily clean-up job
+//                                   (Admin SDK, which ignores these rules) erases the file with the chart after 30 days.
+//   users/{uid}/files/{fileId}      the person's own library files: only that person, who may also erase them.
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() { return request.auth != null; }
+    function memberPath(bandId) { return /databases/(default)/documents/bands/$(bandId)/members/$(request.auth.uid); }
+    function isPlayer(bandId) {
+      return signedIn()
+        && firestore.exists(memberPath(bandId))
+        && firestore.get(memberPath(bandId)).data.get('covered', true) != false
+        && firestore.get(memberPath(bandId)).data.role in ['owner', 'admin', 'member'];
+    }
+
+    // A chart file: a photo, a PDF, or an HTML / text file (HTML is stored as plain text so a browser opening the file's
+    // address never runs it), at most 15 MB.
+    function okUpload() {
+      return request.resource.size < 15 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*|application/pdf|text/plain');
+    }
+
+    match /bands/{bandId}/files/{fileId} {
+      allow read: if isPlayer(bandId);
+      allow create, update: if isPlayer(bandId) && okUpload();
+      allow delete: if false;
+    }
+
+    match /users/{uid}/files/{fileId} {
+      allow read, delete: if signedIn() && request.auth.uid == uid;
+      allow create, update: if signedIn() && request.auth.uid == uid && okUpload();
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

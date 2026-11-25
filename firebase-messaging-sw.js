@@ -53,6 +53,7 @@ const SHELL_FILES = [
   'vendor/firebase-firestore-compat.js',
   'vendor/firebase-functions-compat.js',
   'vendor/firebase-messaging-compat.js',
+  'vendor/firebase-storage-compat.js',
   'vendor/prop-types.min.js',
   'vendor/react-dom.production.min.js',
   'vendor/react.production.min.js'

@@ -22,6 +22,7 @@
 <script src="vendor/firebase-messaging-compat.js"></script>
 <script src="vendor/firebase-auth-compat.js"></script>
 <script src="vendor/firebase-functions-compat.js"></script>
+<script src="vendor/firebase-storage-compat.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{overflow-x:hidden;width:100%}
@@ -110,6 +111,7 @@ firebase.initializeApp(firebaseConfig);
 const db=firebase.firestore();
 const auth=firebase.auth();
 const fns=firebase.functions();
+const storage=firebase.storage();
 // Keep the database's copy on the phone (gigs, charts, checklists) so the app still shows them with no signal. No size cap:
 // the default 40 MB limit would start throwing away older picture charts. `merge` keeps any settings already made above.
 db.settings({cacheSizeBytes:firebase.firestore.CACHE_SIZE_UNLIMITED,merge:true});
@@ -677,12 +679,119 @@ function processUploadedFile(file,onSuccess,onError){
   }
 }
 
+// ── Chart files ──────────────────────────────────────────────────────────────────────────────────────────────────────
+// A photo, PDF or HTML file for a chart or set list is kept in file storage, not inside the database entry. The entry keeps the
+// name, key, tempo and a small reference to the file (fileId, fileSize, fileVersion), so loading the chart list no longer drags
+// every file along with it, and a PDF is no longer limited to what fits in one entry. A chart saved the old way (the whole file
+// inside `content`) keeps working and is read exactly as before.
+//   band chart / set list: bands/{band}/files/{fileId}      private library chart: users/{me}/files/{fileId}
+// Every file that is opened is also kept on the phone (the Cache API), so a chart opens with no signal once it has been seen.
+const FILE_CACHE='gigdash-files-v1';
+const needsFile=d=>!!d&&(d.type==='image'||d.type==='file'||d.type==='html');
+const fileFolder=d=>(d&&d.scope==='mine')?'users/'+getUserId():'bands/'+ACTIVE_BAND_ID;
+const filePathOf=d=>fileFolder(d)+'/files/'+d.fileId;
+const fileKeyOf=d=>filePathOf(d)+'@'+(d.fileVersion||1);
+const fileCacheUrl=key=>'https://files.gigdash.invalid/'+encodeURIComponent(key);
+async function fileCacheGet(key){try{const c=await caches.open(FILE_CACHE);const r=await c.match(fileCacheUrl(key));return r?await r.blob():null;}catch{return null;}}
+async function fileCachePut(key,blob){
+  try{
+    const c=await caches.open(FILE_CACHE);
+    const path=key.split('@')[0],prefix=fileCacheUrl('');
+    // drop an older version of the same file
+    for(const rq of await c.keys()){const k=decodeURIComponent(rq.url.slice(prefix.length));if(k!==key&&k.split('@')[0]===path)await c.delete(rq);}
+    await c.put(fileCacheUrl(key),new Response(blob,{headers:{'content-type':blob.type||'application/octet-stream'}}));
+  }catch{}
+}
+async function fileCacheHas(key){try{const c=await caches.open(FILE_CACHE);return !!(await c.match(fileCacheUrl(key)));}catch{return false;}}
+// The file as a Blob: the copy on the phone if there is one, otherwise from file storage.
+async function getFileBlob(d){
+  if(!d)return null;
+  if(!d.fileId){                                   // saved the old way: the file is inside the entry
+    if(typeof d.content!=='string')return null;
+    if(d.type==='html')return new Blob([d.content],{type:'text/html'});
+    if(d.content.startsWith('data:')||d.content.startsWith('blob:'))return (await fetch(d.content)).blob();
+    return null;
+  }
+  const key=fileKeyOf(d);
+  const saved=await fileCacheGet(key);
+  if(saved)return saved;
+  const url=await storage.ref(filePathOf(d)).getDownloadURL();
+  const res=await fetch(url,{cache:'no-store'});
+  if(!res.ok)throw new Error('file '+res.status);
+  const blob=await res.blob();
+  await fileCachePut(key,blob);
+  return blob;
+}
+// Upload a file for a chart or set list and return the reference to keep in its entry. `old` is the entry's current file, if
+// any: replacing it overwrites the same file (no leftovers) and raises the version so every phone fetches the new one.
+async function uploadChartFile(blob,{mine,old}){
+  const reuse=old&&old.fileId?old:null;
+  const fileId=reuse?reuse.fileId:'f'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+  const fileVersion=reuse?(reuse.fileVersion||1)+1:1;
+  const holder={scope:mine?'mine':'band',fileId,fileVersion};
+  const contentType=blob.type==='text/html'?'text/plain':blob.type;     // HTML is kept as plain text, so a browser opening its address never runs it
+  await storage.ref(filePathOf(holder)).put(blob,{contentType});
+  await fileCachePut(fileKeyOf(holder),blob);
+  return {fileId,fileSize:blob.size,fileVersion};
+}
+// Turn a picked file into something we can upload: a photo is shrunk first (a straight-from-phone photo can be several MB), HTML and
+// PDF and text files are kept as they are. onSuccess gets {type, blob, fileName, content} where `content` is only a preview for the
+// form (a picture address for a photo, otherwise just the file's name).
+function prepareChartFile(file,onSuccess,onError){
+  const done=(type,blob)=>onSuccess({type,blob,fileName:file.name,content:type==='image'?URL.createObjectURL(blob):file.name});
+  if(file.type.startsWith('image/')){
+    const url=URL.createObjectURL(file);
+    const img=new Image();
+    // Some photo formats (e.g. HEIC straight from an iPhone camera) can't be drawn in every browser. Rather than fail, keep the
+    // original as a downloadable file: it won't preview inline, but it's saved.
+    img.onerror=()=>{URL.revokeObjectURL(url);done('file',file);};
+    img.onload=()=>{
+      const maxDim=1280;
+      let w=img.width,h=img.height;
+      if(w>maxDim||h>maxDim){const scale=maxDim/Math.max(w,h);w=Math.round(w*scale);h=Math.round(h*scale);}
+      const canvas=document.createElement('canvas');
+      canvas.width=w;canvas.height=h;
+      canvas.getContext('2d').drawImage(img,0,0,w,h);
+      URL.revokeObjectURL(url);
+      canvas.toBlob(b=>b?done('image',b):onError('Could not read that photo. Try again, or pick a different one.'),'image/jpeg',0.8);
+    };
+    img.src=url;
+  } else if(file.type==='text/html'||/\.html?$/i.test(file.name)){
+    done('html',new Blob([file],{type:'text/html'}));
+  } else if(file.type==='application/pdf'||/\.pdf$/i.test(file.name)){
+    done('file',file.type==='application/pdf'?file:new Blob([file],{type:'application/pdf'}));
+  } else if(file.type==='text/plain'||/\.txt$/i.test(file.name)){
+    done('file',file.type==='text/plain'?file:new Blob([file],{type:'text/plain'}));
+  } else {
+    onError("That kind of file can't be saved here. Use a photo, a PDF, or an HTML or text file.");
+  }
+}
+// What a chart or set list's picture / file / HTML is, ready to show: {src} (a picture address), {text} (HTML), or {failed}.
+function useFileSource(d){
+  const [st,setSt]=useState({src:null,text:null,failed:false,loading:false});
+  const id=d&&d.id,type=d&&d.type,stored=d&&d.fileId?fileKeyOf(d):null,legacy=d&&!d.fileId?d.content:null;
+  useEffect(()=>{
+    if(!stored){return;}
+    let dead=false,url=null;
+    setSt({src:null,text:null,failed:false,loading:true});
+    getFileBlob(d).then(async blob=>{
+      if(dead)return;
+      if(d.type==='html')setSt({src:null,text:await blob.text(),failed:false,loading:false});
+      else{url=URL.createObjectURL(blob);setSt({src:url,text:null,failed:false,loading:false});}
+    }).catch(()=>{if(!dead)setSt({src:null,text:null,failed:true,loading:false});});
+    return()=>{dead=true;if(url)URL.revokeObjectURL(url);};
+  },[id,type,stored]);
+  if(!needsFile(d))return {src:null,text:null,failed:false,loading:false};
+  if(!d.fileId)return d.type==='html'?{src:null,text:legacy||'',failed:false,loading:false}:{src:legacy||null,text:null,failed:false,loading:false};
+  return st;
+}
+
 // "Scan cleanup" for a handwritten chart photo — grayscale + a contrast/
 // brightness push, so a phone photo of paper reads like a clean scan
 // instead of a photo (whiter background, darker ink). Not perspective
 // correction or auto-crop — just the levels adjustment, which covers most
 // of the "looks like a real scan" effect on its own.
-function cleanupScanImage(dataUrl,callback){
+function cleanupScanImage(src,callback){
   const img=new Image();
   img.onload=()=>{
     const canvas=document.createElement('canvas');
@@ -699,9 +808,9 @@ function cleanupScanImage(dataUrl,callback){
       d[i]=v;d[i+1]=v;d[i+2]=v;
     }
     ctx.putImageData(imgData,0,0);
-    callback(canvas.toDataURL('image/jpeg',0.85));
+    canvas.toBlob(b=>{if(b)callback(URL.createObjectURL(b),b);},'image/jpeg',0.85);
   };
-  img.src=dataUrl;
+  img.src=src;
 }
 
 function Badge({status}){
@@ -4357,6 +4466,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
   const [newSetlistMode,setNewSetlistMode]=useState('upload');
   const [newSetlistContentType,setNewSetlistContentType]=useState('');
   const [newSetlistContent,setNewSetlistContent]=useState('');
+  const [newSetlistBlob,setNewSetlistBlob]=useState(null);       // the picked file, uploaded when the set list is saved
   const [newSetlistFileName,setNewSetlistFileName]=useState('');
   // The "Build from your charts" setlist type — picking real chart entries
   // into one continuous show or several named sets, instead of retyping a
@@ -4389,6 +4499,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
   const [newSongMode,setNewSongMode]=useState('upload');
   const [newSongContentType,setNewSongContentType]=useState('');
   const [newSongContent,setNewSongContent]=useState('');
+  const [newSongBlob,setNewSongBlob]=useState(null);
   const [newSongFileName,setNewSongFileName]=useState('');
   const [newSongShared,setNewSongShared]=useState(false);
   const [newSongKey,setNewSongKey]=useState('');
@@ -5685,26 +5796,26 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
   const handleSetlistFileUpload=file=>{
     setNewSetlistFileName(file.name);
     setNewSetlistProcessing(true);
-    processUploadedFile(file,
-      ({type,content})=>{setNewSetlistContentType(type);setNewSetlistContent(content);setNewSetlistProcessing(false);},
+    prepareChartFile(file,
+      ({type,content,blob})=>{setNewSetlistContentType(type);setNewSetlistContent(content);setNewSetlistBlob(blob);setNewSetlistProcessing(false);},
       msg=>{setNewSetlistProcessing(false);alert(msg);}
     );
   };
   const resetSetlistForm=()=>{
-    setNewSetlistName('');setNewSetlistMode('upload');setNewSetlistContentType('');setNewSetlistContent('');setNewSetlistFileName('');setNewSetlistProcessing(false);setAddingSetlist(false);
+    setNewSetlistName('');setNewSetlistMode('upload');setNewSetlistContentType('');setNewSetlistContent('');setNewSetlistBlob(null);setNewSetlistFileName('');setNewSetlistProcessing(false);setAddingSetlist(false);
   };
   const handleReplaceSetlistFile=file=>{
     if(!replacingSetlistId)return;
     setReplacingProcessing(true);
-    processUploadedFile(file,
-      ({type,content,fileName})=>{
-        const updates={type,content,fileName,updatedAt:todayStr};
-        if(editSetlistName.trim())updates.name=editSetlistName.trim();
-        bc('setlists').doc(replacingSetlistId).update(updates)
-          .catch(()=>alert('Could not save — check your connection and try again.'));
-        setReplacingProcessing(false);
-        setReplacingSetlistId(null);
-        setEditingSetlistId(null);
+    prepareChartFile(file,
+      ({type,blob,fileName})=>{
+        const old=setlists.find(x=>x.id===replacingSetlistId);
+        uploadChartFile(blob,{mine:false,old}).then(ref=>{
+          const updates={type,fileName,...ref,content:firebase.firestore.FieldValue.delete(),updatedAt:todayStr};
+          if(editSetlistName.trim())updates.name=editSetlistName.trim();
+          return bc('setlists').doc(replacingSetlistId).update(updates);
+        }).catch(()=>alert('Could not save — check your connection and try again.'))
+          .finally(()=>{setReplacingProcessing(false);setReplacingSetlistId(null);setEditingSetlistId(null);});
       },
       msg=>{setReplacingProcessing(false);alert(msg);}
     );
@@ -5727,20 +5838,20 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
         return;
       }
       if(sl.type==='text'||sl.type==='html'){
-        if(navigator.share) await navigator.share({title:sl.name,text:sl.content});
-        else {await navigator.clipboard.writeText(sl.content);alert('Copied to clipboard!');}
+        const text=sl.type==='html'?await (await getFileBlob(sl)).text():sl.content;
+        if(navigator.share) await navigator.share({title:sl.name,text});
+        else {await navigator.clipboard.writeText(text);alert('Copied to clipboard!');}
         return;
       }
       // image or file — share the actual file where possible
-      const res=await fetch(sl.content);
-      const blob=await res.blob();
+      const blob=await getFileBlob(sl);
       const filename=sl.fileName||sl.name+(sl.type==='image'?'.jpg':'');
       const file=new File([blob],filename,{type:blob.type});
       if(navigator.canShare&&navigator.canShare({files:[file]})){
         await navigator.share({title:sl.name,files:[file]});
       } else {
         const a=document.createElement('a');
-        a.href=sl.content;a.download=filename;a.click();
+        a.href=URL.createObjectURL(blob);a.download=filename;a.click();
       }
     }catch(err){
       if(err.name!=='AbortError') alert('Could not share this setlist.');
@@ -5754,7 +5865,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
       .catch(()=>alert('Could not save — check your connection and try again.'));
     setEditingSetlistId(null);
   };
-  const addSetlist=()=>{
+  const addSetlist=async()=>{
     if(newSetlistProcessing)return;
     if(!newSetlistContent){
       alert(newSetlistMode==='upload'?'Choose a photo or file first.':newSetlistMode==='link'?'Paste a link first.':'Type something in first.');
@@ -5765,7 +5876,13 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
     const now=new Date();
     const name=newSetlistName.trim()||`${MONTHS[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
     const type=newSetlistMode==='link'?'link':newSetlistMode==='manual'?'text':newSetlistContentType;
-    bc('setlists').doc('sl'+Date.now()).set({name,type,content:newSetlistContent,fileName:newSetlistFileName||null,updatedAt:todayStr})
+    let fileRef=null;
+    if(needsFile({type})){
+      setNewSetlistProcessing(true);
+      try{fileRef=await uploadChartFile(newSetlistBlob,{mine:false});}
+      catch(err){setNewSetlistProcessing(false);alert('Could not save the file — check your connection and try again.');return;}
+    }
+    bc('setlists').doc('sl'+Date.now()).set({name,type,...(fileRef||{content:newSetlistContent}),fileName:newSetlistFileName||null,updatedAt:todayStr})
       .catch(()=>alert('Could not save — check your connection and try again.'));
     resetSetlistForm();
   };
@@ -5792,32 +5909,29 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
   const handleSongFileUpload=file=>{
     setNewSongFileName(file.name);
     setNewSongProcessing(true);
-    processUploadedFile(file,
-      ({type,content})=>{setNewSongContentType(type);setNewSongContent(content);setNewSongProcessing(false);},
+    prepareChartFile(file,
+      ({type,content,blob})=>{setNewSongContentType(type);setNewSongContent(content);setNewSongBlob(blob);setNewSongProcessing(false);},
       msg=>{setNewSongProcessing(false);alert(msg);}
     );
   };
   const resetSongForm=()=>{
-    setNewSongName('');setNewSongMode('upload');setNewSongContentType('');setNewSongContent('');setNewSongFileName('');setNewSongShared(false);
+    setNewSongName('');setNewSongMode('upload');setNewSongContentType('');setNewSongContent('');setNewSongBlob(null);setNewSongFileName('');setNewSongShared(false);
     setNewSongKey('');setNewSongTempo('');setNewSongTag('');setNewSongProcessing(false);setAddingSong(false);setCleaningUpScan(false);setShowSongDetails(false);
   };
   const handleReplaceSongFile=file=>{
     if(!replacingSongId)return;
     setReplacingSongProcessing(true);
-    processUploadedFile(file,
-      ({type,content,fileName})=>{
-        const updates={type,content,fileName,updatedAt:todayStr};
-        // Replacing the file happens from inside the same edit form as the
-        // name field, so a name change made just before hitting "Replace"
-        // needs to ride along here too, rather than only saving on the
-        // Save button — otherwise picking a file mid-edit would silently
-        // drop whatever name was typed.
-        if(editSongName.trim())updates.name=editSongName.trim();
-        songRefOf(songs.find(x=>x.id===replacingSongId)||{id:replacingSongId}).update(updates)
-          .catch(()=>alert('Could not save — check your connection and try again.'));
-        setReplacingSongProcessing(false);
-        setReplacingSongId(null);
-        setEditingSongId(null);
+    prepareChartFile(file,
+      ({type,blob,fileName})=>{
+        const old=songs.find(x=>x.id===replacingSongId)||{id:replacingSongId};
+        uploadChartFile(blob,{mine:old.scope==='mine',old}).then(ref=>{
+          const updates={type,fileName,...ref,content:firebase.firestore.FieldValue.delete(),updatedAt:todayStr};
+          // Replacing the file happens from inside the same edit form as the name field, so a name change made just before
+          // hitting "Replace" needs to ride along here too, rather than only saving on the Save button.
+          if(editSongName.trim())updates.name=editSongName.trim();
+          return songRefOf(old).update(updates);
+        }).catch(()=>alert('Could not save — check your connection and try again.'))
+          .finally(()=>{setReplacingSongProcessing(false);setReplacingSongId(null);setEditingSongId(null);});
       },
       msg=>{setReplacingSongProcessing(false);alert(msg);}
     );
@@ -5836,19 +5950,19 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
         return;
       }
       if(sg.type==='text'||sg.type==='html'){
-        if(navigator.share) await navigator.share({title:sg.name,text:sg.content});
-        else {await navigator.clipboard.writeText(sg.content);alert('Copied to clipboard!');}
+        const text=sg.type==='html'?await (await getFileBlob(sg)).text():sg.content;
+        if(navigator.share) await navigator.share({title:sg.name,text});
+        else {await navigator.clipboard.writeText(text);alert('Copied to clipboard!');}
         return;
       }
-      const res=await fetch(sg.content);
-      const blob=await res.blob();
+      const blob=await getFileBlob(sg);
       const filename=sg.fileName||sg.name+(sg.type==='image'?'.jpg':'');
       const file=new File([blob],filename,{type:blob.type});
       if(navigator.canShare&&navigator.canShare({files:[file]})){
         await navigator.share({title:sg.name,files:[file]});
       } else {
         const a=document.createElement('a');
-        a.href=sg.content;a.download=filename;a.click();
+        a.href=URL.createObjectURL(blob);a.download=filename;a.click();
       }
     }catch(err){
       if(err.name!=='AbortError') alert('Could not share this chart.');
@@ -5863,7 +5977,14 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
     if(existing&&songs.some(x=>x.id===existing&&x.scope!=='mine'))return existing;
     const id='sg'+Date.now()+Math.random().toString(36).slice(2,6);
     const{id:_i,scope:_sc,shared:_sh,sharedWith:_sw,deletedAt:_da,deletedBy:_db,uid:_u,...fields}=sg;
-    bc('songs').doc(id).set({...fields,uid:getUserId(),shared:true,fromLibrary:sg.id,updatedAt:todayStr}).catch(reportWriteError('share this chart'));
+    const base={...fields,uid:getUserId(),shared:true,fromLibrary:sg.id,updatedAt:todayStr};
+    if(needsFile(sg)){
+      // The band gets its own copy of the file, so the chart stays when the person leaves.
+      delete base.content;delete base.fileId;delete base.fileSize;delete base.fileVersion;
+      getFileBlob(sg).then(blob=>uploadChartFile(blob,{mine:false}))
+        .then(ref=>bc('songs').doc(id).set({...base,...ref}))
+        .catch(reportWriteError('share this chart'));
+    } else bc('songs').doc(id).set(base).catch(reportWriteError('share this chart'));
     libCol().doc(sg.id).set({sharedWith:{[band.id]:id}},{merge:true}).catch(()=>{});
     return id;
   };
@@ -5875,7 +5996,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
       .catch(()=>alert('Could not save — check your connection and try again.'));
     setEditingSongId(null);
   };
-  const addSong=()=>{
+  const addSong=async()=>{
     if(newSongProcessing)return;
     if(!newSongContent){
       alert(newSongMode==='upload'?'Choose a photo or file first.':newSongMode==='link'?'Paste a link first.':'Type something in first.');
@@ -5887,8 +6008,14 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
     }
     const type=newSongMode==='link'?'link':newSongMode==='manual'?'text':newSongContentType;
     // Off (the default): my own library. On: the band's charts.
+    let fileRef=null;
+    if(needsFile({type})){
+      setNewSongProcessing(true);
+      try{fileRef=await uploadChartFile(newSongBlob,{mine:!newSongShared});}
+      catch(err){setNewSongProcessing(false);alert('Could not save the file — check your connection and try again.');return;}
+    }
     const fields={
-      name:newSongName.trim(),type,content:newSongContent,fileName:newSongFileName||null,
+      name:newSongName.trim(),type,...(fileRef||{content:newSongContent}),fileName:newSongFileName||null,
       updatedAt:todayStr,uid:getUserId(),
       key:newSongKey.trim()||null,tempo:newSongTempo.trim()||null,tag:newSongTag.trim()||null,rotated:false
     };
@@ -5902,6 +6029,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
     // My own library charts are erased outright; the band's go to Recently deleted.
     (sg&&sg.scope==='mine'?libCol().doc(id).delete():bc('songs').doc(id).update(trashStamp()))
       .catch(()=>alert('Could not delete — check your connection and try again.'));
+    if(sg&&sg.scope==='mine'&&sg.fileId)storage.ref(filePathOf(sg)).delete().catch(()=>{});
     setViewingSong(null);setEditingSongId(null);setReplacingSongId(null);
   };
   // Rotation is stored per-song (not per-device) since it's fixing an
@@ -5934,6 +6062,8 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
   // re-resolve it against the live synced list every render instead.
   const liveViewingSong=viewingSong&&(songs.find(s=>s.id===viewingSong.id)||viewingSong);
   const liveViewingChartSetlist=viewingChartSetlist&&(setlists.find(s=>s.id===viewingChartSetlist.id)||viewingChartSetlist);
+  const songFile=useFileSource(liveViewingSong);
+  const setlistFile=useFileSource(viewingSetlist);
 
   // ---- Perform mode ----
   const performSl=performCtx&&performCtx.setlistId?setlists.find(s=>s.id===performCtx.setlistId):null;
@@ -6253,7 +6383,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
           e('input',{autoFocus:true,value:newSongName,onChange:ev=>setNewSongName(ev.target.value),placeholder:'e.g. Mustang Sally'}),
           e('div',{style:{display:'flex',gap:6,margin:'10px 0'}},
             [['upload','📤 Upload'],['link','🔗 Link'],['manual','⌨️ Type']].map(([id,label])=>
-              e('button',{key:id,onClick:()=>{setNewSongMode(id);setNewSongContentType('');setNewSongContent('');setNewSongFileName('');},
+              e('button',{key:id,onClick:()=>{setNewSongMode(id);setNewSongContentType('');setNewSongContent('');setNewSongBlob(null);setNewSongFileName('');},
                 style:{flex:1,padding:'8px 0',borderRadius:8,fontSize:12.5,fontWeight:600,cursor:'pointer',
                   border:newSongMode===id?'1px solid '+theme.mid:'1px solid #e5e7eb',
                   background:newSongMode===id?theme.pale:'#fff',color:newSongMode===id?theme.primary:'#6b7280'}},
@@ -6278,7 +6408,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
               e('button',{
                 onClick:()=>{
                   setCleaningUpScan(true);
-                  cleanupScanImage(newSongContent,cleaned=>{setNewSongContent(cleaned);setCleaningUpScan(false);});
+                  cleanupScanImage(newSongContent,(cleaned,cleanedBlob)=>{setNewSongContent(cleaned);setNewSongBlob(cleanedBlob);setCleaningUpScan(false);});
                 },
                 disabled:cleaningUpScan,
                 style:{width:'100%',marginTop:8,padding:'9px 0',borderRadius:9,border:'1px solid '+theme.mid,
@@ -6407,7 +6537,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
             e('label',null,'Name'),
             e('input',{autoFocus:true,value:newSetlistName,onChange:ev=>setNewSetlistName(ev.target.value),placeholder:"e.g. Summer 2026 — Full Set (optional — today's date if left blank)"}),
             e('label',null,'Add from'),
-            e('select',{value:newSetlistMode,onChange:ev=>{setNewSetlistMode(ev.target.value);setNewSetlistContentType('');setNewSetlistContent('');setNewSetlistFileName('');}},
+            e('select',{value:newSetlistMode,onChange:ev=>{setNewSetlistMode(ev.target.value);setNewSetlistContentType('');setNewSetlistContent('');setNewSetlistBlob(null);setNewSetlistFileName('');}},
               e('option',{value:'charts'},'🎬 Build from your charts'),
               e('option',{value:'upload'},'Upload (photo or file)'),
               e('option',{value:'link'},'Link (Google Drive, website, etc.)'),
@@ -6560,11 +6690,13 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
         e('div',{className:'schedule-print-area',style:{padding:'20px'}},
           e('div',{style:{fontSize:16,fontWeight:600,marginBottom:14}},viewingSetlist.name),
           viewingSetlist.type==='text'&&e('div',{style:{fontSize:14,color:'#111827',whiteSpace:'pre-wrap',lineHeight:1.6}},viewingSetlist.content),
-          viewingSetlist.type==='image'&&e('img',{src:viewingSetlist.content,style:{maxWidth:'100%',borderRadius:8}}),
-          viewingSetlist.type==='html'&&e('iframe',{srcDoc:viewingSetlist.content,style:{width:'100%',height:400,border:'1px solid #e5e7eb',borderRadius:8}}),
-          viewingSetlist.type==='file'&&e('div',{style:{textAlign:'center',padding:'1.5rem 0'}},
+          needsFile(viewingSetlist)&&!setlistFile.src&&setlistFile.text==null&&e('div',{style:{textAlign:'center',padding:'1.5rem 0',fontSize:13,color:'#6b7280'}},
+            setlistFile.failed?"Couldn't load this file. Check your connection and try again.":'Loading…'),
+          viewingSetlist.type==='image'&&setlistFile.src&&e('img',{src:setlistFile.src,style:{maxWidth:'100%',borderRadius:8}}),
+          viewingSetlist.type==='html'&&setlistFile.text!=null&&e('iframe',{srcDoc:setlistFile.text,style:{width:'100%',height:400,border:'1px solid #e5e7eb',borderRadius:8}}),
+          viewingSetlist.type==='file'&&setlistFile.src&&e('div',{style:{textAlign:'center',padding:'1.5rem 0'}},
             e('div',{style:{fontSize:13,color:'#6b7280',marginBottom:12}},'This file type can\'t be previewed here.'),
-            e('a',{href:viewingSetlist.content,download:viewingSetlist.fileName||viewingSetlist.name,
+            e('a',{href:setlistFile.src,download:viewingSetlist.fileName||viewingSetlist.name,
               style:{display:'inline-block',padding:'9px 18px',borderRadius:10,background:theme.mid,color:'#fff',fontWeight:500,textDecoration:'none',fontSize:14}},'⬇️ Download '+(viewingSetlist.fileName||''))
           ),
           viewingSetlist.type==='link'&&e('div',{style:{textAlign:'center',padding:'1.5rem 0'}},
@@ -6637,7 +6769,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
               });
               if(handled)return;
             } else if(liveViewingSong.type==='image'){
-              const handled=await trySharePhotoFile(liveViewingSong.content,liveViewingSong.name);
+              const handled=await trySharePhotoFile(songFile.src||liveViewingSong.content,liveViewingSong.name);
               if(handled)return;
             }
             tryPrint(setSongPrintStandaloneHelp);
@@ -6714,8 +6846,10 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
           (liveViewingSong.key||liveViewingSong.tempo||liveViewingSong.tag)&&e('div',{className:'print-only',style:{fontSize:12,marginBottom:14}},
             [liveViewingSong.key,liveViewingSong.tempo?liveViewingSong.tempo+' bpm':null,liveViewingSong.tag].filter(Boolean).join('  ·  ')),
           liveViewingSong.type==='text'&&e('div',{style:{fontSize:songFontSize,color:'#F1EDE3',whiteSpace:'pre-wrap',lineHeight:1.6,fontFamily:'monospace'}},transposeChart(liveViewingSong.content,transposeSteps)),
-          liveViewingSong.type==='image'&&e('div',{style:{display:'flex',justifyContent:(chartZoom>1&&!liveViewingSong.rotated)?'flex-start':'center'}},
-            e('img',{src:liveViewingSong.content,draggable:false,style:{
+          needsFile(liveViewingSong)&&!songFile.src&&songFile.text==null&&e('div',{style:{textAlign:'center',padding:'2rem 0',fontSize:13,color:'#9C9483'}},
+            songFile.failed?"Couldn't load this chart. Check your connection and try again, or open it once with a signal so it is saved on this phone.":'Loading…'),
+          liveViewingSong.type==='image'&&songFile.src&&e('div',{style:{display:'flex',justifyContent:(chartZoom>1&&!liveViewingSong.rotated)?'flex-start':'center'}},
+            e('img',{src:songFile.src,draggable:false,style:{
               // Rotated stays capped (its rotated width is really the photo's original height, which has to fit on screen after the transform).
               // Zoom (not offered on a rotated picture) just makes the picture wider than the screen; the chart area then scrolls both ways.
               maxWidth:liveViewingSong.rotated?'min(92vh,92vw)':(chartZoom>1?'none':'100%'),maxHeight:liveViewingSong.rotated?'min(92vh,92vw)':'none',
@@ -6723,10 +6857,10 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
               transform:liveViewingSong.rotated?'rotate(90deg)':'none',transition:'transform .2s',borderRadius:8,display:'block'
             }})
           ),
-          liveViewingSong.type==='html'&&e('iframe',{srcDoc:liveViewingSong.content,style:{width:'100%',height:'min(70vh,640px)',border:'1px solid #302C24',borderRadius:8,background:'#fff'}}),
-          liveViewingSong.type==='file'&&e('div',{style:{textAlign:'center',padding:'1.5rem 0'}},
+          liveViewingSong.type==='html'&&songFile.text!=null&&e('iframe',{srcDoc:songFile.text,style:{width:'100%',height:'min(70vh,640px)',border:'1px solid #302C24',borderRadius:8,background:'#fff'}}),
+          liveViewingSong.type==='file'&&songFile.src&&e('div',{style:{textAlign:'center',padding:'1.5rem 0'}},
             e('div',{style:{fontSize:13,color:'#9C9483',marginBottom:12}},'This file type can\'t be previewed here.'),
-            e('a',{href:liveViewingSong.content,download:liveViewingSong.fileName||liveViewingSong.name,
+            e('a',{href:songFile.src,download:liveViewingSong.fileName||liveViewingSong.name,
               style:{display:'inline-block',padding:'9px 18px',borderRadius:10,background:'#FFB020',color:'#141311',fontWeight:700,textDecoration:'none',fontSize:14}},'⬇️ Download '+(liveViewingSong.fileName||''))
           ),
           liveViewingSong.type==='link'&&e('div',{style:{textAlign:'center',padding:'1.5rem 0'}},

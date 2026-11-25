@@ -13,6 +13,7 @@ function rewrite(html) {
   if (!html.includes(needle)) throw new Error('index.html changed: cannot find the emulator hook point');
   let out = html.replace(/projectId:\s*['"][^'"]+['"]/, "projectId:'demo-peatmoss'");
   out = out.replace(needle, needle + "\ndb.useEmulator('127.0.0.1',8085);auth.useEmulator('http://127.0.0.1:9099',{disableWarnings:true});fns.useEmulator('127.0.0.1',5001);");
+  out = out.replace('const storage=firebase.storage();', "const storage=firebase.storage();storage.useEmulator('127.0.0.1',9199);");
   return out;
 }
 
