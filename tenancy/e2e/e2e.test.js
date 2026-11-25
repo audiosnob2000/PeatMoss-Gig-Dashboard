@@ -832,6 +832,39 @@ test('library: a private chart follows you into another band and survives leavin
   noProblems();
 });
 
+test('perform mode: a band member runs a set from the full-screen viewer (previous / next, set change, swipe, key kept, exit back to the set)', async () => {
+  const { mia, id, miaUid } = await twoPeople();
+  const song = (n, name, key, tempo, chord) => db.doc(`bands/${id}/songs/${n}`).set({ name, type: 'text', key, tempo, shared: true, uid: miaUid, content: `Verse\n${chord}\nExample lyric for ${name}\n`, updatedAt: '2026-11-01' });
+  await song('a', 'Alpha Song', 'A', '120', 'A   D'); await song('b', 'Bravo Song', 'G', '148', 'G   C'); await song('c', 'Charlie Song', 'C', '100', 'C   F');
+  await db.doc(`bands/${id}/setlists/two`).set({ name: 'Saturday Night', type: 'charts', structure: 'sets', sets: [{ songs: ['a', 'b'] }, { songs: ['c'] }], updatedAt: '2026-11-01' });
+  await tab(mia, 'Charts/Sets');
+  await mia.page.getByText('Sets ·', { exact: false }).first().click();
+  await mia.page.getByText('Saturday Night').first().click();
+  await mia.page.getByText('Alpha Song', { exact: true }).click();
+  const screen = mia.page.locator('.perform-screen'); await screen.waitFor();
+  await screen.getByText('Set 1 · 1 of 2', { exact: true }).waitFor();
+  await screen.getByRole('button', { name: /Next.*Bravo Song · G/s }).waitFor();
+  await screen.getByTitle('Transpose up').click();                                          // Alpha +1
+  await screen.getByText('A# (was A)').waitFor();
+  await screen.getByRole('button', { name: /Next/ }).click();
+  await screen.getByText('Set 1 · 2 of 2', { exact: true }).waitFor();
+  assert.equal(await screen.getByText(/Previewing/).count(), 0, 'Bravo is not transposed');
+  await screen.getByRole('button', { name: /Next.*Set 2: Charlie Song · C/s }).waitFor();
+  await screen.getByRole('button', { name: /Previous/ }).click();
+  await screen.getByText('A# (was A)').waitFor();                                           // Alpha kept its key change
+  // swipe left = next
+  const box = await screen.locator('.song-viewer-print').boundingBox();
+  await mia.page.mouse.move(box.x + box.width / 2, box.y + 60); await mia.page.mouse.down();
+  await mia.page.mouse.move(box.x + box.width / 2 - 80, box.y + 62, { steps: 4 }); await mia.page.mouse.move(box.x + box.width / 2 - 160, box.y + 64, { steps: 4 }); await mia.page.mouse.up();
+  await screen.getByText('Set 1 · 2 of 2', { exact: true }).waitFor();
+  await screen.getByRole('button', { name: /Next/ }).click();
+  await screen.getByText('Set 2 · 1 of 1', { exact: true }).waitFor();
+  await screen.getByRole('button', { name: /Exit/ }).click();
+  await screen.waitFor({ state: 'detached' });
+  await mia.page.getByText('Charlie Song', { exact: true }).waitFor();                      // back in the set list, on Set 2
+  noProblems();
+});
+
 test('library: adding a library chart to a set shares it with the band first', async () => {
   const { mia, id } = await twoPeople();
   await addChart(mia, 'Opener', false);

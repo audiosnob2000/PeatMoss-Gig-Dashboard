@@ -44,6 +44,7 @@ button:hover{background:#f3f4f6}
   .schedule-print-area,.schedule-print-area *{visibility:visible}
   .schedule-print-area{position:fixed;top:0;left:0;width:100%;margin:0}
   .no-print{display:none!important}
+  .print-only{display:block!important}
   /* Calendar-grid share view fills the whole printable page instead of
      sizing to its on-screen modal width. Deliberately NOT using a named
      @page rule + the "page" property to auto-select landscape orientation
@@ -72,6 +73,7 @@ button:hover{background:#f3f4f6}
 .tab-btn{flex:1;padding:8px 0;font-size:13px;border-radius:9px;border:none;cursor:pointer;transition:all 0.15s}
 .tab-btn.active{background:#fff;font-weight:500;box-shadow:0 1px 3px rgba(0,0,0,0.08)}
 .tab-btn:not(.active){background:transparent;color:#6b7280}
+.print-only{display:none}
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:100;padding:1rem}
 .modal{background:#fff;border-radius:16px;padding:1.5rem;width:min(420px,100%);box-shadow:0 20px 60px rgba(0,0,0,0.2)}
 label{font-size:12px;font-weight:500;color:#6b7280;display:block;margin-bottom:4px;margin-top:12px}
@@ -1193,6 +1195,46 @@ function MetronomeAdd({name,setName,bpm,setBpm,onTap,onSave,onBack,theme,volume,
 // a setTimeout sized to the gap between now and the note's audio time), so
 // click and flash stay in sync with each other, not just individually
 // accurate.
+// Perform mode's tempo button: starts the metronome at the current song's bpm, using the same click and the same sound / volume
+// settings as the Metronome in Settings. It keeps running song to song and follows each song's tempo. Only this small button
+// re-renders on each beat, not the whole app.
+function PerformTempoButton({bpm,on,onToggle}){
+  const [beat,setBeat]=useState(false);
+  const bpmRef=useRef(bpm);
+  useEffect(()=>{bpmRef.current=bpm;},[bpm]);
+  useEffect(()=>{
+    if(!on)return;
+    let stopped=false,timer=null,ctx=null,next=0,sound=true,vol=0.7;
+    try{
+      const sv=localStorage.getItem('pmtf_metronome_sound');sound=sv===null?true:sv==='1';
+      const vv=localStorage.getItem('pmtf_metronome_volume');vol=vv===null?0.7:parseFloat(vv);
+    }catch{}
+    const pulse=()=>{if(stopped)return;setBeat(true);setTimeout(()=>setBeat(false),90);};
+    const AudioCtx=window.AudioContext||window.webkitAudioContext;
+    if(AudioCtx&&sound){
+      ctx=new AudioCtx();next=ctx.currentTime+0.05;
+      const sched=()=>{
+        if(stopped)return;
+        while(next<ctx.currentTime+0.1){
+          playMetronomeClick(ctx,next,vol);
+          setTimeout(pulse,Math.max(0,(next-ctx.currentTime)*1000));
+          next+=60/bpmRef.current;
+        }
+        timer=setTimeout(sched,25);
+      };
+      sched();
+    }else{
+      const tick=()=>{if(stopped)return;pulse();timer=setTimeout(tick,60000/bpmRef.current);};
+      tick();
+    }
+    return()=>{stopped=true;clearTimeout(timer);if(ctx)ctx.close().catch(()=>{});};
+  },[on]);
+  return e('button',{onClick:onToggle,title:on?'Stop the metronome':'Start the metronome at this song\'s tempo',
+    style:{flex:1,padding:'9px 12px',borderRadius:8,border:'1px solid #302C24',background:on?'#FFB020':'#1D1B17',color:on?'#141311':'#FFB020',fontWeight:700,fontSize:12,cursor:'pointer',whiteSpace:'nowrap'}},
+    e('span',{style:{display:'inline-block',width:9,height:9,borderRadius:'50%',marginRight:6,verticalAlign:'middle',
+      background:beat?(on?'#141311':'#FFB020'):(on?'rgba(20,19,17,.35)':'#6b6657'),boxShadow:beat?'0 0 0 4px rgba(255,176,32,.3)':'none'}}),
+    '\u2669 '+bpm);
+}
 function MetronomeRun({tempo,soundOn,setSoundOn,flashOn,setFlashOn,volume,setVolume,onBack,onSaveTempo,theme}){
   const [bpm,setBpm]=useState(tempo.bpm);
   // Tracks what's actually saved to this tempo, separately from tempo.bpm
@@ -4357,6 +4399,15 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
   // not a band-wide setting worth persisting like the photo rotation is.
   const [transposeSteps,setTransposeSteps]=useState(0);
   const [autoScrollOn,setAutoScrollOn]=useState(false);
+  // Perform mode: set when a song is opened from a chart-built set list (so the viewer can move through that set).
+  const [performCtx,setPerformCtx]=useState(null);       // {setlistId, si, pos}
+  const [performEnded,setPerformEnded]=useState(false);
+  const [performMore,setPerformMore]=useState(false);
+  const [performMetro,setPerformMetro]=useState(false);
+  const [performToast,setPerformToast]=useState('');
+  const performToastRef=useRef(null);
+  const performShiftRef=useRef({});                     // key changes kept per song until the viewer is exited
+  const performSwipeRef=useRef({x:0,y:0,swiped:false});
   const [autoScrollSpeed,setAutoScrollSpeed]=useState(1);
   // Font size for typed charts only — a photo chart's text is baked into
   // the image, nothing here to resize. Persisted like other personal
@@ -4405,9 +4456,11 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
     document.addEventListener('pointerup',onUp);
   };
   useEffect(()=>{
-    setTransposeSteps(0);
+    setTransposeSteps(performCtx?(performShiftRef.current[viewingSong&&viewingSong.id]||0):0);
     setAutoScrollOn(false);
+    if(songViewerScrollRef.current)songViewerScrollRef.current.scrollTop=0;
   },[viewingSong&&viewingSong.id]);
+  useEffect(()=>{if(!viewingSong){setPerformMetro(false);setPerformMore(false);setPerformEnded(false);}},[!!viewingSong]);
   // Keep the screen awake while a chart is open on stage — a dark screen
   // mid-song is the whole problem this exists to prevent. The lock is
   // released automatically by the browser when the tab goes to the
@@ -5831,6 +5884,46 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
   const liveViewingSong=viewingSong&&(songs.find(s=>s.id===viewingSong.id)||viewingSong);
   const liveViewingChartSetlist=viewingChartSetlist&&(setlists.find(s=>s.id===viewingChartSetlist.id)||viewingChartSetlist);
 
+  // ---- Perform mode ----
+  const performSl=performCtx?setlists.find(s=>s.id===performCtx.setlistId):null;
+  // every song of the running set list that still exists in the library, in order
+  const performFlat=[];
+  if(performSl&&performSl.sets)performSl.sets.forEach((st,si)=>(st.songs||[]).forEach((id,pos)=>{const sg=songs.find(x=>x.id===id);if(sg)performFlat.push({si,pos,song:sg});}));
+  const performIdx=performCtx&&viewingSong?performFlat.findIndex(x=>x.si===performCtx.si&&x.pos===performCtx.pos&&x.song.id===viewingSong.id):-1;
+  const performSetSongs=performIdx>=0?performFlat.filter(x=>x.si===performCtx.si):[];
+  const performInSet=performIdx>=0?performSetSongs.findIndex(x=>x.pos===performCtx.pos):-1;
+  const performPosLabel=performIdx>=0?((performSl.structure==='sets'?'Set '+(performCtx.si+1)+' \u00b7 ':'')+(performInSet+1)+' of '+performSetSongs.length):'';
+  const performPrev=performIdx>0?performFlat[performIdx-1]:null;
+  const performNext=performIdx>=0&&performIdx<performFlat.length-1?performFlat[performIdx+1]:null;
+  const performEntryLabel=(x,cur)=>(performSl.structure==='sets'&&x.si!==cur.si?'Set '+(x.si+1)+': ':'')+x.song.name;
+  const showPerformToast=t=>{setPerformToast(t);clearTimeout(performToastRef.current);performToastRef.current=setTimeout(()=>setPerformToast(''),1500);};
+  const performGo=d=>{
+    if(performIdx<0)return;
+    const i=performIdx+d;
+    if(i<0)return;
+    performShiftRef.current[viewingSong.id]=transposeSteps;
+    if(i>=performFlat.length){setAutoScrollOn(false);setPerformEnded(true);return;}
+    const t=performFlat[i];
+    if(t.si!==performFlat[performIdx].si&&performSl.structure==='sets')showPerformToast('Now Set '+(t.si+1));
+    setPerformCtx(c=>({...c,si:t.si,pos:t.pos}));
+    setTransposeSteps(performShiftRef.current[t.song.id]||0);   // in the same update, so the old song's key change never flashes on the new one
+    setViewingSong(t.song);
+  };
+  const exitViewer=()=>{
+    const ctx=performCtx;
+    performShiftRef.current={};
+    setViewingSong(null);setPerformCtx(null);setPerformEnded(false);
+    if(ctx){const sl=setlists.find(x=>x.id===ctx.setlistId);if(sl){setViewingChartSetlist(sl);setChartSetlistTab(ctx.si);}}
+  };
+  const performBpm=(()=>{
+    if(!liveViewingSong)return 0;
+    const m=String(liveViewingSong.tempo||'').match(/\d+/);
+    const n=m?parseInt(m[0],10):0;
+    return n>=30&&n<=300?n:0;
+  })();
+  const performKey=liveViewingSong&&liveViewingSong.key&&liveViewingSong.key.trim()?liveViewingSong.key.trim():'';
+  const performBtn={background:'#1D1B17',color:'#F1EDE3',border:'1px solid #302C24',borderRadius:8,padding:'8px 12px',fontSize:12.5,fontWeight:600,cursor:'pointer'};
+
 
   if(showSettings)return e(SettingsPage,{gigs,setGigs,settings,setSettings,onClose:()=>setShowSettings(false),theme,mileageLog,setMileageLog,googleAccessToken,signInWithGoogle,signOutGoogle,googleAuthError,pushToken,pushEnabling,pushError,enablePushNotifications,disablePushNotifications,autoScrollToCalendar:settingsAutoScroll,onAutoScrolled:()=>setSettingsAutoScroll(false),syncFromGoogleCalendar,calSyncing,lastSynced,unpaidGigIds,chartYear,setChartYear,chartType,setChartType,chartShowPast,setChartShowPast,chartData,authUser,authBusy,authError,onSignUp:signUpWithEmail,onSignIn:signInWithEmail,onSignOut:signOutOfAccount,onSendReset:sendPasswordReset,onChangePassword:changePassword,canManage,trashProps:{theme,canManage,bandMembers,onRestoreGig:restoreGig,googleConnected:!!googleAccessToken},bandPanelProps:{theme,band,myRole,myUid:authUser&&authUser.uid,bandMembers,invites:bandInvites,onCall:callBandAlert,onRename:renameBand,onSetCalendarId:setBandCalendarId,onSwitch:onSwitchBand,onLeaving:onLeavingBand,onLeft:onLeftBand}});
 
@@ -6073,7 +6166,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
                 ?e('div',{style:{width:30,height:30,borderRadius:8,flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,color:'#fff',
                     border:'1.5px solid '+(selected?theme.mid:'#d1d5db'),background:selected?theme.mid:'#fff'}},selected?'✓':'')
                 :e('div',{style:{width:30,height:30,borderRadius:8,background:theme.pale,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}},icon),
-              e('div',{onClick:songSelectMode?undefined:()=>setViewingSong(sg),style:{flex:1,minWidth:0,cursor:songSelectMode?'default':'pointer'}},
+              e('div',{onClick:songSelectMode?undefined:()=>{setPerformCtx(null);setViewingSong(sg);},style:{flex:1,minWidth:0,cursor:songSelectMode?'default':'pointer'}},
                 e('div',{style:{fontSize:13.5,fontWeight:500,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},sg.name),
                 e('div',{style:{fontSize:11,color:'#9ca3af'}},
                   sg.key&&e('span',{style:{color:theme.primary,fontWeight:600}},sg.key+' · '),
@@ -6451,7 +6544,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
             ((liveViewingChartSetlist.sets&&liveViewingChartSetlist.sets[chartSetlistTab]&&liveViewingChartSetlist.sets[chartSetlistTab].songs)||[])
               .map((id,pos,arr)=>{
                 const sg=songs.find(s=>s.id===id);
-                return e('div',{key:id,onClick:()=>{if(sg){setViewingChartSetlist(null);setViewingSong(sg);}},
+                return e('div',{key:id,onClick:()=>{if(sg){setPerformCtx({setlistId:liveViewingChartSetlist.id,si:chartSetlistTab,pos});setPerformEnded(false);setViewingChartSetlist(null);setViewingSong(sg);}},
                     style:{padding:'10px 14px',borderBottom:pos<arr.length-1?'1px solid #e5e7eb':'none',display:'flex',alignItems:'center',gap:10,cursor:sg?'pointer':'default',opacity:sg?1:.5}},
                   e('span',{style:{width:18,textAlign:'center',fontSize:11,color:'#9ca3af',flexShrink:0}},pos+1),
                   e('div',{style:{flex:1,minWidth:0}},
@@ -6470,105 +6563,83 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
     // unlike every other modal in the app, which follows the band's chosen
     // theme. This is the one screen actually read off a stand in a dark
     // room, so it earns breaking from the theme; nothing else does.
-    viewingSong&&e('div',{onClick:()=>setViewingSong(null),className:'overlay',style:{background:'rgba(0,0,0,0.7)'}},
-      // A photo chart has no adjustable text size the way a typed chart
-      // does, so the only way to make it legible is more screen real
-      // estate — let it use most of the viewport width instead of the
-      // same comfortable-reading-column width that suits typed charts.
-      // Once the corner handle below has been dragged, songViewerSize
-      // takes over as an explicit pixel size and this default no longer
-      // applies — position:relative so that handle can anchor to this
-      // box's own corner rather than the page's.
-      e('div',{ref:songViewerBoxRef,onClick:ev=>ev.stopPropagation(),className:'modal',style:{
-        position:'relative',display:'flex',flexDirection:'column',flexShrink:0,
-        width:songViewerSize?songViewerSize.width+'px':(liveViewingSong.type==='image'?'min(94vw, 720px)':'min(420px, 100%)'),
-        height:songViewerSize?songViewerSize.height+'px':undefined,
-        maxHeight:songViewerSize?songViewerSize.height+'px':'85vh',
-        overflow:'hidden',padding:0,background:'#141311'}},
-      // Scrolls as its own unit, separate from the outer box, so the resize
-      // handle below can stay pinned to the box's actual corner instead of
-      // scrolling away with the chart content.
-      e('div',{ref:songViewerScrollRef,style:{flex:'1 1 auto',minHeight:0,overflowY:'auto'}},
-        e('div',{className:'no-print',style:{display:'flex',gap:8,padding:'14px 20px',borderBottom:'1px solid #302C24'}},
-          e('button',{onClick:()=>setViewingSong(null),style:{flex:1,padding:'9px 0',background:'#1D1B17',color:'#F1EDE3',border:'1px solid #302C24'}},'Close'),
-          liveViewingSong.type==='image'&&e('button',{onClick:()=>toggleSongRotation(liveViewingSong),title:'Rotate',
-            style:{padding:'9px 14px',borderRadius:8,border:'1px solid #302C24',background:'#1D1B17',color:'#FFB020',fontWeight:700,fontSize:15}},'⟳'),
-          e('button',{onClick:async()=>{
-              if(liveViewingSong.type==='text'){
-                const handled=await tryShareSongChartImage({
-                  name:liveViewingSong.name,key:liveViewingSong.key,tempo:liveViewingSong.tempo,tag:liveViewingSong.tag,
-                  content:transposeChart(liveViewingSong.content,transposeSteps)
-                });
-                if(handled)return;
-              } else if(liveViewingSong.type==='image'){
-                const handled=await trySharePhotoFile(liveViewingSong.content,liveViewingSong.name);
-                if(handled)return;
-              }
-              tryPrint(setSongPrintStandaloneHelp);
-            },style:{flex:1,padding:'9px 0',borderRadius:8,border:'1px solid #302C24',background:'#1D1B17',color:'#F1EDE3',cursor:'pointer',fontWeight:500}},'🖨️ Print'),
-          e('button',{onClick:()=>shareSong(liveViewingSong),style:{flex:1,padding:'9px 0',borderRadius:8,border:'none',background:'#FFB020',color:'#141311',cursor:'pointer',fontWeight:700}},'📤 Share')
-        ),
-        (liveViewingSong.type==='text'||liveViewingSong.type==='image')&&e('div',{className:'no-print',style:{display:'flex',gap:7,padding:'0 20px 12px',alignItems:'center',flexWrap:'wrap'}},
-          // Transposition needs actual chord text to shift, which a photo
-          // doesn't have — auto-scroll has no such requirement, it just
-          // scrolls the screen, so it works on a photo chart too.
-          liveViewingSong.type==='text'&&e('div',{style:{display:'flex',alignItems:'center',gap:2,background:'#1D1B17',border:'1px solid #302C24',borderRadius:8,padding:'2px 2px'}},
-            e('button',{onClick:()=>setTransposeSteps(s=>s-1),title:'Transpose down',
-              style:{background:'none',border:'none',color:'#FFB020',fontSize:15,fontWeight:700,cursor:'pointer',padding:'6px 9px'}},'−'),
-            e('span',{style:{fontSize:11,color:'#F1EDE3',minWidth:40,textAlign:'center',fontWeight:600}},transposeSteps===0?'Key':(transposeSteps>0?'+':'')+transposeSteps),
-            e('button',{onClick:()=>setTransposeSteps(s=>s+1),title:'Transpose up',
-              style:{background:'none',border:'none',color:'#FFB020',fontSize:15,fontWeight:700,cursor:'pointer',padding:'6px 9px'}},'+')
-          ),
-          liveViewingSong.type==='text'&&e('div',{style:{display:'flex',alignItems:'center',gap:2,background:'#1D1B17',border:'1px solid #302C24',borderRadius:8,padding:'2px 2px'}},
-            e('button',{onClick:()=>setSongFontSize(s=>Math.max(10,s-1)),title:'Smaller text',
-              style:{background:'none',border:'none',color:'#FFB020',fontSize:12,fontWeight:700,cursor:'pointer',padding:'6px 8px'}},'A−'),
-            e('button',{onClick:()=>setSongFontSize(s=>Math.min(28,s+1)),title:'Bigger text',
-              style:{background:'none',border:'none',color:'#FFB020',fontSize:16,fontWeight:700,cursor:'pointer',padding:'6px 8px'}},'A+')
-          ),
-          e('button',{onClick:()=>setAutoScrollOn(v=>!v),
-            style:{flex:1,padding:'8px 0',borderRadius:8,border:'1px solid #302C24',background:autoScrollOn?'#FFB020':'#1D1B17',color:autoScrollOn?'#141311':'#FFB020',fontWeight:700,fontSize:12,cursor:'pointer'}},
-            autoScrollOn?'⏸ Pause':'▶ Auto-scroll'),
-          e('select',{value:autoScrollSpeed,onChange:ev=>setAutoScrollSpeed(Number(ev.target.value)),
-            style:{background:'#1D1B17',border:'1px solid #302C24',color:'#F1EDE3',borderRadius:8,fontSize:11,padding:'8px 4px'}},
-            e('option',{value:0.5},'Slow'),e('option',{value:1},'Normal'),e('option',{value:1.75},'Fast')
-          )
-        ),
-        // Only appears once you've actually moved off the original key —
-        // the stepper above is just a live preview until this is tapped.
-        liveViewingSong.type==='text'&&transposeSteps!==0&&e('div',{className:'no-print',style:{padding:'0 20px 12px'}},
-          e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,
-            background:'#1D1B17',border:'1px solid #FFB020',borderRadius:9,padding:'9px 12px'}},
-            e('div',{style:{fontSize:11,color:'#FFB020',lineHeight:1.4}},
-              'Previewing '+(transposeSteps>0?'+':'')+transposeSteps+'. Resets when you close this chart.'),
-            e('button',{onClick:saveTransposedKey,
-              style:{padding:'7px 12px',borderRadius:8,background:'#FFB020',color:'#141311',border:'none',
-                fontWeight:700,fontSize:11,whiteSpace:'nowrap',cursor:'pointer',flexShrink:0}},
-              '💾 Save'+(liveViewingSong.key&&liveViewingSong.key.trim()?' as '+transposeChordToken(liveViewingSong.key.trim(),transposeSteps):''))
-          )
-        ),
-        e('div',{className:'schedule-print-area song-viewer-print',
-          // Tapping the chart itself toggles auto-scroll the same as the
-          // button does — reaching a small button mid-song beats fumbling
-          // for a button, especially holding an instrument. Only wired up
-          // where auto-scroll itself is offered (text/image charts).
-          onClick:(liveViewingSong.type==='text'||liveViewingSong.type==='image')?()=>setAutoScrollOn(v=>!v):undefined,
-          style:{padding:liveViewingSong.type==='image'?'12px':'20px',cursor:(liveViewingSong.type==='text'||liveViewingSong.type==='image')?'pointer':'default'}},
-          e('div',{style:{fontSize:16,fontWeight:600,marginBottom:4,color:'#F1EDE3'}},liveViewingSong.name),
-          (liveViewingSong.key||liveViewingSong.tempo||liveViewingSong.tag)&&e('div',{style:{fontSize:12,color:'#FFB020',marginBottom:14,display:'flex',gap:8,flexWrap:'wrap'}},
-            [liveViewingSong.key,liveViewingSong.tempo?liveViewingSong.tempo+' bpm':null,liveViewingSong.tag].filter(Boolean).join('  ·  ')
-          ),
+    viewingSong&&e('div',{className:'perform-screen',style:{position:'fixed',inset:0,zIndex:150,background:'#141311',color:'#F1EDE3',display:'flex',flexDirection:'column',
+        paddingTop:'env(safe-area-inset-top,0px)',paddingBottom:'env(safe-area-inset-bottom,0px)'}},
+      // Top bar: Exit, which set list, where you are in it, and a "more" row for the less-used tools.
+      e('div',{className:'no-print',style:{display:'flex',alignItems:'center',gap:8,padding:'10px 14px',borderBottom:'1px solid #302C24',flexShrink:0}},
+        e('button',{onClick:exitViewer,style:{...performBtn,flexShrink:0}},'✕ Exit'),
+        e('div',{style:{flex:1,minWidth:0,textAlign:'center',fontSize:12.5,color:'#9C9483',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},performIdx>=0&&performSl?performSl.name:''),
+        performPosLabel&&e('div',{style:{fontWeight:700,fontSize:12.5,color:'#FFB020',whiteSpace:'nowrap'}},performPosLabel),
+        e('button',{onClick:()=>setPerformMore(v=>!v),title:'More',style:{...performBtn,flexShrink:0,padding:'8px 11px',background:performMore?'#FFB020':'#1D1B17',color:performMore?'#141311':'#F1EDE3'}},'⋯')
+      ),
+      performMore&&e('div',{className:'no-print',style:{display:'flex',gap:7,padding:'8px 14px',borderBottom:'1px solid #302C24',alignItems:'center',flexWrap:'wrap',flexShrink:0}},
+        liveViewingSong.type==='image'&&e('button',{onClick:()=>toggleSongRotation(liveViewingSong),title:'Rotate',style:{...performBtn,color:'#FFB020',fontWeight:700}},'⟳ Rotate'),
+        e('button',{onClick:async()=>{
+            if(liveViewingSong.type==='text'){
+              const handled=await tryShareSongChartImage({
+                name:liveViewingSong.name,key:liveViewingSong.key,tempo:liveViewingSong.tempo,tag:liveViewingSong.tag,
+                content:transposeChart(liveViewingSong.content,transposeSteps)
+              });
+              if(handled)return;
+            } else if(liveViewingSong.type==='image'){
+              const handled=await trySharePhotoFile(liveViewingSong.content,liveViewingSong.name);
+              if(handled)return;
+            }
+            tryPrint(setSongPrintStandaloneHelp);
+          },style:performBtn},'🖨️ Print'),
+        e('button',{onClick:()=>shareSong(liveViewingSong),style:{...performBtn,background:'#FFB020',color:'#141311',border:'none',fontWeight:700}},'📤 Share'),
+        (liveViewingSong.type==='text'||liveViewingSong.type==='image')&&e('select',{value:autoScrollSpeed,onChange:ev=>setAutoScrollSpeed(Number(ev.target.value)),title:'Auto-scroll speed',
+          style:{background:'#1D1B17',border:'1px solid #302C24',color:'#F1EDE3',borderRadius:8,fontSize:12,padding:'9px 6px'}},
+          e('option',{value:0.5},'Scroll: Slow'),e('option',{value:1},'Scroll: Normal'),e('option',{value:1.75},'Scroll: Fast'))
+      ),
+      // Dots for the current set.
+      performIdx>=0&&performSetSongs.length>1&&e('div',{className:'no-print','aria-hidden':'true',style:{display:'flex',gap:5,justifyContent:'center',paddingTop:8,flexShrink:0}},
+        performSetSongs.map((x,i)=>e('i',{key:i,style:{width:7,height:7,borderRadius:'50%',display:'block',background:i===performInSet?'#FFB020':i<performInSet?'#6b6657':'#302C24'}}))
+      ),
+      // What song this is.
+      e('div',{className:'no-print',style:{padding:'10px 18px 4px',flexShrink:0}},
+        e('div',{style:{fontSize:22,fontWeight:700,letterSpacing:'-0.01em'}},liveViewingSong.name),
+        (performKey||liveViewingSong.tempo||liveViewingSong.tag)&&e('div',{style:{fontSize:12.5,color:'#FFB020',marginTop:2,display:'flex',gap:8,flexWrap:'wrap'}},
+          [performKey?(liveViewingSong.type==='text'&&transposeSteps!==0?transposeChordToken(performKey,transposeSteps)+' (was '+performKey+')':performKey):null,
+           liveViewingSong.tempo?liveViewingSong.tempo+' bpm':null,liveViewingSong.tag].filter(Boolean).join('  ·  ')
+        )
+      ),
+      // Only appears once you've actually moved off the original key; the stepper below is just a live preview until this is tapped.
+      liveViewingSong.type==='text'&&transposeSteps!==0&&e('div',{className:'no-print',style:{padding:'4px 18px 6px',flexShrink:0}},
+        e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,background:'#1D1B17',border:'1px solid #FFB020',borderRadius:9,padding:'8px 12px'}},
+          e('div',{style:{fontSize:11,color:'#FFB020',lineHeight:1.4}},'Previewing '+(transposeSteps>0?'+':'')+transposeSteps+'. Stays until you exit.'),
+          e('button',{onClick:saveTransposedKey,
+            style:{padding:'7px 12px',borderRadius:8,background:'#FFB020',color:'#141311',border:'none',fontWeight:700,fontSize:11,whiteSpace:'nowrap',cursor:'pointer',flexShrink:0}},
+            '💾 Save'+(performKey?' as '+transposeChordToken(performKey,transposeSteps):''))
+        )
+      ),
+      // The chart. Scrolls as its own unit. A tap starts/stops auto-scroll (as before); a sideways swipe moves to the next / previous song.
+      e('div',{ref:songViewerScrollRef,
+        onPointerDown:ev=>{performSwipeRef.current.x=ev.clientX;performSwipeRef.current.y=ev.clientY;performSwipeRef.current.swiped=false;},
+        onPointerUp:ev=>{
+          const dx=ev.clientX-performSwipeRef.current.x,dy=ev.clientY-performSwipeRef.current.y;
+          if(performIdx>=0&&Math.abs(dx)>60&&Math.abs(dx)>Math.abs(dy)*1.6){performSwipeRef.current.swiped=true;performGo(dx<0?1:-1);}
+        },
+        onClick:(liveViewingSong.type==='text'||liveViewingSong.type==='image')?()=>{
+          if(performSwipeRef.current.swiped){performSwipeRef.current.swiped=false;return;}
+          setAutoScrollOn(v=>!v);
+        }:undefined,
+        style:{flex:'1 1 auto',minHeight:0,overflowY:'auto',touchAction:'pan-y',WebkitOverflowScrolling:'touch',
+          cursor:(liveViewingSong.type==='text'||liveViewingSong.type==='image')?'pointer':'default'}},
+        e('div',{className:'schedule-print-area song-viewer-print',style:{padding:liveViewingSong.type==='image'?'12px':'8px 18px 24px',maxWidth:900,margin:'0 auto'}},
+          // The on-screen title is up above; paper still gets one.
+          e('div',{className:'print-only',style:{fontSize:16,fontWeight:600,marginBottom:4}},liveViewingSong.name),
+          (liveViewingSong.key||liveViewingSong.tempo||liveViewingSong.tag)&&e('div',{className:'print-only',style:{fontSize:12,marginBottom:14}},
+            [liveViewingSong.key,liveViewingSong.tempo?liveViewingSong.tempo+' bpm':null,liveViewingSong.tag].filter(Boolean).join('  ·  ')),
           liveViewingSong.type==='text'&&e('div',{style:{fontSize:songFontSize,color:'#F1EDE3',whiteSpace:'pre-wrap',lineHeight:1.6,fontFamily:'monospace'}},transposeChart(liveViewingSong.content,transposeSteps)),
           liveViewingSong.type==='image'&&e('div',{style:{display:'flex',justifyContent:'center'}},
             e('img',{src:liveViewingSong.content,style:{
-              // Rotated stays capped (its rotated width is really the
-              // photo's original height, which has to fit the modal's own
-              // maxHeight after the transform) but bumped up along with the
-              // wider modal now available for the common, unrotated case.
-              maxWidth:liveViewingSong.rotated?460:'100%',maxHeight:liveViewingSong.rotated?460:'none',
+              // Rotated stays capped (its rotated width is really the photo's original height, which has to fit on screen after the transform).
+              maxWidth:liveViewingSong.rotated?'min(92vh,92vw)':'100%',maxHeight:liveViewingSong.rotated?'min(92vh,92vw)':'none',
               transform:liveViewingSong.rotated?'rotate(90deg)':'none',transition:'transform .2s',borderRadius:8,display:'block'
             }})
           ),
-          liveViewingSong.type==='html'&&e('iframe',{srcDoc:liveViewingSong.content,style:{width:'100%',height:400,border:'1px solid #302C24',borderRadius:8,background:'#fff'}}),
+          liveViewingSong.type==='html'&&e('iframe',{srcDoc:liveViewingSong.content,style:{width:'100%',height:'min(70vh,640px)',border:'1px solid #302C24',borderRadius:8,background:'#fff'}}),
           liveViewingSong.type==='file'&&e('div',{style:{textAlign:'center',padding:'1.5rem 0'}},
             e('div',{style:{fontSize:13,color:'#9C9483',marginBottom:12}},'This file type can\'t be previewed here.'),
             e('a',{href:liveViewingSong.content,download:liveViewingSong.fileName||liveViewingSong.name,
@@ -6581,19 +6652,49 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
           )
         )
       ),
-      // Drag to resize the box itself — bottom-right corner, the usual spot
-      // for a window resize grip. A direct child of the outer (non-scrolling)
-      // box, absolutely positioned against it, so it stays put in that
-      // corner no matter how far the chart content above has scrolled.
-      e('div',{className:'no-print',onPointerDown:onSongResizeDown,title:'Drag to resize',
-        style:{position:'absolute',bottom:4,right:4,width:30,height:30,
-          display:'flex',alignItems:'center',justifyContent:'center',
-          cursor:'nwse-resize',touchAction:'none',color:'#FFB020',opacity:0.8,
-          background:'rgba(20,19,17,0.6)',borderRadius:6,zIndex:2}},
-        e('svg',{width:16,height:16,viewBox:'0 0 16 16',fill:'none',stroke:'currentColor',strokeWidth:1.6,strokeLinecap:'round'},
-          e('path',{d:'M14 2 L2 14'}),e('path',{d:'M14 7 L7 14'}),e('path',{d:'M14 12 L12 14'})
+      // Tools: key, text size, auto-scroll, tempo.
+      (liveViewingSong.type==='text'||liveViewingSong.type==='image')&&e('div',{className:'no-print',style:{display:'flex',gap:7,padding:'8px 14px',borderTop:'1px solid #302C24',alignItems:'center',flexWrap:'wrap',flexShrink:0}},
+        // Transposition needs actual chord text to shift, which a photo doesn't have; auto-scroll just scrolls the screen, so it works on a photo too.
+        liveViewingSong.type==='text'&&e('div',{style:{display:'flex',alignItems:'center',gap:2,background:'#1D1B17',border:'1px solid #302C24',borderRadius:8,padding:'2px'}},
+          e('button',{onClick:()=>setTransposeSteps(s=>s-1),title:'Transpose down',
+            style:{background:'none',border:'none',color:'#FFB020',fontSize:15,fontWeight:700,cursor:'pointer',padding:'6px 9px'}},'−'),
+          e('span',{style:{fontSize:11,color:'#F1EDE3',minWidth:38,textAlign:'center',fontWeight:600}},transposeSteps===0?'Key':(transposeSteps>0?'+':'')+transposeSteps),
+          e('button',{onClick:()=>setTransposeSteps(s=>s+1),title:'Transpose up',
+            style:{background:'none',border:'none',color:'#FFB020',fontSize:15,fontWeight:700,cursor:'pointer',padding:'6px 9px'}},'+')
+        ),
+        liveViewingSong.type==='text'&&e('div',{style:{display:'flex',alignItems:'center',gap:2,background:'#1D1B17',border:'1px solid #302C24',borderRadius:8,padding:'2px'}},
+          e('button',{onClick:()=>setSongFontSize(s=>Math.max(10,s-1)),title:'Smaller text',
+            style:{background:'none',border:'none',color:'#FFB020',fontSize:12,fontWeight:700,cursor:'pointer',padding:'6px 8px'}},'A−'),
+          e('button',{onClick:()=>setSongFontSize(s=>Math.min(28,s+1)),title:'Bigger text',
+            style:{background:'none',border:'none',color:'#FFB020',fontSize:16,fontWeight:700,cursor:'pointer',padding:'6px 8px'}},'A+')
+        ),
+        e('button',{onClick:()=>setAutoScrollOn(v=>!v),
+          style:{flex:1,padding:'9px 12px',borderRadius:8,border:'1px solid #302C24',background:autoScrollOn?'#FFB020':'#1D1B17',color:autoScrollOn?'#141311':'#FFB020',fontWeight:700,fontSize:12,cursor:'pointer',whiteSpace:'nowrap'}},
+          autoScrollOn?'⏸ Pause':'▶ Scroll'),
+        performBpm>0&&e(PerformTempoButton,{bpm:performBpm,on:performMetro,onToggle:()=>setPerformMetro(v=>!v)})
+      ),
+      // Previous / Next, when this song was opened from a set list.
+      performIdx>=0&&e('div',{className:'no-print',style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,padding:'8px 14px 14px',flexShrink:0}},
+        e('button',{onClick:()=>performGo(-1),disabled:!performPrev,
+          style:{...performBtn,display:'flex',flexDirection:'column',gap:2,textAlign:'left',borderRadius:12,padding:'11px 13px',minHeight:64,minWidth:0,opacity:performPrev?1:0.35,cursor:performPrev?'pointer':'default'}},
+          e('small',{style:{fontSize:11,color:'#9C9483',fontWeight:600}},'‹ Previous'),
+          e('b',{style:{fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},performPrev?performEntryLabel(performPrev,performFlat[performIdx]):'Start of the show')
+        ),
+        e('button',{onClick:()=>performGo(1),
+          style:{display:'flex',flexDirection:'column',gap:2,textAlign:'right',borderRadius:12,padding:'11px 13px',minHeight:64,minWidth:0,cursor:'pointer',background:'#FFB020',color:'#141311',border:'1px solid #FFB020',fontFamily:'inherit'}},
+          e('small',{style:{fontSize:11,color:'#4a3500',fontWeight:600}},'Next ›'),
+          e('b',{style:{fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},
+            performNext?performEntryLabel(performNext,performFlat[performIdx])+(performNext.song.key&&performNext.song.key.trim()?' · '+performNext.song.key.trim():''):'End of the show')
         )
-      )
+      ),
+      performToast&&e('div',{role:'status',style:{position:'absolute',left:'50%',top:'calc(env(safe-area-inset-top,0px) + 64px)',transform:'translateX(-50%)',background:'#1D1B17',border:'1px solid #FFB020',color:'#F1EDE3',borderRadius:99,padding:'6px 14px',fontSize:12,fontWeight:600,whiteSpace:'nowrap',pointerEvents:'none'}},performToast),
+      performEnded&&e('div',{className:'no-print',style:{position:'absolute',inset:0,background:'#141311',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:12,textAlign:'center',padding:24}},
+        e('b',{style:{fontSize:20}},'That\'s the show'),
+        e('div',{style:{color:'#9C9483',fontSize:13}},'That was the last song.'),
+        e('div',{style:{display:'flex',gap:10}},
+          e('button',{onClick:()=>{setPerformEnded(false);const f=performFlat[0];if(f){performShiftRef.current={};setPerformCtx(c=>({...c,si:f.si,pos:f.pos}));setTransposeSteps(0);setViewingSong(f.song);}},style:{...performBtn,padding:'11px 18px'}},'Back to the top'),
+          e('button',{onClick:exitViewer,style:{padding:'11px 20px',borderRadius:10,background:'#FFB020',color:'#141311',border:'none',fontWeight:700,fontSize:14,cursor:'pointer'}},'Exit')
+        )
       )
     ),
     modal&&e(Modal,{gig:modal.mode==='edit'?modal.gig:null,prefillDate:modal.prefillDate,onSave:saveGig,onDelete:deleteGig,onClose:closeModal,

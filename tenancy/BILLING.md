@@ -107,6 +107,13 @@ Built to the plan above. Choices made along the way:
   refusal; cleans up after itself), `npm run e2e` (39 in a browser).
 
 ### Other app items to come back to (not billing)
+- [ ] **Perform mode (Fable's review, Change 2) is built** in the live app on branch `claude/perform-mode` (not merged until a pull request
+      is opened and merged) and mirrored in this branch's new app. A song opened from a built set list now opens a full-screen
+      viewer with the set position, Previous / Next (with the next song's key), swipe, the key / text size / scroll tools, and a tempo
+      button that runs the metronome at the song's bpm; Exit returns to the set list. A song opened from the Charts list uses the
+      same screen without Previous / Next. **Needs a real-phone check** (audio click, screen staying awake, swipe feel, notch
+      spacing); only tested in an automated phone-sized browser. Not done: "attach a set to a gig so Gig Day opens straight into it"
+      (also in the review's "Also worth adding").
 - [ ] **Look into Firestore cost and scale as more bands join.** The owner wants this investigated before many bands use the app.
       Known starting point from the review: the gig-reminder service reads EVERY gig (`collection('gigs').get()`) on each run, so
       reads grow with the total number of gigs across all bands; charts and files are also stored in the database rather than in
