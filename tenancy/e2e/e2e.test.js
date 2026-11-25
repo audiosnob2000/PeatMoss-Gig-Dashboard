@@ -881,6 +881,7 @@ test('offline: with no signal the app still opens, inside the band, and a pictur
     await mia.page.getByText('Picture Chart', { exact: true }).click();
     await mia.page.waitForFunction(() => { const i = document.querySelector('img[src^="data:image/svg"]'); return i && i.naturalWidth > 0; });
     assert.deepEqual(mia.dialogs, [], 'no alert pop-ups while offline');
+    await mia.page.getByRole('status').filter({ hasText: 'Offline' }).waitFor();                    // the amber tag
   } finally { control.down = false; await mia.ctx.setOffline(false); }
   noProblems();
 });

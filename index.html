@@ -3526,7 +3526,12 @@ function TravelModals({askTrack,setAskTrack,goHome,openMapsChooser,startTracking
     )
   );
 }
-function GigDayScreen({todaysGigs,theme,settings,unpaidGigIds,onToggleUnpaid,mileageLog,openMapsChooser,travelModalsProps,members,onToggleItem,gigDayLists,onSetGigDayLists,nextGigAfterToday,onClose}){
+// Shown (top left, next to the app name) when the phone can't reach the server and the app is running from its saved copy.
+function OfflineChip(){
+  return e('span',{role:'status',title:'No connection. Showing the copy saved on this phone.',
+    style:{background:'#FFB020',color:'#3d2600',borderRadius:99,fontSize:9.5,fontWeight:800,letterSpacing:'0.04em',padding:'3px 8px',textTransform:'uppercase',whiteSpace:'nowrap',lineHeight:1.2}},'Offline');
+}
+function GigDayScreen({offline,todaysGigs,theme,settings,unpaidGigIds,onToggleUnpaid,mileageLog,openMapsChooser,travelModalsProps,members,onToggleItem,gigDayLists,onSetGigDayLists,nextGigAfterToday,onClose}){
   // Which packing lists to show. Until the person chooses, all of them (as before). Their choice is remembered and can be
   // changed any time from "Choose lists"; ticking every box goes back to "all", so lists added later show up by themselves.
   const [pickOpen,setPickOpen]=useState(false);
@@ -3546,7 +3551,7 @@ function GigDayScreen({todaysGigs,theme,settings,unpaidGigIds,onToggleUnpaid,mil
   e('div',{style:{maxWidth:720,margin:'0 auto',paddingBottom:'2rem'}},
     e('div',{style:{background:`linear-gradient(158deg,${theme.primary},${theme.mid})`,borderRadius:'0 0 20px 20px',padding:'1.1rem 1.1rem 1.3rem',color:theme.headerText||'#fff'}},
       e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:10,letterSpacing:'0.08em',fontWeight:700,opacity:0.9,marginBottom:10}},
-        e('span',null,'GIG DASHBOARD'),
+        e('span',{style:{display:'flex',alignItems:'center',gap:8}},e('span',null,'GIG DASHBOARD'),offline&&e(OfflineChip)),
         e('span',{onClick:onClose,style:{cursor:'pointer',fontWeight:600}},'Calendar ›')
       ),
       e('span',{style:{display:'inline-block',background:'#FFB020',color:'#3d2600',fontSize:9.5,fontWeight:800,letterSpacing:'0.07em',padding:'3px 8px',borderRadius:99,marginBottom:8}},
@@ -4712,6 +4717,27 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
     try{localStorage.setItem(lsKey('unpaid_gigs'),JSON.stringify(unpaidGigIds));}catch{}
     if(unpaidHydratedRef.current) bc('unpaidGigs').doc(getUserId()).set({gigIds:unpaidGigIds}).catch(reportWriteError('save your unpaid-gig marks'));
   },[unpaidGigIds]);
+  // Offline = the phone says it has no connection, OR the server has not answered for a few seconds (a bar of signal that carries
+  // nothing). The second part watches whether one small document is coming from the server or only from the phone's saved copy;
+  // that costs nothing extra (it is a document the app already reads, and the "from the saved copy" flag is not a read).
+  const [netDown,setNetDown]=useState(()=>typeof navigator!=='undefined'&&navigator.onLine===false);
+  const [serverQuiet,setServerQuiet]=useState(false);
+  const [fromCacheOnly,setFromCacheOnly]=useState(false);
+  useEffect(()=>{
+    const up=()=>setNetDown(false),down=()=>setNetDown(true);
+    window.addEventListener('online',up);window.addEventListener('offline',down);
+    return()=>{window.removeEventListener('online',up);window.removeEventListener('offline',down);};
+  },[]);
+  useEffect(()=>{
+    if(!authUser)return;
+    return bc('settings').doc('stagePlot').onSnapshot({includeMetadataChanges:true},snap=>setFromCacheOnly(snap.metadata.fromCache),()=>{});
+  },[authUser]);
+  useEffect(()=>{
+    if(!fromCacheOnly){setServerQuiet(false);return;}
+    const t=setTimeout(()=>setServerQuiet(true),4000);        // not at every launch: the first answer takes a moment
+    return()=>clearTimeout(t);
+  },[fromCacheOnly]);
+  const offline=netDown||serverQuiet;
   // Notice when the date changes while the app stays open (midnight, or the phone waking up the next day).
   const [,setDayTick]=useState(0);
   useEffect(()=>{
@@ -5958,7 +5984,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
   const travelModalsProps={askTrack,setAskTrack,goHome,openMapsChooser,startTracking,askHomeAddress,setAskHomeAddress,homeAddressDraft,setHomeAddressDraft,saveHomeAddressAndGo,mapsChoice,setMapsChoice,theme,trackingMiles,stopTracking,gpsStandaloneHelp,dismissGpsStandaloneHelp};
 
   if(gigDayOpen&&todaysGigs.length>0)return e(GigDayScreen,{
-    todaysGigs,theme,settings,unpaidGigIds,onToggleUnpaid:toggleUnpaidGig,mileageLog,
+    offline,todaysGigs,theme,settings,unpaidGigIds,onToggleUnpaid:toggleUnpaidGig,mileageLog,
     openMapsChooser,travelModalsProps,members,onToggleItem:toggleItem,gigDayLists,onSetGigDayLists:setGigDayLists,
     nextGigAfterToday:gigAfterToday,
     onClose:()=>setGigDayOpen(false)
@@ -5967,7 +5993,8 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
   return e('div',{style:{maxWidth:720,margin:'0 auto',paddingBottom:'2rem'}},
     e('div',{style:{background:theme.primary,borderRadius:'0 0 20px 20px',padding:'1.25rem 1.25rem 1.5rem',marginBottom:'1.25rem'}},
       e('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}},
-        e('div',{style:{fontSize:11,color:theme.headerSoft||theme.accent,fontWeight:500,letterSpacing:'0.08em',textTransform:'uppercase'}},'Gig Dashboard'),
+        // With no connection the amber tag takes the place of the app name (the row is too narrow for both next to the Google pill).
+        offline?e(OfflineChip):e('div',{style:{fontSize:11,color:theme.headerSoft||theme.accent,fontWeight:500,letterSpacing:'0.08em',textTransform:'uppercase',whiteSpace:'nowrap'}},'Gig Dashboard'),
         e('div',{style:{display:'flex',alignItems:'center',gap:8,flexShrink:0}},
           // Only reachable here once there's a gig today — the only way
           // this normal view renders on a gig day at all is after Gig Day

@@ -114,7 +114,10 @@ Built to the plan above. Choices made along the way:
       Firestore's own copy on the phone, now with no size cap (the default 40 MB would start dropping older picture charts). The start-up
       "couldn't move your history" alert no longer fires when there is just no signal. To make every phone drop its saved files, change
       `SHELL_CACHE` (`gigdash-shell-v1`) in that file. Needs a real-phone check (airplane mode, home-screen app on an iPhone). Not tested: adding
-      or editing things offline (Firestore queues those writes until the signal returns). When charts move out of the database into file storage
+      or editing things offline (Firestore queues those writes until the signal returns). **Offline tag (branch `claude/offline-label`):** an amber "Offline" tag shows when the phone reports no connection OR the server has been silent for ~4 s
+      (watching whether one small document comes from the server or only the phone's saved copy; no extra database reads). On the main screen it
+      takes the place of the app-name label (the top row is too narrow for both beside the Google pill); on Gig Day it sits beside the app name.
+      The Google "Synced / Not linked" pill is untouched. Option B (a strip under the header) was designed but not built. When charts move out of the database into file storage
       (section 4's biggest item), tonight's charts will need to be saved on the phone on purpose; today every chart already is.
 - [ ] **Perform mode (Fable's review, Change 2) is built** in the live app on branch `claude/perform-mode` (not merged until a pull request
       is opened and merged) and mirrored in this branch's new app. A song opened from a built set list now opens a full-screen
