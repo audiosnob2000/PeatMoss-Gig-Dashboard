@@ -1013,6 +1013,46 @@ test('chart files: replacing a stored file overwrites it (same file, next versio
   noProblems();
 });
 
+test('unpaid: tonight\'s gig reads Unpaid with Mark paid on Gig Day but is not on the unpaid list yet; Mark paid is remembered', async () => {
+  const { mia, id, miaUid } = await twoPeople();
+  await db.doc(`bands/${id}/gigs/tonight`).set({ venue: 'Venue One', date: inDays(0), time: '7 PM', type: 'bar', status: 'confirmed' });
+  await db.doc(`bands/${id}/gigs/tonight2`).set({ venue: 'Venue Two', date: inDays(0), time: '9 PM', type: 'bar', status: 'confirmed' });
+  await mia.page.reload();
+  await mia.page.getByText('SHOWS TONIGHT').waitFor({ timeout: 20000 });
+  assert.equal(await mia.page.getByText('Unpaid', { exact: true }).count(), 2);
+  assert.equal(await mia.page.getByRole('button', { name: 'Mark paid' }).count(), 2);
+  const mark = () => db.doc(`bands/${id}/unpaidGigs/${miaUid}`).get().then(d => d.data() || {});
+  const started = await poll(async () => { const d = await mark(); return d.trackFrom ? d : null; });
+  assert.equal(started.trackFrom, inDays(0), 'tracking starts today');
+  assert.deepEqual(started.gigIds, [], 'tonight\'s gigs are not flagged on the night');
+  await mia.page.getByRole('button', { name: 'Mark paid' }).first().click();
+  await mia.page.getByText('Paid', { exact: true }).waitFor();
+  const afterPaid = await poll(async () => { const d = await mark(); return (d.paidGigIds || []).length === 1 ? d : null; });
+  assert.deepEqual(afterPaid.gigIds, []);
+  await mia.page.reload(); await mia.page.getByText('SHOWS TONIGHT').waitFor({ timeout: 20000 }); await mia.page.waitForTimeout(2500);
+  assert.equal(await mia.page.getByText('Paid', { exact: true }).count(), 1, 'still paid after reopening');
+  await mia.page.getByRole('button', { name: 'Mark unpaid' }).click();                         // the person says so: that one is flagged for real
+  const manual = await poll(async () => { const d = await mark(); return (d.gigIds || []).length === 1 ? d : null; });
+  assert.deepEqual(manual.paidGigIds || [], []);
+  noProblems();
+});
+
+test('unpaid: the next time the app is open, past gigs still unmarked are flagged, except paid, cancelled, on-hold, before tracking began, and future ones', async () => {
+  const { mia, id, miaUid } = await twoPeople();
+  const g = (gid, date, extra = {}) => db.doc(`bands/${id}/gigs/${gid}`).set({ venue: gid, date, time: '8 PM', type: 'bar', status: 'confirmed', ...extra });
+  await Promise.all([
+    g('yday', inDays(-1)), g('paidyday', inDays(-1)), g('cancelled', inDays(-1), { status: 'cancelled' }), g('hold', inDays(-1), { status: 'hold' }),
+    g('beforetracking', inDays(-6)), g('later', inDays(5)),
+  ]);
+  await poll(async () => (await db.doc(`bands/${id}/unpaidGigs/${miaUid}`).get()).exists || null);    // the app has made its own first marks
+  await db.doc(`bands/${id}/unpaidGigs/${miaUid}`).set({ gigIds: [], paidGigIds: ['paidyday'], trackFrom: inDays(-3) });
+  await mia.page.waitForTimeout(1500); await mia.page.reload(); await mia.page.waitForTimeout(3000);
+  const flagged = await poll(async () => { const d = (await db.doc(`bands/${id}/unpaidGigs/${miaUid}`).get()).data(); return (d.gigIds || []).length ? d : null; });
+  assert.deepEqual(flagged.gigIds, ['yday']);
+  assert.deepEqual(flagged.paidGigIds, ['paidyday']);
+  noProblems();
+});
+
 test('library: adding a library chart to a set shares it with the band first', async () => {
   const { mia, id } = await twoPeople();
   await addChart(mia, 'Opener', false);

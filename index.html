@@ -3691,7 +3691,7 @@ function OfflineChip(){
   return e('span',{role:'status',title:'No connection. Showing the copy saved on this phone.',
     style:{background:'#FFB020',color:'#3d2600',borderRadius:99,fontSize:9.5,fontWeight:800,letterSpacing:'0.04em',padding:'3px 8px',textTransform:'uppercase',whiteSpace:'nowrap',lineHeight:1.2}},'Offline');
 }
-function GigDayScreen({offline,todaysGigs,theme,settings,unpaidGigIds,onToggleUnpaid,mileageLog,openMapsChooser,travelModalsProps,members,onToggleItem,gigDayLists,onSetGigDayLists,nextGigAfterToday,onClose}){
+function GigDayScreen({offline,todaysGigs,theme,settings,unpaidGigIds,paidGigIds,onToggleUnpaid,mileageLog,openMapsChooser,travelModalsProps,members,onToggleItem,gigDayLists,onSetGigDayLists,nextGigAfterToday,onClose}){
   // Which packing lists to show. Until the person chooses, all of them (as before). Their choice is remembered and can be
   // changed any time from "Choose lists"; ticking every box goes back to "all", so lists added later show up by themselves.
   const [pickOpen,setPickOpen]=useState(false);
@@ -3705,6 +3705,8 @@ function GigDayScreen({offline,todaysGigs,theme,settings,unpaidGigIds,onToggleUn
     const next=now.includes(id)?now.filter(x=>x!==id):[...now,id];
     onSetGigDayLists(members.every(m=>next.includes(m.id))?null:next);
   };
+  // Tonight's gigs show as unpaid until they are marked paid.
+  const isUnpaid=id=>unpaidGigIds.includes(id)||!paidGigIds.includes(id);
   const stagePlotSet=!!(settings.stagePlotUrl||settings.stagePlotFile);
   const openStagePlot=()=>window.open(settings.stagePlotUrl||settings.stagePlotFile.content,'_blank');
   return e(React.Fragment,null,
@@ -3758,12 +3760,12 @@ function GigDayScreen({offline,todaysGigs,theme,settings,unpaidGigIds,onToggleUn
                 mileageLog.filter(t=>t.gigId===gig.id).reduce((s,t)=>s+t.miles,0).toFixed(1)),
               e('span',{style:{fontSize:9.5,color:'#6b7280',textTransform:'uppercase',letterSpacing:'0.05em'}},'Miles logged')),
             e('div',{style:{flex:1,background:'#fafbfa',border:'1px solid #e5e7eb',borderRadius:9,padding:9,textAlign:'center'}},
-              e('b',{style:{display:'block',fontSize:15,fontWeight:700}},unpaidGigIds.includes(gig.id)?'Unpaid':'Paid'),
+              e('b',{style:{display:'block',fontSize:15,fontWeight:700}},isUnpaid(gig.id)?'Unpaid':'Paid'),
               e('span',{style:{fontSize:9.5,color:'#6b7280',textTransform:'uppercase',letterSpacing:'0.05em'}},'Status'))
           ),
           e('button',{onClick:()=>onToggleUnpaid(gig.id),
             style:{width:'100%',padding:'9px 0',borderRadius:9,border:'none',background:theme.mid,color:theme.midText||'#fff',fontWeight:650,fontSize:12.5,cursor:'pointer'}},
-            unpaidGigIds.includes(gig.id)?'Mark paid':'Mark unpaid')
+            isUnpaid(gig.id)?'Mark paid':'Mark unpaid')
         ),
         gig.notes&&e(GigDayCard,{icon:'📝',title:'Notes',theme},
           e('div',{style:{fontSize:12.5,lineHeight:1.5,color:'#374151',background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:9,padding:'9px 11px',whiteSpace:'pre-wrap'}},gig.notes)
@@ -4496,6 +4498,11 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
   const [gigDayLists,setGigDayLists]=useState(()=>{try{const s=localStorage.getItem(lsKey('gigday_lists'));const v=s?JSON.parse(s):null;return Array.isArray(v)?v:null;}catch{return null;}});
   const [mileageLog,setMileageLog]=useState(()=>{try{const s=localStorage.getItem(lsUserKey('mileage'));return s?JSON.parse(s):[];}catch{return [];}});
   const [unpaidGigIds,setUnpaidGigIds]=useState(()=>{try{const s=localStorage.getItem(lsKey('unpaid_gigs'));return s?JSON.parse(s):[];}catch{return [];}});
+  // Tonight's gig reads Unpaid on Gig Day (with Mark paid) but is not on the unpaid list yet. paidGigIds are the gigs marked paid.
+  // trackFrom is the first day we started tracking: only gigs from then on are flagged unpaid on their own (history is left alone).
+  const [paidGigIds,setPaidGigIds]=useState(()=>{try{const s=localStorage.getItem(lsKey('paid_gigs'));return s?JSON.parse(s):[];}catch{return [];}});
+  const [unpaidTrackFrom,setUnpaidTrackFrom]=useState(()=>{try{return localStorage.getItem(lsKey('unpaid_track_from'))||null;}catch{return null;}});
+  const [unpaidReady,setUnpaidReady]=useState(false);   // true once the saved marks have loaded
   const [unpaidMode,setUnpaidMode]=useState(false);
   // Separate storage key from members/checklists — a brand-new feature, so
   // there's nothing here to migrate and nothing existing to disturb.
@@ -4876,9 +4883,19 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
   },[members,gigDayLists]);
   useEffect(()=>{try{localStorage.setItem(lsUserKey('mileage'),JSON.stringify(mileageLog));}catch{}},[mileageLog]);
   useEffect(()=>{
-    try{localStorage.setItem(lsKey('unpaid_gigs'),JSON.stringify(unpaidGigIds));}catch{}
-    if(unpaidHydratedRef.current) bc('unpaidGigs').doc(getUserId()).set({gigIds:unpaidGigIds}).catch(reportWriteError('save your unpaid-gig marks'));
-  },[unpaidGigIds]);
+    try{localStorage.setItem(lsKey('unpaid_gigs'),JSON.stringify(unpaidGigIds));localStorage.setItem(lsKey('paid_gigs'),JSON.stringify(paidGigIds));if(unpaidTrackFrom)localStorage.setItem(lsKey('unpaid_track_from'),unpaidTrackFrom);}catch{}
+    if(unpaidHydratedRef.current) bc('unpaidGigs').doc(getUserId()).set({gigIds:unpaidGigIds,paidGigIds,trackFrom:unpaidTrackFrom}).catch(reportWriteError('save your unpaid-gig marks'));
+  },[unpaidGigIds,paidGigIds,unpaidTrackFrom]);
+  // Tonight's gig shows as unpaid on Gig Day but is not on the unpaid list yet. Once its day has passed (the next day, or the
+  // next time the app is open) a gig that is still not marked paid is flagged unpaid, so it is not forgotten. Only gigs from
+  // the first day of tracking onward, and not cancelled or on hold.
+  useEffect(()=>{
+    if(!unpaidReady)return;
+    if(!unpaidTrackFrom){setUnpaidTrackFrom(todayStr);return;}
+    const need=gigs.filter(g=>g.date>=unpaidTrackFrom&&g.date<todayStr&&g.status!=='cancelled'&&g.status!=='hold'&&!g.deletedAt
+      &&!unpaidGigIds.includes(g.id)&&!paidGigIds.includes(g.id)).map(g=>g.id);
+    if(need.length) setUnpaidGigIds(p=>[...new Set([...p,...need])]);
+  },[unpaidReady,unpaidTrackFrom,gigs,unpaidGigIds,paidGigIds,todayStr]);
   // Offline = the phone says it has no connection, OR the server has not answered for a few seconds (a bar of signal that carries
   // nothing). The second part watches whether one small document is coming from the server or only from the phone's saved copy;
   // that costs nothing extra (it is a document the app already reads, and the "from the saved copy" flag is not a read).
@@ -5106,9 +5123,9 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
   useEffect(()=>{
     const myId=getUserId();
     const unsub=bc('unpaidGigs').doc(myId).onSnapshot(doc=>{
-      if(doc.exists) setUnpaidGigIds(doc.data().gigIds||[]);
-      unpaidHydratedRef.current=true;
-    },err=>{unpaidHydratedRef.current=true;onDbError(err);});
+      if(doc.exists){setUnpaidGigIds(doc.data().gigIds||[]);setPaidGigIds(doc.data().paidGigIds||[]);if(doc.data().trackFrom)setUnpaidTrackFrom(doc.data().trackFrom);}
+      unpaidHydratedRef.current=true;setUnpaidReady(true);
+    },err=>{unpaidHydratedRef.current=true;setUnpaidReady(true);onDbError(err);});
     return unsub;
   },[authUser]);
 
@@ -5554,7 +5571,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
               if(matched) idRemap.set(g.id,matched.id);
             }
           });
-          if(idRemap.size) setUnpaidGigIds(ids=>ids.map(id=>idRemap.has(id)?idRemap.get(id):id));
+          if(idRemap.size){setUnpaidGigIds(ids=>ids.map(id=>idRemap.has(id)?idRemap.get(id):id));setPaidGigIds(ids=>ids.map(id=>idRemap.has(id)?idRemap.get(id):id));}
           // notes/type/status/selfPA are re-derived here by parsing them back
           // out of the calendar event's description text — but that text is
           // only ever updated while the editing device is signed into Google
@@ -5711,7 +5728,11 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
 
   const todaysGigs=gigs.filter(g=>g.date===todayStr&&g.status!=='cancelled');
   const gigAfterToday=[...gigs].filter(g=>g.date>todayStr&&g.status!=='cancelled').sort((a,b)=>a.date>b.date?1:-1)[0];
-  const toggleUnpaidGig=id=>setUnpaidGigIds(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id]);
+  // Unpaid means flagged unpaid, or a gig on today's date that has not been marked paid (shown that way on Gig Day).
+  const isUnpaidNow=id=>unpaidGigIds.includes(id)||(!paidGigIds.includes(id)&&gigs.some(g=>g.id===id&&g.date===todayStr&&g.status!=='cancelled'));
+  const markPaid=ids=>{setUnpaidGigIds(p=>p.filter(x=>!ids.includes(x)));setPaidGigIds(p=>[...new Set([...p,...ids])]);};
+  const markUnpaid=ids=>{setPaidGigIds(p=>p.filter(x=>!ids.includes(x)));setUnpaidGigIds(p=>[...new Set([...p,...ids])]);};
+  const toggleUnpaidGig=id=>isUnpaidNow(id)?markPaid([id]):markUnpaid([id]);
 
   const upcomingGigsAll=gigs.filter(g=>g.date>=todayStr);
   // "Show past gigs" off should still surface gigs marked unpaid, even once
@@ -5831,8 +5852,8 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
   const navMonth=dir=>{let m=calMonth+dir,y2=calYear;if(m<0){m=11;y2--;}if(m>11){m=0;y2++;}setCalMonth(m);setCalYear(y2);};
   const toggleUnpaidForDay=dayGigs=>{
     const ids=dayGigs.map(g=>g.id);
-    const allUnpaid=ids.every(id=>unpaidGigIds.includes(id));
-    setUnpaidGigIds(prev=>allUnpaid?prev.filter(id=>!ids.includes(id)):[...new Set([...prev,...ids])]);
+    const allUnpaid=ids.every(isUnpaidNow);
+    if(allUnpaid) markPaid(ids); else markUnpaid(ids);
   };
 
   const toggleItem=(mid,iid)=>setMembers(prev=>prev.map(m=>m.id!==mid?m:{...m,items:m.items.map(it=>it.id===iid?{...it,checked:!it.checked}:it)}));
@@ -6166,7 +6187,7 @@ function App({band,myRole,onSwitchBand,onLeavingBand,onLeftBand}){
   const travelModalsProps={askTrack,setAskTrack,goHome,openMapsChooser,startTracking,askHomeAddress,setAskHomeAddress,homeAddressDraft,setHomeAddressDraft,saveHomeAddressAndGo,mapsChoice,setMapsChoice,theme,trackingMiles,stopTracking,gpsStandaloneHelp,dismissGpsStandaloneHelp};
 
   if(gigDayOpen&&todaysGigs.length>0)return e(GigDayScreen,{
-    offline,todaysGigs,theme,settings,unpaidGigIds,onToggleUnpaid:toggleUnpaidGig,mileageLog,
+    offline,todaysGigs,theme,settings,unpaidGigIds,paidGigIds,onToggleUnpaid:toggleUnpaidGig,mileageLog,
     openMapsChooser,travelModalsProps,members,onToggleItem:toggleItem,gigDayLists,onSetGigDayLists:setGigDayLists,
     nextGigAfterToday:gigAfterToday,
     onClose:()=>setGigDayOpen(false)

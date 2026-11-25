@@ -169,8 +169,7 @@ Built to the plan above. Choices made along the way:
       `claude/gigday-checklist-picker`): on Gig Day, tonight's gig shows Unpaid with Mark paid (it is not on the unpaid list yet).
       The next day, or the next time the app is open, a gig still not marked paid is flagged unpaid, but only gigs from the first
       day of tracking onward (kept as `trackFrom`) and not cancelled or on-hold ones. "Paid" is remembered in `paidGigIds`; both
-      are saved with the person's unpaid marks. The new app (this branch) still has the old behavior (Paid by default,
-      "Mark unpaid"); the cutover prep must carry the change over so launch day does not undo it.
+      are saved with the person's unpaid marks. **Ported to the new app (this branch), with two end-to-end tests** (saved per band and person in `bands/{id}/unpaidGigs/{uid}`: `gigIds`, `paidGigIds`, `trackFrom`).
 - [ ] **Port the grouped Settings to the new multi-band app.** Done in the live app (branch `claude/gigday-checklist-picker`):
       the 12 sections sit under The Band, Tools and You (grouped cards, value on the right), About by itself at the bottom;
       Notifications is now Reminders, Calendar is Calendar connection, Home is Home address. The new app's Settings has a
