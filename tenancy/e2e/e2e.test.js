@@ -75,7 +75,7 @@ async function joinWithCode(p, code) {
 const inApp = p => p.page.getByRole('button', { name: '+ Add gig' }).waitFor({ timeout: 15000 });
 async function openBandSettings(p) {
   await p.page.getByText('⚙️', { exact: true }).click();
-  await p.page.getByText('Band', { exact: true }).first().click();
+  await p.page.getByText('Members & invites', { exact: true }).first().click();
 }
 async function closeSettings(p) { await p.page.getByRole('button', { name: /Back/ }).click(); await inApp(p); }
 async function makeCode(p) {
@@ -215,7 +215,7 @@ test('two bands never mix: switching bands shows only that band\'s gigs, and swi
   await olive.page.getByText('Band One Venue').first().waitFor();
 
   await olive.page.getByText('⚙️', { exact: true }).click();
-  await olive.page.getByText('Band', { exact: true }).first().click();
+  await olive.page.getByText('Members & invites', { exact: true }).first().click();
   await olive.page.getByRole('button', { name: /Switch band/ }).click();
   // Only a person's first band gets free time, so someone running two bands has their own plan.
   await db.doc(`users/${await uidOf('olive@example.com')}/billing/status`).set({ id: 'sub_e2e', status: 'active', lastEventAt: 1 });
@@ -229,7 +229,7 @@ test('two bands never mix: switching bands shows only that band\'s gigs, and swi
   await shot(olive, '07_second_band_empty');
 
   await olive.page.getByText('⚙️', { exact: true }).click();
-  await olive.page.getByText('Band', { exact: true }).first().click();
+  await olive.page.getByText('Members & invites', { exact: true }).first().click();
   await olive.page.getByRole('button', { name: /Switch band/ }).click();
   await olive.page.getByRole('button', { name: /Band One/ }).click();
   await inApp(olive);
@@ -549,7 +549,7 @@ test('a second band gets no free time: its owner meets the subscribe screen stra
   const olive = await person('olive@example.com');
   await signUp(olive); await startBand(olive, 'Band One');
   await olive.page.getByText('⚙️', { exact: true }).click();
-  await olive.page.getByText('Band', { exact: true }).first().click();
+  await olive.page.getByText('Members & invites', { exact: true }).first().click();
   await olive.page.getByRole('button', { name: /Switch band/ }).click();
   await olive.page.getByRole('button', { name: 'Start a band' }).click();
   await olive.page.getByLabel('Band name').fill('Band Two');
@@ -582,7 +582,7 @@ test('promoting a member to admin gives them invite codes and the band name, but
   const { olive, mia, id, miaUid } = await twoPeople();
   await openBandSettings(olive);
   await rowOf(olive, miaUid).getByRole('button', { name: 'Make admin' }).click();
-  await mia.page.getByText('Band', { exact: true }).first().waitFor({ state: 'attached' }).catch(() => {});
+  await mia.page.getByText('Members & invites', { exact: true }).first().waitFor({ state: 'attached' }).catch(() => {});
   await openBandSettings(mia);
   await mia.page.getByRole('button', { name: 'New invite code' }).waitFor();
   assert.equal(await mia.page.getByLabel('Google Calendar ID').count(), 0);                    // the calendar is the owner's alone
@@ -601,7 +601,7 @@ test('promoting a member to admin gives them invite codes and the band name, but
 test('a member cannot edit the band: stage plot is read-only for them', async () => {
   const { mia } = await twoPeople();
   await mia.page.getByText('⚙️', { exact: true }).click();
-  await mia.page.getByText('Stage Plot', { exact: true }).click();
+  await mia.page.getByText('Stage plot', { exact: true }).click();
   await mia.page.getByText(/An owner or admin can add one/).waitFor();
   noProblems();
 });
@@ -686,7 +686,7 @@ async function cutover() {
   await mia.page.getByText('Saturday Set').first().waitFor();
   await openBandSettings(olive);
   assert.equal(await olive.page.getByLabel('Google Calendar ID').inputValue(), 'peat@group.calendar.google.com');
-  await olive.page.getByText('Stage Plot', { exact: true }).click();
+  await olive.page.getByText('Stage plot', { exact: true }).click();
   await olive.page.locator('input[value="https://example.com/plot.png"]').first().waitFor();
   // mileage: each person sees only their own trips, in the old unit of "miles"
   await mia.page.getByText('⚙️', { exact: true }).click();
@@ -757,7 +757,7 @@ test('mileage follows the person: one total across two bands', async () => {
   await olive.page.getByRole('button', { name: /Back/ }).click(); await inApp(olive);
 
   await olive.page.getByText('⚙️', { exact: true }).click();
-  await olive.page.getByText('Band', { exact: true }).first().click();
+  await olive.page.getByText('Members & invites', { exact: true }).first().click();
   await olive.page.getByRole('button', { name: /Switch band/ }).click();
   // Only a person's first band gets free time, so someone running two bands has their own plan.
   await db.doc(`users/${await uidOf('olive@example.com')}/billing/status`).set({ id: 'sub_e2e', status: 'active', lastEventAt: 1 });
@@ -781,7 +781,7 @@ test('mileage survives leaving a band, and the band never had it', async () => {
   await addTrip(mia, 18);
   await mia.page.getByText('18.0 mi', { exact: false }).first().waitFor();
   assert.equal((await db.collection(`bands/${id}/mileageTrips`).get()).size, 0);
-  await mia.page.getByText('Band', { exact: true }).first().click();
+  await mia.page.getByText('Members & invites', { exact: true }).first().click();
   await mia.page.getByRole('button', { name: 'Leave this band' }).click();
   await mia.page.getByText('Join or start a band').waitFor();
   assert.equal((await db.collection(`users/${miaUid}/mileageTrips`).get()).size, 1);   // still hers
@@ -822,7 +822,7 @@ test('library: a private chart follows you into another band and survives leavin
 
   // Mia leaves; the band keeps its copy, Mia keeps her original and finds it in her next band
   await mia.page.getByText('⚙️', { exact: true }).click();
-  await mia.page.getByText('Band', { exact: true }).first().click();
+  await mia.page.getByText('Members & invites', { exact: true }).first().click();
   await mia.page.getByRole('button', { name: 'Leave this band' }).click();
   await mia.page.getByText('Join or start a band').waitFor();
   await startBand(mia, 'Mia Solo Band');
@@ -1051,6 +1051,35 @@ test('unpaid: the next time the app is open, past gigs still unmarked are flagge
   const flagged = await poll(async () => { const d = (await db.doc(`bands/${id}/unpaidGigs/${miaUid}`).get()).data(); return (d.gigIds || []).length ? d : null; });
   assert.deepEqual(flagged.gigIds, ['yday']);
   assert.deepEqual(flagged.paidGigIds, ['paidyday']);
+  noProblems();
+});
+
+test('settings: the sections are grouped under The Band, Tools and You, with About on its own, and each still opens', async () => {
+  const { olive } = await twoPeople();
+  await olive.page.getByText('⚙️', { exact: true }).click();
+  await olive.page.locator('.set-card').first().waitFor();
+  const groups = await olive.page.evaluate(() => [...document.querySelectorAll('.set-card')].map(card => ({
+    label: (card.previousElementSibling && card.previousElementSibling.matches('div:not(.set-card)') ? card.previousElementSibling.textContent : ''),
+    rows: [...card.querySelectorAll(':scope > .set-row > div:first-child')].map(r => r.children[1].textContent) })));
+  assert.deepEqual(groups, [
+    { label: 'The Band', rows: ['Members & invites', 'Stage plot', 'Share schedule', 'Band stats', 'Calendar connection', 'Recently deleted'] },
+    { label: 'Tools', rows: ['Metronome', 'Stage meter'] },
+    { label: 'You', rows: ['Reminders', 'Home address', 'Mileage', 'Charts for offline', 'Appearance', 'Account'] },
+    { label: '', rows: ['About'] },
+  ]);
+  await shot(olive, '12_settings_grouped');
+  // each kind of row still opens with what it always had
+  await olive.page.getByText('Members & invites', { exact: true }).click(); await olive.page.getByText('Band name').first().waitFor();
+  await olive.page.getByText('Reminders', { exact: true }).click(); await olive.page.getByText('Push notifications').first().waitFor();
+  await olive.page.getByText('Calendar connection', { exact: true }).click(); await olive.page.getByText('Connect Google Calendar').waitFor();
+  await olive.page.getByText('Home address', { exact: true }).first().click(); await olive.page.getByPlaceholder('123 Main St, Rocky Point, NY').waitFor();
+  await olive.page.getByText('Charts for offline', { exact: true }).click(); await olive.page.getByText(/charts are on this phone|No photo or PDF charts/).first().waitFor();
+  await olive.page.getByText('Recently deleted', { exact: true }).click();
+  await olive.page.getByText('Appearance', { exact: true }).click(); await olive.page.getByText('Default view').waitFor();
+  await olive.page.getByText('About', { exact: true }).click(); await olive.page.getByText('Version', { exact: true }).waitFor();
+  assert.equal(await olive.page.getByText('Share app').count(), 0);
+  // the rows that open a pop-up still do
+  await olive.page.getByText('Band stats', { exact: true }).click(); await olive.page.getByText('Band Stats').first().waitFor();
   noProblems();
 });
 

@@ -23,6 +23,8 @@ Run these from `tenancy/` on the branch that holds the new app. Each should be c
 | Dress rehearsal on a live-shaped copy of the data | `npm run rehearse` | passes (11 of 11) |
 | Staging folder builds, nothing blocks launch | `git fetch origin && node scripts/stage-cutover.js --strict` | **fails: the blockers below** |
 
+Every change made to the live app since the new app branched is also in the new app (the grouped Settings were the last one; there is a test for each).
+
 `stage-cutover.js` writes `tenancy/cutover-staging/` (not committed) with a `MANIFEST.md` that lists the blockers. Today they are:
 
 - **Stripe is in test mode.** `functions/billing-config.json` has test ids. With the LIVE Stripe key, run
@@ -30,7 +32,6 @@ Run these from `tenancy/` on the branch that holds the new app. Each should be c
   (reminder emails, live Customer Portal, the three secrets, the webhook).
 - **Terms and Privacy pages have blanks** (operator name and address, support email, refund wording, governing law) **and the yellow
   "Draft" box.** `BILLING.md` items 3b to 3d.
-- **Settings is not grouped yet in the new app** (the mock-up is waiting for approval). The script cannot detect this one; tick it here.
 
 Also decide, with people in the loop (none of these are code):
 

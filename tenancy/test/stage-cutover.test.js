@@ -26,6 +26,8 @@ test('reports a main branch it cannot find instead of guessing', () => {
 
 test('stages the app, the rules, the merged functions and firebase.json, and lists what still blocks launch', { skip: !hasMain && 'origin/main is not available here' }, () => {
   const out = tmp();
+  const liveStatus = () => execFileSync('git', ['status', '--porcelain', '--', 'index.html', 'functions', 'firestore.rules', 'firebase.json'], { cwd: ROOT, encoding: 'utf8' });
+  const before = liveStatus();
   const r = run(out);
   assert.equal(r.status, 0, r.stderr + r.stdout);
   const has = f => fs.existsSync(path.join(out, f));
@@ -44,8 +46,7 @@ test('stages the app, the rules, the merged functions and firebase.json, and lis
   // the owner-only items are reported, not hidden
   assert.match(manifest, /## Blockers/);
   // it did not touch git or the live paths
-  const status = execFileSync('git', ['status', '--porcelain', '--', 'index.html', 'functions', 'firestore.rules', 'firebase.json'], { cwd: ROOT, encoding: 'utf8' });
-  assert.equal(status.trim(), '', 'staging changed a live path: ' + status);
+  assert.equal(liveStatus(), before, 'staging changed a live path');
 });
 
 test('--strict fails (exit 1) exactly when there are blockers', { skip: !hasMain && 'origin/main is not available here' }, () => {
