@@ -107,6 +107,11 @@ Built to the plan above. Choices made along the way:
   refusal; cleans up after itself), `npm run e2e` (39 in a browser).
 
 ### Other app items to come back to (not billing)
+- [ ] **Post-launch polish: weather unit and other US-only assumptions (Fable section 4, "Weather is Fahrenheit-only, times assume New York").** Time zones are already handled in the new
+      app: each band has its own `timeZone` (picked from the phone when the band is created, changeable by the owner or an admin) and the reminder service uses it; only the LIVE
+      reminder service assumes New York, and it is replaced at the cutover. Still to do: (1) the weather on a gig is Fahrenheit only: add a °F / °C setting, defaulting to the unit that fits
+      the band's country, with a switch in Settings; (2) the mileage tax deduction is IRS (US) only, so a band outside the US would see a meaningless number: hide or relabel it by country
+      (the km switch already exists). Small. Move it up only if bands outside the US are expected early. Not needed to launch.
 - [ ] **Safety net: run the tests automatically before anything goes live (Fable section 4, "One 6,100-line file, no safety net").** The whole app is one `index.html`
       (6,453 lines live, 7,159 in the new app), so a fix in one place can quietly break another; several of Fable's bugs came from that. The new app has a lot of tests
       (`npm test` about 140 rule / function / migration tests, `npm run e2e` 48 browser tests, `npm run rehearse` 11 checks) but nothing runs them automatically: the only
