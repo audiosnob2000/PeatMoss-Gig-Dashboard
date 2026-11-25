@@ -107,6 +107,13 @@ Built to the plan above. Choices made along the way:
   refusal; cleans up after itself), `npm run e2e` (39 in a browser).
 
 ### Other app items to come back to (not billing)
+- [ ] **Safety net: run the tests automatically before anything goes live (Fable section 4, "One 6,100-line file, no safety net").** The whole app is one `index.html`
+      (6,453 lines live, 7,159 in the new app), so a fix in one place can quietly break another; several of Fable's bugs came from that. The new app has a lot of tests
+      (`npm test` about 140 rule / function / migration tests, `npm run e2e` 48 browser tests, `npm run rehearse` 11 checks) but nothing runs them automatically: the only
+      GitHub Actions are the deploys, so a change can reach `main` without them. The live app's tests only exist in the work area of the session that wrote them, not in the repo.
+      Plan: (1) a GitHub Actions job on every pull request that runs `npm test` and `npm run e2e` (needs the emulators and a browser; about 5 to 10 minutes) and shows a
+      red / green check before merging; (2) commit the live-app tests into the repo so they survive; (3) keep the file as one file, splitting it is risky and not needed while the
+      tests catch problems. Most useful right before the cutover. Not needed to launch.
 - [ ] **Post-launch polish: small text, small tap targets, and screen-reader labels (Fable section 4).** On the Calendar tab the review counted 41 of 76 text items at 10 px or
       smaller, 12 of 42 tappable things smaller than a fingertip (about 44 px is the guideline), and almost nothing labelled for screen readers. It matters for reading in a dim
       bar between songs, for bandmates with older eyes, and for accessibility questions from schools or organizations. Gig Day and Perform mode are already large; the Calendar
