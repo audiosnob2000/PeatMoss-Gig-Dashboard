@@ -107,6 +107,9 @@ Built to the plan above. Choices made along the way:
   refusal; cleans up after itself), `npm run e2e` (39 in a browser).
 
 ### Other app items to come back to (not billing)
+- [ ] **(Optional, owner said leave it for now) Live app: a chart or set list with no "updated" date blanks the Charts screen.** The date line on each chart row reads
+      `updatedAt` without checking it exists. The live app always saves one, so it does not affect the band today. Already fixed in the new app (`formatSetlistDate`
+      tolerates a missing date). If a live-app pull request comes up anyway, include the same four-line guard.
 - [ ] **Cutover prep (status).** Done and committed: Unpaid / Mark paid ported to the new app (2 tests); local dress rehearsal `npm run rehearse` (11 checks:
       live-shaped data, the real migration command, files byte-for-byte, the new rules per role, the app as owner and as member, and the way back);
       `scripts/stage-cutover.js` (builds the exact files and merged functions and lists blockers); the runbook `tenancy/CUTOVER.md`. The rehearsal found and
