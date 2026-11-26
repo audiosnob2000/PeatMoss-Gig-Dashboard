@@ -107,6 +107,13 @@ Built to the plan above. Choices made along the way:
   refusal; cleans up after itself), `npm run e2e` (39 in a browser).
 
 ### Other app items to come back to (not billing)
+- [ ] **Calendar sync: remove or update the app's saved copy when Google Calendar deletes or moves a gig ("ghost gigs"), and save every calendar gig so reminders cover them
+      (Fable bugs 2 and 3). Owner said: leave it on the list.** Today a gig that was ever edited in the app keeps its own saved copy, so deleting or re-timing it in Google
+      Calendar leaves the old copy on phones and reminders still go out. Deleting in the app also deletes from the calendar, but only when the app is signed in to Google
+      ("Synced"). Medium job with its own careful test round. Build it so it cannot wipe real gigs: (1) only touch gigs that came from the calendar (have an event id), never
+      app-only gigs; (2) only after a fully successful sync, and do nothing on an error, a partial list or an empty result; (3) only within the dates the sync covers (a gig
+      outside the range never counts as missing); (4) removed gigs go to Recently deleted for 30 days, not erased; (5) test each of those cases including a failed sync. Note: if someone
+      deletes an event in the shared calendar by mistake, it disappears for everyone; Recently deleted covers it.
 - [ ] **Post-launch polish: weather unit and other US-only assumptions (Fable section 4, "Weather is Fahrenheit-only, times assume New York").** Time zones are already handled in the new
       app: each band has its own `timeZone` (picked from the phone when the band is created, changeable by the owner or an admin) and the reminder service uses it; only the LIVE
       reminder service assumes New York, and it is replaced at the cutover. Still to do: (1) the weather on a gig is Fahrenheit only: add a °F / °C setting, defaulting to the unit that fits
