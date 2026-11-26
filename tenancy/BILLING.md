@@ -114,6 +114,9 @@ Built to the plan above. Choices made along the way:
       app-only gigs; (2) only after a fully successful sync, and do nothing on an error, a partial list or an empty result; (3) only within the dates the sync covers (a gig
       outside the range never counts as missing); (4) removed gigs go to Recently deleted for 30 days, not erased; (5) test each of those cases including a failed sync. Note: if someone
       deletes an event in the shared calendar by mistake, it disappears for everyone; Recently deleted covers it.
+      **Owner's design intent (likely why deletes were left one-way): play it safe.** The shared calendar also holds non-gig entries ("Jim is off"), one accidental delete would hit
+      everyone's app, Google sign-in is optional (and a sensitive permission), and a leftover gig is better than a lost booking. Today: app add -> Google only when signed in to Google; app
+      delete -> Google only when signed in; Google add -> app at the next sync (needs a Location); Google delete -> app only for gigs never edited in the app. Keep any fix on the safe side.
 - [ ] **Post-launch polish: weather unit and other US-only assumptions (Fable section 4, "Weather is Fahrenheit-only, times assume New York").** Time zones are already handled in the new
       app: each band has its own `timeZone` (picked from the phone when the band is created, changeable by the owner or an admin) and the reminder service uses it; only the LIVE
       reminder service assumes New York, and it is replaced at the cutover. Still to do: (1) the weather on a gig is Fahrenheit only: add a °F / °C setting, defaulting to the unit that fits
